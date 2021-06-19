@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"sync"
 
@@ -60,4 +61,15 @@ func (info *ServiceInfo) Run(wg *sync.WaitGroup, host *flex.Host) error {
 	}
 
 	return nil
+}
+
+func (info *ServiceInfo) Info() string {
+	switch info.Type {
+	case "socks5":
+		return info.Param["listen"]
+	case "portproxy":
+		return fmt.Sprintf("%v > %v", info.Param["listen"], info.Param["target"])
+	default:
+		return "unknown svc"
+	}
 }

@@ -33,18 +33,25 @@ func main() {
 		log.Fatal("upgrade failed:", err)
 	}
 
-	log.Println("server connected")
+	log.Printf("server connected: %v\n", config.Server.Address)
 
 	var wg sync.WaitGroup
 
 	// 开启服务
-	log.Println("---------------------------------------")
+	log.Println("-------------------------------------------------------------------------")
+	log.Println("state index        type                   listen                   target")
+	log.Println("-------------------------------------------------------------------------")
 	for i, svc := range config.Services {
-		log.Printf("%2v %2v %9v %20v\n", i, "x", svc.Type, svc.Desc)
+		enable := "stop"
+		if svc.Enable {
+			enable = "run"
+		}
+
+		log.Printf("%5v %5v %11v %24v %24v\n", enable, i, svc.Type, svc.Param["listen"], svc.Param["target"])
 		wg.Add(1)
 		go svc.Run(&wg, host)
 	}
-	log.Println("---------------------------------------")
+	log.Println("-------------------------------------------------------------------------")
 
 	wg.Wait()
 }
