@@ -7,6 +7,7 @@ import (
 
 	"github.com/net-agent/flex"
 	"github.com/net-agent/remotework/utils"
+	"github.com/net-agent/socks"
 )
 
 type Config struct {
@@ -48,14 +49,24 @@ func (info *ServiceInfo) Run(wg *sync.WaitGroup, host *flex.Host) error {
 	switch info.Type {
 
 	case "socks5":
-		return nil
-
-	case "portproxy":
-		svc := NewPortproxy(host, info.Param["target"])
 		l, err := listen(host, info.Param["listen"])
 		if err != nil {
 			return err
 		}
+
+		username := info.Param["username"]
+		password := info.Param["password"]
+		svc := socks.NewPswdServer(username, password)
+		info.closer = svc
+		return svc.Run(l)
+
+	case "portproxy":
+		l, err := listen(host, info.Param["listen"])
+		if err != nil {
+			return err
+		}
+
+		svc := NewPortproxy(host, info.Param["target"])
 		info.closer = svc
 		return svc.Run(l)
 	}

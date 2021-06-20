@@ -22,7 +22,7 @@ func (p *Portproxy) Run(l net.Listener) error {
 		if err != nil {
 			return err
 		}
-		p.serve(conn)
+		go p.serve(conn)
 	}
 }
 
@@ -31,14 +31,20 @@ func (p *Portproxy) Close() error {
 }
 
 func (p *Portproxy) serve(c1 net.Conn) {
-	defer c1.Close()
-
 	c2, err := dial(p.host, p.target)
 	if err != nil {
+		c1.Close()
 		return
 	}
-	defer c2.Close()
 
-	go io.Copy(c2, c1)
+	go func() {
+		io.Copy(c2, c1)
+		c1.Close()
+		c2.Close()
+	}()
+
 	io.Copy(c1, c2)
+	c1.Close()
+	c2.Close()
+
 }

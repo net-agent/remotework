@@ -25,7 +25,7 @@ func dial(host *flex.Host, addr string) (net.Conn, error) {
 	if host == nil {
 		return nil, errors.New("flex.Host is nil")
 	}
-	return host.Dial(0, uint16(port))
+	return host.Dial(rawAddr)
 }
 
 func listen(host *flex.Host, addr string) (net.Listener, error) {
