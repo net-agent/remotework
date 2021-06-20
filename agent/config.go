@@ -16,8 +16,9 @@ type Config struct {
 }
 
 type ServerInfo struct {
-	Address string `json:"address"`
-	Vhost   string `json:"vhost"`
+	Address  string `json:"address"`
+	Vhost    string `json:"vhost"`
+	Password string `json:"password"`
 }
 
 type ServiceInfo struct {
