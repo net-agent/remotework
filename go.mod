@@ -11,3 +11,5 @@ require (
 replace github.com/net-agent/flex => ../flex
 
 replace github.com/net-agent/socks => ../socks
+
+replace github.com/net-agent/cipherconn => ../cipherconn
