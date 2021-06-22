@@ -5,7 +5,6 @@ import (
 	"net"
 	"sync"
 
-	"github.com/net-agent/cipherconn"
 	"github.com/net-agent/flex"
 )
 
@@ -14,32 +13,22 @@ func main() {
 	flags.Parse()
 
 	// 读取配置
-	log.Printf("read config from '%v'\n", flags.ConfigFileName)
+	log.Printf("> read config from '%v'\n", flags.ConfigFileName)
 	config, err := NewConfig(flags.ConfigFileName)
 	if err != nil {
 		log.Fatal("load config failed: ", err)
 	}
 
 	// 创建连接
-	log.Printf("connect '%v'\n", config.Server.Address)
+	log.Printf("> connect '%v'\n", config.Server.Address)
 	conn, err := net.Dial("tcp4", config.Server.Address)
 	if err != nil {
 		log.Fatal("dial failed: ", err)
 	}
 
-	// 加密连接
-	if config.Server.Password != "" {
-		log.Println("make cipherconn...")
-		cc, err := cipherconn.New(conn, config.Server.Password)
-		if err != nil {
-			log.Fatal("make cipher failed: ", err)
-		}
-		conn = cc
-	}
-
 	// 协议转换
-	log.Printf("upgrade to host, vhost='%v'\n", config.Server.Vhost)
-	host, err := flex.UpgradeToHost(conn, &flex.HostRequest{
+	log.Printf("> upgrade to host, domain='%v'\n", config.Server.Vhost)
+	host, err := flex.UpgradeToHost(conn, config.Server.Password, &flex.HostRequest{
 		Domain: config.Server.Vhost,
 		Mac:    "test-mac-token",
 	})
@@ -47,7 +36,7 @@ func main() {
 		log.Fatal("upgrade failed: ", err)
 	}
 
-	log.Println("agent connected")
+	log.Printf("> host created, ip=%v\n", host.IP())
 
 	var wg sync.WaitGroup
 
