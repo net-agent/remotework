@@ -3,17 +3,14 @@ package main
 import (
 	"io"
 	"net"
-
-	"github.com/net-agent/flex"
 )
 
 type Portproxy struct {
-	host   *flex.Host
 	target string
 }
 
-func NewPortproxy(host *flex.Host, target string) *Portproxy {
-	return &Portproxy{host, target}
+func NewPortproxy(target string) *Portproxy {
+	return &Portproxy{target}
 }
 
 func (p *Portproxy) Run(l net.Listener) error {
@@ -31,7 +28,7 @@ func (p *Portproxy) Close() error {
 }
 
 func (p *Portproxy) serve(c1 net.Conn) {
-	c2, err := dial(p.host, p.target)
+	c2, err := dial(p.target)
 	if err != nil {
 		c1.Close()
 		return

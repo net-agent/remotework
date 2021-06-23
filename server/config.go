@@ -5,12 +5,16 @@ import (
 )
 
 type Config struct {
-	Server struct {
-		Listen          string `json:"listen"`
-		Password        string `json:"password"`
-		WebsocketPath   string `json:"wsPath"`
-		WebsocketEnable bool   `json:"wsEnable"`
-	} `json:"server"`
+	Server ServerInfo `json:"server"`
+	// Agent    AgentInfo     `json:"agent"`
+	// Services []ServiceInfo `json:"services"`
+}
+
+type ServerInfo struct {
+	Listen   string `json:"listen"`   // 监听的地址
+	Password string `json:"password"` // 校验连接的密码
+	WsEnable bool   `json:"wsEnable"` // 是否启用Websocket
+	WsPath   string `json:"wsPath"`   // Websocket路径
 }
 
 func NewConfig(jsonfile string) (*Config, error) {

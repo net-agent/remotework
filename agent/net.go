@@ -1,17 +1,14 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"regexp"
 	"strconv"
-
-	"github.com/net-agent/flex"
 )
 
-func dial(host *flex.Host, addr string) (net.Conn, error) {
+func dial(addr string) (net.Conn, error) {
 	network, hostname, port, err := parseAddr(addr)
 	if err != nil {
 		return nil, err
@@ -22,13 +19,14 @@ func dial(host *flex.Host, addr string) (net.Conn, error) {
 		return net.Dial(network, rawAddr)
 	}
 
-	if host == nil {
-		return nil, errors.New("flex.Host is nil")
+	host, err := getHost()
+	if err != nil {
+		return nil, err
 	}
 	return host.Dial(rawAddr)
 }
 
-func listen(host *flex.Host, addr string) (net.Listener, error) {
+func listen(addr string) (net.Listener, error) {
 	network, hostname, port, err := parseAddr(addr)
 	if err != nil {
 		return nil, err
@@ -38,8 +36,9 @@ func listen(host *flex.Host, addr string) (net.Listener, error) {
 		return net.Listen(network, rawAddr)
 	}
 
-	if host == nil {
-		return nil, errors.New("flex.Host is nil")
+	host, err := getHost()
+	if err != nil {
+		return nil, err
 	}
 	return host.Listen(port)
 }

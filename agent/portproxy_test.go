@@ -20,7 +20,7 @@ func init() {
 
 func TestPortproxy(t *testing.T) {
 	addr := "localhost:9921"
-	p := NewPortproxy(nil, echoAddr)
+	p := NewPortproxy(echoAddr)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		t.Error(err)
