@@ -44,7 +44,7 @@ func getHost() (*flex.Host, error) {
 			log.Printf("dial websocket server failed: %v\n", err)
 			return nil, err
 		}
-		pconn = flex.NewPacketConnFromWebsocket(wsconn)
+		pconn = flex.NewWsPacketConn(wsconn)
 	} else {
 		//
 		// 使用TCP连接
@@ -67,7 +67,7 @@ func getHost() (*flex.Host, error) {
 			conn = cc
 		}
 
-		pconn = flex.NewPacketConnFromConn(conn)
+		pconn = flex.NewTcpPacketConn(conn)
 	}
 
 	// 协议转换
