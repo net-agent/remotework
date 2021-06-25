@@ -65,7 +65,7 @@ func serveHTTP(sw *flex.Switcher, listener net.Listener, wsPath string) {
 			w.Write([]byte(fmt.Sprintf("upgrade failed: %v", err)))
 			return
 		}
-		go sw.ServeWebsocket(wsconn)
+		go sw.ServePacketConn(flex.NewWsPacketConn(wsconn))
 	})
 	log.Println("http server is running")
 	http.Serve(listener, nil)

@@ -19,11 +19,10 @@ func dial(addr string) (net.Conn, error) {
 		return net.Dial(network, rawAddr)
 	}
 
-	host, err := getHost()
 	if err != nil {
 		return nil, err
 	}
-	return host.Dial(rawAddr)
+	return getHost().Dial(rawAddr)
 }
 
 func listen(addr string) (net.Listener, error) {
@@ -36,11 +35,7 @@ func listen(addr string) (net.Listener, error) {
 		return net.Listen(network, rawAddr)
 	}
 
-	host, err := getHost()
-	if err != nil {
-		return nil, err
-	}
-	return host.Listen(port)
+	return getHost().Listen(port)
 }
 
 func parseAddr(addr string) (network, host string, port uint16, err error) {

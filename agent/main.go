@@ -22,10 +22,7 @@ func initConfig() {
 
 func main() {
 	initConfig()
-	_, err := getHost()
-	if err != nil {
-		log.Fatal("get host failed: ", err)
-	}
+	getHost()
 
 	var wg sync.WaitGroup
 
