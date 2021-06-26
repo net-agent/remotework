@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"io"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/net-agent/remotework/agent/netx"
 )
 
 type Dashboard struct {
@@ -24,7 +25,7 @@ func (s *Dashboard) Run() {
 		return
 	}
 
-	l, err := listen(s.Listen)
+	l, err := netx.Listen(s.Listen)
 	if err != nil {
 		return
 	}

@@ -9,8 +9,8 @@
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/agent",
-      "args": ["-c", "../dist/config.json"]
+      "program": "${workspaceFolder}/agent/bin",
+      "args": ["-c", "${workspaceFolder}/dist/config.json"]
     },
     {
       "name": "Debug:Server",
@@ -18,7 +18,7 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/server",
-      "args": ["-c", "../dist/config.json"]
+      "args": ["-c", "${workspaceFolder}/dist/config.json"]
     },
     {
       "name": "Debug:Launcher",

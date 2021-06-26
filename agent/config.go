@@ -1,11 +1,9 @@
-package main
+package agent
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/net-agent/remotework/utils"
-	"github.com/net-agent/socks"
 )
 
 type Config struct {
@@ -49,48 +47,4 @@ func NewConfig(jsonfile string) (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-func (info *ServiceInfo) Run() error {
-	if !info.Enable {
-		return nil
-	}
-
-	switch info.Type {
-
-	case "socks5":
-		l, err := listen(info.Param["listen"])
-		if err != nil {
-			return err
-		}
-
-		username := info.Param["username"]
-		password := info.Param["password"]
-		svc := socks.NewPswdServer(username, password)
-		info.closer = svc
-		return svc.Run(l)
-
-	case "portproxy":
-		l, err := listen(info.Param["listen"])
-		if err != nil {
-			return err
-		}
-
-		svc := NewPortproxy(info.Param["target"])
-		info.closer = svc
-		return svc.Run(l)
-	}
-
-	return nil
-}
-
-func (info *ServiceInfo) Info() string {
-	switch info.Type {
-	case "socks5":
-		return info.Param["listen"]
-	case "portproxy":
-		return fmt.Sprintf("%v > %v", info.Param["listen"], info.Param["target"])
-	default:
-		return "unknown svc"
-	}
 }

@@ -1,4 +1,4 @@
-package main
+package netx
 
 import (
 	"log"
@@ -10,21 +10,22 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/net-agent/cipherconn"
 	"github.com/net-agent/flex"
+	"github.com/net-agent/remotework/agent"
 )
 
 const (
-	evConnected    = "connected"
-	evDisconnected = "disconnected"
+	EvConnected    = "connected"
+	EvDisconnected = "disconnected"
 )
 
 var globalHost *flex.Host
 var globalInitOnce sync.Once
 
-func getHost() *flex.Host {
+func GetHost() *flex.Host {
 	return globalHost
 }
 
-func connect(config *Config) (*flex.PacketConn, error) {
+func Connect(config *agent.Config) (*flex.PacketConn, error) {
 	if config.Agent.WsEnable {
 		//
 		// 使用Websocket协议连接
@@ -72,7 +73,7 @@ func connect(config *Config) (*flex.PacketConn, error) {
 	return flex.NewTcpPacketConn(conn), nil
 }
 
-func keepHostAlive(config *Config, hostReady chan string) {
+func KeepHostAlive(config *agent.Config, hostReady chan string) {
 	var err error
 	var pc *flex.PacketConn
 	var host *flex.Host
@@ -86,7 +87,7 @@ func keepHostAlive(config *Config, hostReady chan string) {
 			<-time.After(waitDur)
 		}
 
-		pc, err = connect(config)
+		pc, err = Connect(config)
 		if err != nil {
 			waitDur = time.Second * 15
 			continue
@@ -100,7 +101,7 @@ func keepHostAlive(config *Config, hostReady chan string) {
 			Domain: config.Agent.Domain,
 			Mac:    "test-mac-token",
 			Ctxid:  ctxid,
-		})
+		}, false)
 
 		switch err {
 
@@ -112,7 +113,7 @@ func keepHostAlive(config *Config, hostReady chan string) {
 			failCount = 0
 			// 回调，通知调用者
 
-			hostReady <- evConnected
+			hostReady <- EvConnected
 
 		case flex.ErrReconnected:
 			log.Printf("> reconnected, ctxid=%v\n", ctxid)
@@ -120,7 +121,7 @@ func keepHostAlive(config *Config, hostReady chan string) {
 			failCount = 0
 			// 回调，通知调用者
 
-			hostReady <- evConnected
+			hostReady <- EvConnected
 
 		default:
 			log.Printf("> upgrade failed: %v\n", err)
@@ -135,7 +136,7 @@ func keepHostAlive(config *Config, hostReady chan string) {
 		// 运行
 		host.Run()
 
-		hostReady <- evDisconnected
+		hostReady <- EvDisconnected
 		<-time.After(time.Second) // 等待svc把log输出
 
 		log.Println("> disconnected, try to reconnect...")

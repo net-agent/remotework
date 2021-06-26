@@ -1,4 +1,4 @@
-package main
+package netx
 
 import "testing"
 
@@ -15,7 +15,7 @@ func TestParseAddr(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		network, host, port, err := parseAddr(tc.addr)
+		network, host, port, err := ParseAddr(tc.addr)
 		if err != nil {
 			t.Error(err)
 			return

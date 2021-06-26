@@ -1,4 +1,4 @@
-package main
+package netx
 
 import (
 	"fmt"
@@ -8,8 +8,8 @@ import (
 	"strconv"
 )
 
-func dial(addr string) (net.Conn, error) {
-	network, hostname, port, err := parseAddr(addr)
+func Dial(addr string) (net.Conn, error) {
+	network, hostname, port, err := ParseAddr(addr)
 	if err != nil {
 		return nil, err
 	}
@@ -22,11 +22,11 @@ func dial(addr string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return getHost().Dial(rawAddr)
+	return GetHost().Dial(rawAddr)
 }
 
-func listen(addr string) (net.Listener, error) {
-	network, hostname, port, err := parseAddr(addr)
+func Listen(addr string) (net.Listener, error) {
+	network, hostname, port, err := ParseAddr(addr)
 	if err != nil {
 		return nil, err
 	}
@@ -35,10 +35,10 @@ func listen(addr string) (net.Listener, error) {
 		return net.Listen(network, rawAddr)
 	}
 
-	return getHost().Listen(port)
+	return GetHost().Listen(port)
 }
 
-func parseAddr(addr string) (network, host string, port uint16, err error) {
+func ParseAddr(addr string) (network, host string, port uint16, err error) {
 	re := regexp.MustCompile(`[a-zA-Z]+://.+`)
 	if !re.MatchString(addr) {
 		addr = "tcp://" + addr

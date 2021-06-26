@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"testing"
+
+	"github.com/net-agent/remotework/agent"
 )
 
 const echoAddr = "localhost:9922"
@@ -20,13 +22,13 @@ func init() {
 
 func TestPortproxy(t *testing.T) {
 	addr := "localhost:9921"
-	p := NewPortproxy(echoAddr)
-	l, err := net.Listen("tcp", addr)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	go p.Run(l)
+	p := NewPortproxy(agent.ServiceInfo{
+		Param: map[string]string{
+			"listen": addr,
+			"target": echoAddr,
+		},
+	})
+	go p.Run()
 
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
