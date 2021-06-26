@@ -23,12 +23,12 @@ func main() {
 	}
 
 	// 初始化
-	sw := flex.NewSwitcher(nil, config.Server.Password)
+	sw := flex.NewSwitcher(nil)
 
 	log.Printf("try to listen on '%v'\n", config.Server.Listen)
 
 	if !config.Server.WsEnable {
-		sw.Run(config.Server.Listen)
+		sw.Run(config.Server.Listen, config.Server.Password)
 		return
 	}
 
@@ -45,15 +45,15 @@ func main() {
 	if err != nil {
 		log.Fatal("get http listener failed: ", err)
 	}
-	go serveFlex(sw, flexListener)
+	go serveFlex(sw, flexListener, config.Server.Password)
 	go serveHTTP(sw, httpListener, config.Server.WsPath)
 
 	mxl.Run()
 	log.Println("server stopped")
 }
 
-func serveFlex(sw *flex.Switcher, listener net.Listener) {
-	sw.Serve(listener)
+func serveFlex(sw *flex.Switcher, listener net.Listener, password string) {
+	sw.Serve(listener, password)
 	log.Println("flex server stopped.")
 }
 

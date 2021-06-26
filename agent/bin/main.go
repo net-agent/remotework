@@ -30,7 +30,12 @@ func main() {
 
 	svcs := []service.Service{}
 	for _, info := range config.Services {
-		svcs = append(svcs, service.NewService(info))
+		svc := service.NewService(info)
+		if svc != nil {
+			svcs = append(svcs, svc)
+		} else {
+			log.Printf("unknown service type: %v\n", info.Type)
+		}
 	}
 
 	for event := range ev {

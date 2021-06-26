@@ -14,13 +14,15 @@ type Service interface {
 
 func NewService(info agent.ServiceInfo) Service {
 	switch info.Type {
-	case "socks5":
+	case "socks5": // socks5 server
 		return NewSocks5(info)
-	case "portproxy":
+	case "portproxy": // port proxy server
 		return NewPortproxy(info)
-	case "rdp":
+	case "rdp": // remote desktop protocol
 		info.Param["target"] = fmt.Sprintf("tcp://localhost:%v", rdpPortNumber())
 		return NewPortproxy(info)
+	case "rce": // remote code execution
+		return nil
 	}
 	return nil
 }
