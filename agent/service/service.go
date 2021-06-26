@@ -18,6 +18,9 @@ func NewService(info agent.ServiceInfo) Service {
 		return NewSocks5(info)
 	case "portproxy":
 		return NewPortproxy(info)
+	case "rdp":
+		info.Param["target"] = fmt.Sprintf("tcp://localhost:%v", rdpPortNumber())
+		return NewPortproxy(info)
 	}
 	return nil
 }
