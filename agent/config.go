@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"sync"
 
 	"github.com/net-agent/remotework/utils"
 	"github.com/net-agent/socks"
@@ -52,8 +51,7 @@ func NewConfig(jsonfile string) (*Config, error) {
 	return cfg, nil
 }
 
-func (info *ServiceInfo) Run(wg *sync.WaitGroup) error {
-	defer wg.Done()
+func (info *ServiceInfo) Run() error {
 	if !info.Enable {
 		return nil
 	}

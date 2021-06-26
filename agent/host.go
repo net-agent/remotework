@@ -12,16 +12,15 @@ import (
 	"github.com/net-agent/flex"
 )
 
+const (
+	evConnected    = "connected"
+	evDisconnected = "disconnected"
+)
+
 var globalHost *flex.Host
 var globalInitOnce sync.Once
 
 func getHost() *flex.Host {
-	globalInitOnce.Do(func() {
-		ready := make(chan struct{}, 1)
-		go keepHostAlive(config, ready)
-		<-ready
-	})
-
 	return globalHost
 }
 
@@ -73,7 +72,7 @@ func connect(config *Config) (*flex.PacketConn, error) {
 	return flex.NewTcpPacketConn(conn), nil
 }
 
-func keepHostAlive(config *Config, hostReady chan struct{}) {
+func keepHostAlive(config *Config, hostReady chan string) {
 	var err error
 	var pc *flex.PacketConn
 	var host *flex.Host
@@ -111,11 +110,17 @@ func keepHostAlive(config *Config, hostReady chan struct{}) {
 			ctxid = newCtxid
 			globalHost = host
 			failCount = 0
+			// 回调，通知调用者
+
+			hostReady <- evConnected
 
 		case flex.ErrReconnected:
 			log.Printf("> reconnected, ctxid=%v\n", ctxid)
 			host.Replace(pc)
 			failCount = 0
+			// 回调，通知调用者
+
+			hostReady <- evConnected
 
 		default:
 			log.Printf("> upgrade failed: %v\n", err)
@@ -127,14 +132,12 @@ func keepHostAlive(config *Config, hostReady chan struct{}) {
 			continue
 		}
 
-		// 回调，通知调用者
-		select {
-		case hostReady <- struct{}{}:
-		default:
-		}
-
 		// 运行
 		host.Run()
+
+		hostReady <- evDisconnected
+		<-time.After(time.Second) // 等待svc把log输出
+
 		log.Println("> disconnected, try to reconnect...")
 		waitDur = time.Second * 3
 	}
