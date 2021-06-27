@@ -23,6 +23,8 @@ func NewService(info agent.ServiceInfo) Service {
 		return NewPortproxy(info)
 	case "rce": // remote code execution
 		return nil
+	case "msgsvc":
+		return NewMessageService(info)
 	}
 	return nil
 }
