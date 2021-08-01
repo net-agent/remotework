@@ -9,7 +9,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/net-agent/cipherconn"
-	"github.com/net-agent/flex"
 	"github.com/net-agent/remotework/agent"
 )
 
