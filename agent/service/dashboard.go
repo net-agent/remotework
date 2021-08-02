@@ -7,10 +7,11 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/net-agent/remotework/agent/netx"
+	"github.com/net-agent/remotework/agent"
 )
 
 type Dashboard struct {
+	mnet          *agent.MixNet
 	Listen        string
 	SiteFilePath  string
 	SiteRoutePath string
@@ -25,7 +26,12 @@ func (s *Dashboard) Run() {
 		return
 	}
 
-	l, err := netx.Listen(s.Listen)
+	network, addr, err := ParseAddr(s.Listen)
+	if err != nil {
+		return
+	}
+
+	l, err := s.mnet.Listen(network, addr)
 	if err != nil {
 		return
 	}

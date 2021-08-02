@@ -7,23 +7,40 @@ import (
 	"net"
 
 	"github.com/net-agent/remotework/agent"
-	"github.com/net-agent/remotework/agent/netx"
 )
 
 type Portproxy struct {
+	mnet *agent.MixNet
 	info agent.ServiceInfo
 
-	closer io.Closer
-	listen string
-	target string
+	closer        io.Closer
+	listen        string
+	listenNetwork string
+	listenAddr    string
+	target        string
+	targetNetwork string
+	targetAddr    string
 }
 
-func NewPortproxy(info agent.ServiceInfo) *Portproxy {
+func NewPortproxy(mnet *agent.MixNet, info agent.ServiceInfo) *Portproxy {
+	listenNetwork, listenAddr, err := ParseAddr(info.Param["listen"])
+	if err != nil {
+		listenNetwork = "parseAddr failed: " + err.Error()
+	}
+	targetNetwork, targetAddr, err := ParseAddr(info.Param["target"])
+	if err != nil {
+		targetNetwork = "parseAddr failed: " + err.Error()
+	}
 	return &Portproxy{
+		mnet: mnet,
 		info: info,
 
-		listen: info.Param["listen"],
-		target: info.Param["target"],
+		listen:        info.Param["listen"],
+		listenNetwork: listenNetwork,
+		listenAddr:    listenAddr,
+		target:        info.Param["target"],
+		targetNetwork: targetNetwork,
+		targetAddr:    targetAddr,
 	}
 }
 
@@ -38,7 +55,8 @@ func (p *Portproxy) Run() error {
 	if !p.info.Enable {
 		return errors.New("service disabled")
 	}
-	l, err := netx.Listen(p.listen)
+
+	l, err := p.mnet.Listen(p.listenNetwork, p.listenAddr)
 	if err != nil {
 		return err
 	}
@@ -59,7 +77,7 @@ func (p *Portproxy) Close() error {
 }
 
 func (p *Portproxy) serve(c1 net.Conn) {
-	c2, err := netx.Dial(p.target)
+	c2, err := p.mnet.Dial(p.targetNetwork, p.targetAddr)
 	if err != nil {
 		c1.Close()
 		return
@@ -74,5 +92,4 @@ func (p *Portproxy) serve(c1 net.Conn) {
 	io.Copy(c1, c2)
 	c1.Close()
 	c2.Close()
-
 }

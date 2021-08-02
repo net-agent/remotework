@@ -2,9 +2,9 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/net-agent/remotework/agent"
-	"github.com/net-agent/remotework/agent/netx"
 	"github.com/net-agent/remotework/agent/service"
 )
 
@@ -25,12 +25,15 @@ func loadConfig() *agent.Config {
 
 func main() {
 	config := loadConfig()
-	ev := make(chan string, 10)
-	go netx.KeepHostAlive(config, ev)
 
+	mnet := agent.NewNetwork(nil)
+	ch := make(chan struct{}, 4)
+	go mnet.KeepAlive(ch)
+
+	// 初始化services
 	svcs := []service.Service{}
 	for _, info := range config.Services {
-		svc := service.NewService(info)
+		svc := service.NewService(mnet, info)
 		if svc != nil {
 			svcs = append(svcs, svc)
 		} else {
@@ -38,37 +41,17 @@ func main() {
 		}
 	}
 
-	for event := range ev {
-
-		switch event {
-
-		case netx.EvConnected:
-			// 开启服务
-			log.Println("startup services:")
-			log.Println("-------------------------------------------------------------------------")
-			log.Println("  # command        type                   listen                   target")
-			log.Println("-------------------------------------------------------------------------")
-			for i, svc := range svcs {
-				go svc.Run()
-				log.Printf("%3v %7v %v\n", i, "run", svc.Info())
-			}
-			log.Println("-------------------------------------------------------------------------")
-
-		case netx.EvDisconnected:
-			// 关闭服务
-			log.Println("shutdown services:")
-			log.Println("-------------------------------------------------------------------------")
-			log.Println("  # command        type                   listen                   target")
-			log.Println("-------------------------------------------------------------------------")
-			for i, svc := range svcs {
-				go svc.Close()
-				log.Printf("%5v %5v %v\n", i, "close", svc.Info())
-			}
-			log.Println("-------------------------------------------------------------------------")
-
-		default:
-			log.Printf("unknown events: '%v'\n", event)
-		}
-
+	// 开启服务
+	log.Println("startup services:")
+	log.Println("-------------------------------------------------------------------------")
+	log.Println("  # command        type                   listen                   target")
+	log.Println("-------------------------------------------------------------------------")
+	for i, svc := range svcs {
+		go func() {
+			svc.Run()
+			<-time.After(time.Second * 4)
+		}()
+		log.Printf("%3v %7v %v\n", i, "run", svc.Info())
 	}
+	log.Println("-------------------------------------------------------------------------")
 }

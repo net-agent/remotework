@@ -4,16 +4,17 @@ import (
 	"bytes"
 	"io"
 	"log"
-	"net"
 	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/net-agent/remotework/agent"
 )
 
-const echoAddr = "localhost:9922"
+var mnet = agent.NewNetwork(nil)
 
-// const helloAddr = "localhost:9923"
+const echoAddr = "tcp://localhost:9922"
 
 func init() {
 	log.Println("start test server")
@@ -21,16 +22,23 @@ func init() {
 }
 
 func TestPortproxy(t *testing.T) {
-	addr := "localhost:9921"
-	p := NewPortproxy(agent.ServiceInfo{
+	addr := "tcp://localhost:9921"
+	p := NewPortproxy(mnet, agent.ServiceInfo{
+		Enable: true,
 		Param: map[string]string{
 			"listen": addr,
 			"target": echoAddr,
 		},
 	})
-	go p.Run()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		p.Run()
+		wg.Done()
+	}()
 
-	conn, err := net.Dial("tcp", addr)
+	<-time.After(time.Second)
+	conn, err := mnet.DialURL(addr)
 	if err != nil {
 		t.Error(err)
 		return
@@ -57,10 +65,13 @@ func TestPortproxy(t *testing.T) {
 		t.Error("not equal")
 		return
 	}
+
+	p.closer.Close()
+	wg.Wait()
 }
 
 func runEchoServer(addr string) {
-	l, err := net.Listen("tcp", addr)
+	l, err := mnet.ListenURL(addr)
 	if err != nil {
 		os.Exit(-1)
 	}
