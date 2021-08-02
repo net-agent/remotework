@@ -14,7 +14,7 @@ if "%version%" == "" (
   if not exist "dist\%version%" mkdir "dist\%version%"
 
   echo start build agent
-  cd agent\bin
+  cd agent_bin
   go build -o "..\..\dist\%version%\agent_windows_%version%.exe"
 
   echo start build server

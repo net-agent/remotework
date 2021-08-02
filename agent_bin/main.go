@@ -2,7 +2,7 @@ package main
 
 import (
 	"log"
-	"time"
+	"sync"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/remotework/agent/service"
@@ -46,12 +46,18 @@ func main() {
 	log.Println("-------------------------------------------------------------------------")
 	log.Println("  # command        type                   listen                   target")
 	log.Println("-------------------------------------------------------------------------")
+
+	var wg sync.WaitGroup
 	for i, svc := range svcs {
-		go func() {
+		wg.Add(1)
+		go func(index int, svc service.Service) {
 			svc.Run()
-			<-time.After(time.Second * 4)
-		}()
+			wg.Done()
+			log.Printf("service stopped, index=%v. %v\n", index, svc.Info())
+		}(i, svc)
 		log.Printf("%3v %7v %v\n", i, "run", svc.Info())
 	}
 	log.Println("-------------------------------------------------------------------------")
+
+	wg.Wait()
 }
