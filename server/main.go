@@ -20,13 +20,7 @@ func main() {
 	}
 
 	// 初始化
-	app := switcher.NewServer()
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		app.Run()
-		wg.Done()
-	}()
+	app := switcher.NewServer(config.Server.Password)
 
 	log.Printf("try to listen on '%v'\n", config.Server.Listen)
 
@@ -34,6 +28,7 @@ func main() {
 	mxl := mixlisten.Listen("tcp", config.Server.Listen)
 	mxl.Register(mixlisten.Flex())
 	mxl.Register(mixlisten.HTTP())
+	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		mxl.Run()

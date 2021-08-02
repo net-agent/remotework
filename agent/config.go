@@ -2,7 +2,15 @@ package agent
 
 import (
 	"io"
+	"log"
+	"net"
+	"net/url"
+	"strings"
 
+	"github.com/gorilla/websocket"
+	"github.com/net-agent/flex/node"
+	"github.com/net-agent/flex/packet"
+	"github.com/net-agent/flex/switcher"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -47,4 +55,76 @@ func NewConfig(jsonfile string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func (cfg *Config) GetConnectFn() ConnectFunc {
+	macs, _ := getMacAddr()
+	macStr := strings.Join(macs, " ")
+
+	if cfg.Agent.WsEnable {
+		u := url.URL{
+			Scheme: "ws",
+			Host:   cfg.Agent.Address,
+			Path:   cfg.Agent.WsPath,
+		}
+		if cfg.Agent.Wss {
+			u.Scheme = "wss"
+		}
+		wsurl := u.String()
+
+		return func() (*node.Node, error) {
+			log.Printf("connect to '%v'\n", wsurl)
+			c, _, err := websocket.DefaultDialer.Dial(wsurl, nil)
+			if err != nil {
+				return nil, err
+			}
+			pc := packet.NewWithWs(c)
+			node, err := switcher.UpgradeToNode(
+				pc,
+				cfg.Agent.Domain,
+				macStr,
+				cfg.Agent.Password,
+			)
+			if err != nil {
+				c.Close()
+				return nil, err
+			}
+			return node, nil
+		}
+	}
+
+	return func() (*node.Node, error) {
+		log.Printf("connect to '%v'\n", cfg.Agent.Address)
+		c, err := net.Dial("tcp4", cfg.Agent.Address)
+		if err != nil {
+			return nil, err
+		}
+		pc := packet.NewWithConn(c)
+		node, err := switcher.UpgradeToNode(
+			pc,
+			cfg.Agent.Domain,
+			macStr,
+			cfg.Agent.Password,
+		)
+		if err != nil {
+			c.Close()
+			return nil, err
+		}
+		return node, nil
+	}
+}
+
+func getMacAddr() ([]string, error) {
+	ifas, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	var as []string
+	for _, ifa := range ifas {
+		a := ifa.HardwareAddr.String()
+		if a != "" {
+			as = append(as, a)
+		}
+	}
+	return as, nil
 }

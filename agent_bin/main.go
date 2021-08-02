@@ -26,9 +26,11 @@ func loadConfig() *agent.Config {
 func main() {
 	config := loadConfig()
 
-	mnet := agent.NewNetwork(nil)
+	mnet := agent.NewNetwork(config.GetConnectFn())
 	ch := make(chan struct{}, 4)
 	go mnet.KeepAlive(ch)
+
+	<-ch
 
 	// 初始化services
 	svcs := []service.Service{}

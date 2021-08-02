@@ -26,6 +26,14 @@ func NewNetwork(connectFn ConnectFunc) *MixNet {
 	}
 }
 
+func (mnet *MixNet) connect() (*node.Node, error) {
+	if mnet.connectFn == nil {
+		return nil, errors.New("should call SetConnectFunc first")
+	}
+
+	return mnet.connectFn()
+}
+
 func (mnet *MixNet) DialURL(raw string) (net.Conn, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -114,7 +122,7 @@ func (mnet *MixNet) KeepAlive(evch chan struct{}) {
 		var wg sync.WaitGroup
 
 		mnet.nodeMut.Lock()
-		node, err := mnet.GetNode()
+		node, err := mnet.connect()
 		if err == nil && node != nil {
 			mnet.node = node
 			wg.Add(1)
