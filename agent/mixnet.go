@@ -68,6 +68,9 @@ func (mnet *MixNet) Dial(network, addr string) (net.Conn, error) {
 		if err != nil {
 			return nil, err
 		}
+		if node == nil {
+			return nil, errors.New("dial with nil node")
+		}
 		return node.Dial(addr)
 	default:
 		return nil, fmt.Errorf("unknown network: %v", network)
@@ -100,6 +103,9 @@ func (mnet *MixNet) Listen(network, addr string) (net.Listener, error) {
 		node, err := mnet.GetNode()
 		if err != nil {
 			return nil, err
+		}
+		if node == nil {
+			return nil, errors.New("listen with nil node")
 		}
 		return node.Listen(uint16(port))
 	default:

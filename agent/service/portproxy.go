@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 
+	"github.com/net-agent/cipherconn"
+	"github.com/net-agent/flex/stream"
 	"github.com/net-agent/remotework/agent"
 )
 
@@ -18,6 +20,8 @@ type Portproxy struct {
 	listen       string
 	target       string
 	targetDialer agent.Dialer
+	encode       string
+	decode       string
 }
 
 func NewPortproxy(mnet *agent.MixNet, info agent.ServiceInfo) *Portproxy {
@@ -29,6 +33,9 @@ func NewPortproxy(mnet *agent.MixNet, info agent.ServiceInfo) *Portproxy {
 		listen:       info.Param["listen"],
 		target:       target,
 		targetDialer: mnet.URLDialer(target),
+
+		encode: info.Param["encode"],
+		decode: info.Param["decode"],
 	}
 }
 
@@ -65,13 +72,40 @@ func (p *Portproxy) Close() error {
 }
 
 func (p *Portproxy) serve(c1 net.Conn) {
+	var dialer string
+	if s, ok := c1.(*stream.Conn); ok {
+		dialer = "flex://" + s.Dialer()
+	} else {
+		dialer = "tcp://" + c1.RemoteAddr().String()
+	}
+
+	var err error
+	if p.encode != "" {
+		c1, err = cipherconn.New(c1, p.encode)
+		if err != nil {
+			log.Printf("[%v] encode failed. incorrect decode param in dialer='%v'\n", p.info.Type, dialer)
+			c1.Close()
+			return
+		}
+	}
+
 	c2, err := p.targetDialer()
 	if err != nil {
-		log.Printf("[portproxy] dial %v failed: %v\n", p.target, err)
+		log.Printf("[%v] dial target='%v' failed. %v\n", p.info.Type, p.target, err)
 		c1.Close()
 		return
 	}
-	log.Printf("[portproxy] serve %v -> %v -> %v\n", c1.RemoteAddr(), p.listen, p.target)
+	if p.decode != "" {
+		c2, err = cipherconn.New(c2, p.decode)
+		if err != nil {
+			log.Printf("[%v] decode failed. incorrect decode param in target='%v'\n", p.info.Type, p.target)
+			c2.Close()
+			c1.Close()
+			return
+		}
+	}
+
+	log.Printf("[%v] connect, dialer='%v' target='%v'\n", p.info.Type, dialer, p.target)
 
 	go func() {
 		io.Copy(c2, c1)
