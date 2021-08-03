@@ -26,8 +26,7 @@ func main() {
 
 	// 监听本地端口（混合协议模式）
 	mxl := mixlisten.Listen("tcp", config.Server.Listen)
-	mxl.Register(mixlisten.Flex())
-	mxl.Register(mixlisten.HTTP())
+	mxl.RegisterBuiltIn("flex", "http")
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -36,7 +35,7 @@ func main() {
 	}()
 
 	// 处理Flex协议监听
-	flexListener, err := mxl.GetListener(mixlisten.Flex().Name())
+	flexListener, err := mxl.GetListener("flex")
 	if err != nil {
 		log.Fatal("get flex listener failed: ", err)
 	}
@@ -47,7 +46,7 @@ func main() {
 	}()
 
 	// 处理HTTP协议监听
-	httpListener, err := mxl.GetListener(mixlisten.HTTP().Name())
+	httpListener, err := mxl.GetListener("http")
 	if err != nil {
 		log.Fatal("get http listener failed: ", err)
 	}
