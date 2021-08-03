@@ -31,22 +31,16 @@ func NewSocks5(mnet *agent.MixNet, info agent.ServiceInfo) *Socks5 {
 
 func (s *Socks5) Info() string {
 	if s.info.Enable {
-		return green(fmt.Sprintf("%11v %24v %24v", s.info.Type, s.listen, s.username))
+		return agent.Green(fmt.Sprintf("%11v %24v %24v", s.info.Type, s.listen, s.username))
 	}
-	return yellow(fmt.Sprintf("%11v %24v", s.info.Type, "disabled"))
+	return agent.Yellow(fmt.Sprintf("%11v %24v", s.info.Type, "disabled"))
 }
 
 func (s *Socks5) Run() error {
 	if !s.info.Enable {
 		return errors.New("service disabled")
 	}
-
-	network, addr, err := ParseAddr(s.info.Param["listen"])
-	if err != nil {
-		return err
-	}
-
-	l, err := s.mnet.Listen(network, addr)
+	l, err := s.mnet.ListenURL(s.info.Param["listen"])
 	if err != nil {
 		return err
 	}

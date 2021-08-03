@@ -43,6 +43,22 @@ func (mnet *MixNet) DialURL(raw string) (net.Conn, error) {
 	return mnet.Dial(u.Scheme, u.Host)
 }
 
+type Dialer func() (net.Conn, error)
+
+func (mnet *MixNet) URLDialer(raw string) Dialer {
+	var network, addr string
+	u, err := url.Parse(raw)
+	if err != nil {
+		network, addr = "parse url failed", ""
+	} else {
+		network, addr = u.Scheme, u.Host
+	}
+
+	return func() (net.Conn, error) {
+		return mnet.Dial(network, addr)
+	}
+}
+
 func (mnet *MixNet) Dial(network, addr string) (net.Conn, error) {
 	switch network {
 	case "tcp", "tcp4":
@@ -115,7 +131,7 @@ func (mnet *MixNet) KeepAlive(evch chan struct{}) {
 			dur = time.Minute
 		}
 		if dur > time.Millisecond {
-			log.Printf("connect to server after %v\n", dur)
+			log.Printf("connect to server after %v\n\n", dur)
 			<-time.After(dur)
 		}
 

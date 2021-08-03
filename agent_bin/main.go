@@ -25,6 +25,7 @@ func loadConfig() *agent.Config {
 
 func main() {
 	config := loadConfig()
+	log.Printf("domain='%v'\n", agent.Green(config.Agent.Domain))
 
 	mnet := agent.NewNetwork(config.GetConnectFn())
 	ch := make(chan struct{}, 4)

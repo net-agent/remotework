@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 
 	"github.com/net-agent/remotework/agent"
@@ -13,42 +14,29 @@ type Portproxy struct {
 	mnet *agent.MixNet
 	info agent.ServiceInfo
 
-	closer        io.Closer
-	listen        string
-	listenNetwork string
-	listenAddr    string
-	target        string
-	targetNetwork string
-	targetAddr    string
+	closer       io.Closer
+	listen       string
+	target       string
+	targetDialer agent.Dialer
 }
 
 func NewPortproxy(mnet *agent.MixNet, info agent.ServiceInfo) *Portproxy {
-	listenNetwork, listenAddr, err := ParseAddr(info.Param["listen"])
-	if err != nil {
-		listenNetwork = "parseAddr failed: " + err.Error()
-	}
-	targetNetwork, targetAddr, err := ParseAddr(info.Param["target"])
-	if err != nil {
-		targetNetwork = "parseAddr failed: " + err.Error()
-	}
+	target := info.Param["target"]
 	return &Portproxy{
 		mnet: mnet,
 		info: info,
 
-		listen:        info.Param["listen"],
-		listenNetwork: listenNetwork,
-		listenAddr:    listenAddr,
-		target:        info.Param["target"],
-		targetNetwork: targetNetwork,
-		targetAddr:    targetAddr,
+		listen:       info.Param["listen"],
+		target:       target,
+		targetDialer: mnet.URLDialer(target),
 	}
 }
 
 func (p *Portproxy) Info() string {
 	if p.info.Enable {
-		return green(fmt.Sprintf("%11v %24v %24v", p.info.Type, p.listen, p.target))
+		return agent.Green(fmt.Sprintf("%11v %24v %24v", p.info.Type, p.listen, p.target))
 	}
-	return yellow(fmt.Sprintf("%11v %24v", p.info.Type, "disabled"))
+	return agent.Yellow(fmt.Sprintf("%11v %24v", p.info.Type, "disabled"))
 }
 
 func (p *Portproxy) Run() error {
@@ -56,7 +44,7 @@ func (p *Portproxy) Run() error {
 		return errors.New("service disabled")
 	}
 
-	l, err := p.mnet.Listen(p.listenNetwork, p.listenAddr)
+	l, err := p.mnet.ListenURL(p.listen)
 	if err != nil {
 		return err
 	}
@@ -77,11 +65,13 @@ func (p *Portproxy) Close() error {
 }
 
 func (p *Portproxy) serve(c1 net.Conn) {
-	c2, err := p.mnet.Dial(p.targetNetwork, p.targetAddr)
+	c2, err := p.targetDialer()
 	if err != nil {
+		log.Printf("[portproxy] dial %v failed: %v\n", p.target, err)
 		c1.Close()
 		return
 	}
+	log.Printf("[portproxy] serve %v -> %v -> %v\n", c1.RemoteAddr(), p.listen, p.target)
 
 	go func() {
 		io.Copy(c2, c1)

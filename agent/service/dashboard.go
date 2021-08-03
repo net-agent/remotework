@@ -26,12 +26,7 @@ func (s *Dashboard) Run() {
 		return
 	}
 
-	network, addr, err := ParseAddr(s.Listen)
-	if err != nil {
-		return
-	}
-
-	l, err := s.mnet.Listen(network, addr)
+	l, err := s.mnet.ListenURL(s.Listen)
 	if err != nil {
 		return
 	}
