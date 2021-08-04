@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 
-	"github.com/net-agent/flex/v2/stream"
 	"github.com/net-agent/remotework/agent"
 )
 
@@ -50,6 +49,7 @@ func (p *Portproxy) Run() error {
 	if !p.info.Enable {
 		return errors.New("service disabled")
 	}
+	defer log.Printf("[%v] stopped.\n", p.info.Type)
 
 	l, err := p.mnet.ListenURL(p.listen)
 	if err != nil {
@@ -73,7 +73,7 @@ func (p *Portproxy) Close() error {
 
 func (p *Portproxy) serve(c1 net.Conn) {
 	var dialer string
-	if s, ok := c1.(*stream.Conn); ok {
+	if s, ok := c1.(interface{ Dialer() string }); ok {
 		dialer = "flex://" + s.Dialer()
 	} else {
 		dialer = "tcp://" + c1.RemoteAddr().String()
@@ -81,12 +81,12 @@ func (p *Portproxy) serve(c1 net.Conn) {
 
 	c2, err := p.targetDialer()
 	if err != nil {
-		log.Printf("[%v] dial target='%v' failed. %v\n", p.info.Type, p.target, err)
+		log.Printf("[%v] dial listen='%v' failed. %v\n", p.info.Type, p.listen, err)
 		c1.Close()
 		return
 	}
 
-	log.Printf("[%v] connect, dialer='%v' target='%v'\n", p.info.Type, dialer, p.target)
+	log.Printf("[%v] connect, dialer='%v' listen='%v'\n", p.info.Type, dialer, p.listen)
 
 	go func() {
 		io.Copy(c2, c1)

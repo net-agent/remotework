@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/socks"
@@ -40,6 +41,8 @@ func (s *Socks5) Run() error {
 	if !s.info.Enable {
 		return errors.New("service disabled")
 	}
+	defer log.Printf("[%v] stopped.\n", s.info.Type)
+
 	l, err := s.mnet.ListenURL(s.info.Param["listen"])
 	if err != nil {
 		return err

@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"sync"
-	"time"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/remotework/agent/service"
@@ -57,8 +56,6 @@ func main() {
 		go func(index int, svc service.Service) {
 			svc.Run()
 			wg.Done()
-			<-time.After(time.Second)
-			log.Printf("service stopped, index=%v. %v\n", index, svc.Info())
 		}(i, svc)
 		log.Printf("%3v %7v %v\n", i, "run", svc.Info())
 	}
