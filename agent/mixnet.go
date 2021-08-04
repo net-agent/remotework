@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/net-agent/cipherconn"
 	"github.com/net-agent/flex/node"
 )
 
@@ -40,23 +41,38 @@ func (mnet *MixNet) DialURL(raw string) (net.Conn, error) {
 		return nil, err
 	}
 
-	return mnet.Dial(u.Scheme, u.Host)
+	return mnet.dialu(u)
+}
+
+func (mnet *MixNet) dialu(u *url.URL) (net.Conn, error) {
+	c, err := mnet.Dial(u.Scheme, u.Host)
+	if err != nil {
+		return nil, err
+	}
+
+	secret := u.Query().Get("secret")
+	if secret == "" {
+		return c, nil
+	}
+	c, err = cipherconn.New(c, secret)
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
+	return c, nil
 }
 
 type Dialer func() (net.Conn, error)
 
-func (mnet *MixNet) URLDialer(raw string) Dialer {
-	var network, addr string
+func (mnet *MixNet) URLDialer(raw string) (Dialer, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
-		network, addr = "parse url failed", ""
-	} else {
-		network, addr = u.Scheme, u.Host
+		return nil, err
 	}
 
 	return func() (net.Conn, error) {
-		return mnet.Dial(network, addr)
-	}
+		return mnet.dialu(u)
+	}, nil
 }
 
 func (mnet *MixNet) Dial(network, addr string) (net.Conn, error) {
@@ -77,13 +93,77 @@ func (mnet *MixNet) Dial(network, addr string) (net.Conn, error) {
 	}
 }
 
+//
+//
+// Listener
+//
+
+type secretListener struct {
+	net.Listener
+	ch chan net.Conn
+}
+
+func newSecretListener(l net.Listener, secret string) net.Listener {
+	ch := make(chan net.Conn, 128)
+	go func() {
+		var wg sync.WaitGroup
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				break
+			}
+
+			wg.Add(1)
+			go func(c net.Conn) {
+				defer wg.Done()
+				cc, err := cipherconn.New(c, secret)
+				if err != nil {
+					c.Close()
+					return
+				}
+				select {
+				case ch <- cc:
+				case <-time.After(time.Second * 20):
+				}
+			}(conn)
+		}
+		wg.Wait() // wait all channel push done
+		close(ch)
+	}()
+
+	sl := &secretListener{
+		Listener: l,
+		ch:       ch,
+	}
+
+	return sl
+}
+
+func (l *secretListener) Accept() (net.Conn, error) {
+	c, ok := <-l.ch
+	if !ok {
+		return nil, errors.New("listener closed")
+	}
+	return c, nil
+}
+
 func (mnet *MixNet) ListenURL(raw string) (net.Listener, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
 	}
 
-	return mnet.Listen(u.Scheme, u.Host)
+	l, err := mnet.Listen(u.Scheme, u.Host)
+	if err != nil {
+		return nil, err
+	}
+
+	secret := u.Query().Get("secret")
+	if secret == "" {
+		return l, nil
+	}
+
+	return newSecretListener(l, secret), nil
 }
 
 func (mnet *MixNet) Listen(network, addr string) (net.Listener, error) {
