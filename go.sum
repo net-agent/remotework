@@ -4,6 +4,8 @@ github.com/gorilla/websocket v1.4.2 h1:+/TMaTYc4QFitKJxsQ7Yye35DkWvkdLcvGKqM+x0U
 github.com/gorilla/websocket v1.4.2/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/net-agent/cipherconn v1.0.0 h1:4OB7mq8Rke6aNpbGkkI7otgF8ckBSoRzQNOpvJVo/c0=
 github.com/net-agent/cipherconn v1.0.0/go.mod h1:jQcNE08ocR+XJNwYzGso9ZsmW3Ng0KGTZZwX61zs90Y=
+github.com/net-agent/flex/v2 v2.0.2 h1:GRVOQxata0Yw7UWdAAeVw1vFyomolSvN5GgCI6OhCQY=
+github.com/net-agent/flex/v2 v2.0.2/go.mod h1:sllgtaVPyU9YQy81DsoMFqQsLzJrSVyQl8v444EnYaE=
 github.com/net-agent/mixlisten v1.0.2 h1:ScPaWHRaV51zVldCKu0gzJ/aHynDdF1A3yzeX2fva3g=
 github.com/net-agent/mixlisten v1.0.2/go.mod h1:QLmhQEm+XalWU0bR/91kTrzjta3T4uLMtIDSe2FHTec=
 github.com/net-agent/socks v1.0.1 h1:qDzU/G1CtrvdAmgOIGDr4qkBknGYDJXSzfULVT03pQ4=

@@ -4,8 +4,8 @@ import (
 	"log"
 	"net"
 
-	"github.com/net-agent/flex/packet"
-	"github.com/net-agent/flex/switcher"
+	"github.com/net-agent/flex/v2/packet"
+	"github.com/net-agent/flex/v2/switcher"
 )
 
 func ServeTCP(app *switcher.Server, info ServerInfo, listener net.Listener) {

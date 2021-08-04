@@ -4,7 +4,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/net-agent/flex/switcher"
+	"github.com/net-agent/flex/v2/switcher"
 	"github.com/net-agent/mixlisten"
 )
 

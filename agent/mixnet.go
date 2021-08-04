@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/net-agent/cipherconn"
-	"github.com/net-agent/flex/node"
+	"github.com/net-agent/flex/v2/node"
 )
 
 type MixNet struct {

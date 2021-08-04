@@ -7,7 +7,7 @@ import (
 	"log"
 	"net"
 
-	"github.com/net-agent/flex/stream"
+	"github.com/net-agent/flex/v2/stream"
 	"github.com/net-agent/remotework/agent"
 )
 

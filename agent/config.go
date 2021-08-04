@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/gorilla/websocket"
-	"github.com/net-agent/flex/node"
-	"github.com/net-agent/flex/packet"
-	"github.com/net-agent/flex/switcher"
+	"github.com/net-agent/flex/v2/node"
+	"github.com/net-agent/flex/v2/packet"
+	"github.com/net-agent/flex/v2/switcher"
 	"github.com/net-agent/remotework/utils"
 )
 

@@ -8,8 +8,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/net-agent/flex/packet"
-	"github.com/net-agent/flex/switcher"
+	"github.com/net-agent/flex/v2/packet"
+	"github.com/net-agent/flex/v2/switcher"
 )
 
 func ServeWs(app *switcher.Server, info ServerInfo, listener net.Listener) {
