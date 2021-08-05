@@ -62,36 +62,46 @@ func (cfg *Config) GetConnectFn() ConnectFunc {
 	macStr := strings.Join(macs, " ")
 
 	if cfg.Agent.WsEnable {
-		u := url.URL{
-			Scheme: "ws",
-			Host:   cfg.Agent.Address,
-			Path:   cfg.Agent.WsPath,
-		}
-		if cfg.Agent.Wss {
-			u.Scheme = "wss"
-		}
-		wsurl := u.String()
-
-		return func() (*node.Node, error) {
-			log.Printf("connect to '%v'\n", wsurl)
-			c, _, err := websocket.DefaultDialer.Dial(wsurl, nil)
-			if err != nil {
-				return nil, err
-			}
-			pc := packet.NewWithWs(c)
-			node, err := switcher.UpgradeToNode(
-				pc,
-				cfg.Agent.Domain,
-				macStr,
-				cfg.Agent.Password,
-			)
-			if err != nil {
-				c.Close()
-				return nil, err
-			}
-			return node, nil
-		}
+		return cfg.getWsConnectFn(macStr)
 	}
+
+	return cfg.getTcpConnectFn(macStr)
+}
+
+func (cfg *Config) getWsConnectFn(mac string) ConnectFunc {
+
+	u := url.URL{
+		Scheme: "ws",
+		Host:   cfg.Agent.Address,
+		Path:   cfg.Agent.WsPath,
+	}
+	if cfg.Agent.Wss {
+		u.Scheme = "wss"
+	}
+	wsurl := u.String()
+
+	return func() (*node.Node, error) {
+		log.Printf("connect to '%v'\n", wsurl)
+		c, _, err := websocket.DefaultDialer.Dial(wsurl, nil)
+		if err != nil {
+			return nil, err
+		}
+		pc := packet.NewWithWs(c)
+		node, err := switcher.UpgradeToNode(
+			pc,
+			cfg.Agent.Domain,
+			mac,
+			cfg.Agent.Password,
+		)
+		if err != nil {
+			c.Close()
+			return nil, err
+		}
+		return node, nil
+	}
+}
+
+func (cfg *Config) getTcpConnectFn(mac string) ConnectFunc {
 
 	return func() (*node.Node, error) {
 		log.Printf("connect to '%v'\n", cfg.Agent.Address)
@@ -103,7 +113,7 @@ func (cfg *Config) GetConnectFn() ConnectFunc {
 		node, err := switcher.UpgradeToNode(
 			pc,
 			cfg.Agent.Domain,
-			macStr,
+			mac,
 			cfg.Agent.Password,
 		)
 		if err != nil {
