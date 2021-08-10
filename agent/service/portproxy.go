@@ -18,8 +18,6 @@ type Portproxy struct {
 	listen       string
 	target       string
 	targetDialer agent.Dialer
-	encode       string
-	decode       string
 }
 
 func NewPortproxy(mnet *agent.MixNet, info agent.ServiceInfo) *Portproxy {

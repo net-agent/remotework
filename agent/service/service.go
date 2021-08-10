@@ -23,6 +23,13 @@ func NewService(mnet *agent.MixNet, info agent.ServiceInfo) Service {
 		return NewPortproxy(mnet, info)
 	case "rce": // remote code execution
 		return nil
+
+	// 快速信赖服务
+	case "quick-trust":
+		return NewQuickTrust(mnet, info)
+	// 快速访问服务
+	case "quick-visit":
+		return NewQuickVisit(mnet, info)
 	}
 	return nil
 }
