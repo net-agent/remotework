@@ -10,6 +10,11 @@ import (
 	"github.com/net-agent/socks"
 )
 
+const (
+	QuickPort   = 71
+	QuickSecret = "#qu1ck-Tru5t$!"
+)
+
 type QuickTrust struct {
 	mnet *agent.MixNet
 	info agent.ServiceInfo
@@ -20,17 +25,23 @@ type QuickTrust struct {
 }
 
 func NewQuickTrust(mnet *agent.MixNet, info agent.ServiceInfo) *QuickTrust {
+	users := make(map[string]string)
+	for k, v := range info.Param {
+		// 这个 dialer 一定是 cipherconn
+		users[k+"/secret"] = v
+	}
 	return &QuickTrust{
 		mnet:   mnet,
 		info:   info,
-		listen: "flex://0:70?secret=quick",
-		users:  info.Param,
+		listen: fmt.Sprintf("flex://0:%v?secret=%v", QuickPort, QuickSecret),
+		users:  users,
 	}
 }
 
 func (s *QuickTrust) Info() string {
 	if s.info.Enable {
-		return agent.Green(fmt.Sprintf("%11v %24v %24v", s.info.Type, s.listen, "quick"))
+		u := fmt.Sprintf("flex://0:%v", QuickPort)
+		return agent.Green(fmt.Sprintf("%11v %24v %24v", s.info.Type, u, "localnet"))
 	}
 	return agent.Yellow(fmt.Sprintf("%11v %24v", s.info.Type, "disabled"))
 }
@@ -49,9 +60,15 @@ func (s *QuickTrust) Run() error {
 	errAuthFailed := errors.New("auth failed")
 	checker := socks.PswdAuthChecker(func(u, p string, ctx socks.Context) error {
 		conn := ctx.GetConn()
+
+		// 使用 packet.Stream 的 Dialer 接口，获取请求来自于谁
 		d, ok := conn.(interface{ Dialer() string })
 		if ok {
 			u = d.Dialer()
+		}
+		if u == "" {
+			log.Printf("[%v] empty dialer info\n", s.info.Type)
+			return errAuthFailed
 		}
 
 		pswd, found := s.users[u]
