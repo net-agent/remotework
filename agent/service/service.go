@@ -2,34 +2,53 @@ package service
 
 import (
 	"fmt"
+	"log"
+	"sync"
 
 	"github.com/net-agent/remotework/agent"
 )
 
 type Service interface {
-	Run() error
+	// Start 开启服务
+	// 做好开启服务需要的准备，然后启动协程运行任务，同时返回准备过程中发生的错误
+	Start(wg *sync.WaitGroup) error
 	Close() error
 	Info() string
 }
 
-func NewService(info agent.ServiceInfo) Service {
+func NewService(mnet *agent.MixNet, info agent.ServiceInfo) Service {
 	switch info.Type {
 	case "socks5": // socks5 server
-		return NewSocks5(info)
+		return NewSocks5(mnet, info)
 	case "portproxy": // port proxy server
-		return NewPortproxy(info)
+		return NewPortproxy(mnet, info)
 	case "rdp": // remote desktop protocol
 		info.Param["target"] = fmt.Sprintf("tcp://localhost:%v", rdpPortNumber())
-		return NewPortproxy(info)
+		info.Param["type"] = "rdp" // rewrite type
+		return NewPortproxy(mnet, info)
 	case "rce": // remote code execution
 		return nil
-	case "msgsvc":
-		return NewMessageService(info)
+
+	// 快速信赖服务
+	case "quick-trust":
+		return NewQuickTrust(mnet, info)
+	// 快速访问服务
+	case "quick-visit":
+		return NewQuickVisit(mnet, info)
 	}
 	return nil
 }
 
-func color(color int, info string) string { return fmt.Sprintf("\x1b[%dm%v\x1b[0m", color, info) }
-func green(info string) string            { return color(32, info) }
-func red(info string) string              { return color(31, info) }
-func yellow(info string) string           { return color(33, info) }
+func runsvc(svcName string, wg *sync.WaitGroup, runner func()) {
+	if wg != nil {
+		wg.Add(1)
+	}
+	log.Printf("[runsvc] service start. name=%v\n", svcName)
+	go func() {
+		runner()
+		if wg != nil {
+			wg.Done()
+		}
+		log.Printf("[runsvc] service stopped. name=%v\n", svcName)
+	}()
+}

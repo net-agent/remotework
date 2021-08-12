@@ -4,13 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"sync"
 
 	"github.com/net-agent/remotework/agent"
-	"github.com/net-agent/remotework/agent/netx"
 	"github.com/net-agent/socks"
 )
 
 type Socks5 struct {
+	mnet *agent.MixNet
 	info agent.ServiceInfo
 
 	closer   io.Closer
@@ -19,8 +21,9 @@ type Socks5 struct {
 	password string
 }
 
-func NewSocks5(info agent.ServiceInfo) *Socks5 {
+func NewSocks5(mnet *agent.MixNet, info agent.ServiceInfo) *Socks5 {
 	return &Socks5{
+		mnet:     mnet,
 		info:     info,
 		listen:   info.Param["listen"],
 		username: info.Param["username"],
@@ -30,24 +33,30 @@ func NewSocks5(info agent.ServiceInfo) *Socks5 {
 
 func (s *Socks5) Info() string {
 	if s.info.Enable {
-		return green(fmt.Sprintf("%11v %24v %24v", s.info.Type, s.listen, s.username))
+		return agent.Green(fmt.Sprintf("%11v %24v %24v", s.info.Type, s.listen, "tcp4"))
 	}
-	return yellow(fmt.Sprintf("%11v %24v", s.info.Type, "disabled"))
+	return agent.Yellow(fmt.Sprintf("%11v %24v", s.info.Type, "disabled"))
 }
 
-func (s *Socks5) Run() error {
+func (s *Socks5) Start(wg *sync.WaitGroup) error {
 	if !s.info.Enable {
 		return errors.New("service disabled")
 	}
 
-	l, err := netx.Listen(s.info.Param["listen"])
+	l, err := s.mnet.ListenURL(s.info.Param["listen"])
 	if err != nil {
 		return err
 	}
 
 	svc := socks.NewPswdServer(s.username, s.password)
 	s.closer = svc
-	return svc.Run(l)
+	runsvc(s.info.Name(), wg, func() {
+		err := svc.Run(l)
+		if err != nil {
+			log.Printf("[%v] exit. err=%v\n", s.info.Name(), err)
+		}
+	})
+	return nil
 }
 
 func (s *Socks5) Close() error {

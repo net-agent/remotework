@@ -9,7 +9,7 @@
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/agent/bin",
+      "program": "${workspaceFolder}/agent_bin",
       "args": ["-c", "${workspaceFolder}/dist/config.json"]
     },
     {

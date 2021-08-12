@@ -13,15 +13,55 @@ if "%version%" == "" (
   if not exist "dist" mkdir dist
   if not exist "dist\%version%" mkdir "dist\%version%"
 
-  echo start build agent
-  cd agent\bin
-  go build -o "..\..\dist\%version%\agent_windows_%version%.exe"
 
-  echo start build server
-  cd ..\..\server
+  echo start build linux(amd64) 
+  set CGO_ENABLE=0
+  set GOOS=linux
+  set GOARCH=amd64
+
+  echo build agent
+  cd agent_bin
+  go build -o "..\dist\%version%\agent_linux_%version%_bin"
+
+  echo build server
+  cd ..\server
+  go build -o "..\dist\%version%\server_linux_%version%_bin"
+
+  cd ..
+  echo linux(amd64) finished
+
+
+
+  echo start build linux(darwin)
+  set CGO_ENABLE=0
+  set GOOS=darwin
+  set GOARCH=amd64
+
+  echo build agent
+  cd agent_bin
+  go build -o "..\dist\%version%\agent_darwin_%version%_bin"
+
+  echo build server
+  cd ..\server
+  go build -o "..\dist\%version%\server_darwin_%version%_bin"
+
+  cd ..
+  echo linux(darwin) finished
+
+
+  echo start build windows
+  set CGO_ENABLE=0
+  set GOOS=windows
+  set GOARCH=amd64
+
+  echo build agent
+  cd agent_bin
+  go build -o "..\dist\%version%\agent_windows_%version%.exe"
+
+  echo build server
+  cd ..\server
   go build -o "..\dist\%version%\server_windows_%version%.exe"
 
   cd ..
-  echo finished
-
+  echo windows finished
 )
