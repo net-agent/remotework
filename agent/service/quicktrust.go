@@ -42,7 +42,7 @@ func NewQuickTrust(mnet *agent.MixNet, info agent.ServiceInfo) *QuickTrust {
 func (s *QuickTrust) Info() string {
 	if s.info.Enable {
 		u := fmt.Sprintf("flex://0:%v", QuickPort)
-		return agent.Green(fmt.Sprintf("%11v %24v %24v", s.info.Type, u, "localnet"))
+		return agent.Green(fmt.Sprintf("%11v %24v %24v", s.info.Type, u, "tcp4"))
 	}
 	return agent.Yellow(fmt.Sprintf("%11v %24v", s.info.Type, "disabled"))
 }
@@ -81,6 +81,7 @@ func (s *QuickTrust) Start(wg *sync.WaitGroup) error {
 		}
 		return nil
 	})
+
 	svc := socks.NewServer()
 	svc.SetAuthChecker(checker)
 	s.closer = svc

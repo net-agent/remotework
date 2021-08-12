@@ -33,7 +33,7 @@ func NewSocks5(mnet *agent.MixNet, info agent.ServiceInfo) *Socks5 {
 
 func (s *Socks5) Info() string {
 	if s.info.Enable {
-		return agent.Green(fmt.Sprintf("%11v %24v %24v", s.info.Type, s.listen, s.username))
+		return agent.Green(fmt.Sprintf("%11v %24v %24v", s.info.Type, s.listen, "tcp4"))
 	}
 	return agent.Yellow(fmt.Sprintf("%11v %24v", s.info.Type, "disabled"))
 }

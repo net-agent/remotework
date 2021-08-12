@@ -65,9 +65,10 @@ func (ctx *PortContext) Start(wg *sync.WaitGroup) {
 		log.Printf("[%v] listen %v failed: %v\n", ctx.svcName, ctx.listenAddr, err)
 		return
 	}
-	log.Printf("[%v] listen %v ok, target=%v@%v\n", ctx.svcName, ctx.listenAddr, ctx.target, ctx.agent)
 
-	runsvc(ctx.svcName, wg, func() {
+	name := fmt.Sprintf("%v, %v >> %v@%v", ctx.svcName, ctx.listenAddr, ctx.target, ctx.agent)
+
+	runsvc(name, wg, func() {
 		for {
 			c1, err := l.Accept()
 			if err != nil {
@@ -102,7 +103,7 @@ func link(c1, c2 net.Conn) {
 		c2.Close()
 	}()
 
-	io.Copy(c2, c2)
+	io.Copy(c2, c1)
 	c1.Close()
 	c2.Close()
 }
