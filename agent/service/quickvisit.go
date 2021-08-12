@@ -56,10 +56,6 @@ func NewPortContext(svcName, agent, key, val string, dial agent.Dialer, proxy *s
 }
 
 func (ctx *PortContext) Start(wg *sync.WaitGroup) {
-	if wg != nil {
-		defer wg.Done()
-	}
-
 	l, err := net.Listen("tcp4", ctx.listenAddr)
 	if err != nil {
 		log.Printf("[%v] listen %v failed: %v\n", ctx.svcName, ctx.listenAddr, err)

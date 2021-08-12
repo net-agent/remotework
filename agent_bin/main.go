@@ -72,6 +72,8 @@ func main() {
 		}
 	}
 	wg.Wait()
+
+	log.Println("main process exit.")
 }
 
 func initLogOutput() (f *os.File, shouldClose bool) {
