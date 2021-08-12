@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/socks"
@@ -12,7 +13,7 @@ import (
 
 const (
 	QuickPort   = 71
-	QuickSecret = "#qu1ck-Tru5t$!"
+	QuickSecret = "qu1ckxTru5t"
 )
 
 type QuickTrust struct {
@@ -46,11 +47,10 @@ func (s *QuickTrust) Info() string {
 	return agent.Yellow(fmt.Sprintf("%11v %24v", s.info.Type, "disabled"))
 }
 
-func (s *QuickTrust) Run() error {
+func (s *QuickTrust) Start(wg *sync.WaitGroup) error {
 	if !s.info.Enable {
 		return errors.New("service disabled")
 	}
-	defer log.Printf("[%v] stopped.\n", s.info.Type)
 
 	l, err := s.mnet.ListenURL(s.listen)
 	if err != nil {
@@ -84,7 +84,9 @@ func (s *QuickTrust) Run() error {
 	svc := socks.NewServer()
 	svc.SetAuthChecker(checker)
 	s.closer = svc
-	return svc.Run(l)
+
+	runsvc(s.info.Name(), wg, func() { svc.Run(l) })
+	return nil
 }
 
 func (s *QuickTrust) Close() error {

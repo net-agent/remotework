@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 
 	"github.com/net-agent/remotework/agent"
 )
@@ -43,11 +44,10 @@ func (p *Portproxy) Info() string {
 	return agent.Yellow(fmt.Sprintf("%11v %24v", p.info.Type, "disabled"))
 }
 
-func (p *Portproxy) Run() error {
+func (p *Portproxy) Start(wg *sync.WaitGroup) error {
 	if !p.info.Enable {
 		return errors.New("service disabled")
 	}
-	defer log.Printf("[%v] stopped.\n", p.info.Type)
 
 	l, err := p.mnet.ListenURL(p.listen)
 	if err != nil {
@@ -56,13 +56,16 @@ func (p *Portproxy) Run() error {
 
 	p.closer = l
 
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			return err
+	runsvc(p.info.Name(), wg, func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go p.serve(conn)
 		}
-		go p.serve(conn)
-	}
+	})
+	return nil
 }
 
 func (p *Portproxy) Close() error {
@@ -86,13 +89,5 @@ func (p *Portproxy) serve(c1 net.Conn) {
 
 	log.Printf("[%v] connect, dialer='%v' listen='%v'\n", p.info.Type, dialer, p.listen)
 
-	go func() {
-		io.Copy(c2, c1)
-		c1.Close()
-		c2.Close()
-	}()
-
-	io.Copy(c1, c2)
-	c1.Close()
-	c2.Close()
+	link(c1, c2)
 }

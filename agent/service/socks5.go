@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/socks"
@@ -37,11 +38,10 @@ func (s *Socks5) Info() string {
 	return agent.Yellow(fmt.Sprintf("%11v %24v", s.info.Type, "disabled"))
 }
 
-func (s *Socks5) Run() error {
+func (s *Socks5) Start(wg *sync.WaitGroup) error {
 	if !s.info.Enable {
 		return errors.New("service disabled")
 	}
-	defer log.Printf("[%v] stopped.\n", s.info.Type)
 
 	l, err := s.mnet.ListenURL(s.info.Param["listen"])
 	if err != nil {
@@ -50,7 +50,13 @@ func (s *Socks5) Run() error {
 
 	svc := socks.NewPswdServer(s.username, s.password)
 	s.closer = svc
-	return svc.Run(l)
+	runsvc(s.info.Name(), wg, func() {
+		err := svc.Run(l)
+		if err != nil {
+			log.Printf("[%v] exit. err=%v\n", s.info.Name(), err)
+		}
+	})
+	return nil
 }
 
 func (s *Socks5) Close() error {

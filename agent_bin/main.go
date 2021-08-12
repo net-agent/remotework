@@ -43,34 +43,31 @@ func main() {
 
 	<-ch
 
-	// 初始化services
-	svcs := []service.Service{}
-	for _, info := range config.Services {
-		svc := service.NewService(mnet, info)
-		if svc != nil {
-			svcs = append(svcs, svc)
-		} else {
-			log.Printf("unknown service type: %v\n", info.Type)
-		}
-	}
-
-	// 开启服务
 	log.Println("startup services:")
 	log.Println("-------------------------------------------------------------------------")
 	log.Println("  # command        type                   listen                   target")
 	log.Println("-------------------------------------------------------------------------")
 
-	var wg sync.WaitGroup
-	for i, svc := range svcs {
-		wg.Add(1)
-		go func(index int, svc service.Service) {
-			svc.Run()
-			wg.Done()
-		}(i, svc)
-		log.Printf("%3v %7v %v\n", i, "run", svc.Info())
+	// 初始化services
+	svcs := []service.Service{}
+	for i, info := range config.Services {
+		info.SetIndex(i)
+		svc := service.NewService(mnet, info)
+		if svc != nil {
+			svcs = append(svcs, svc)
+			log.Printf("%3v %7v %v\n", i, "run", svc.Info())
+		} else {
+			log.Printf("%3v %7v %v (unknown service type)\n", i, "-", info.Type)
+		}
 	}
+
 	log.Println("-------------------------------------------------------------------------")
 
+	// 开启服务
+	var wg sync.WaitGroup
+	for _, svc := range svcs {
+		svc.Start(&wg)
+	}
 	wg.Wait()
 }
 

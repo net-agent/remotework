@@ -15,18 +15,23 @@ import (
 )
 
 type PortContext struct {
+	svcName    string
 	listenAddr string
 	listener   net.Listener
 	target     string
+	agent      string
 
 	dial  agent.Dialer
 	proxy *socks.ProxyInfo
 }
 
-func NewPortContext(key, val string, dial agent.Dialer, proxy *socks.ProxyInfo) (*PortContext, error) {
+func NewPortContext(svcName, agent, key, val string, dial agent.Dialer, proxy *socks.ProxyInfo) (*PortContext, error) {
 	ctx := &PortContext{
-		dial:  dial,
-		proxy: proxy,
+		svcName: svcName,
+		dial:    dial,
+		proxy:   proxy,
+		agent:   agent,
+		target:  val,
 	}
 	portstr := key
 	isLocal := true
@@ -50,41 +55,44 @@ func NewPortContext(key, val string, dial agent.Dialer, proxy *socks.ProxyInfo) 
 	return ctx, nil
 }
 
-func (ctx *PortContext) Run(wg *sync.WaitGroup) {
+func (ctx *PortContext) Start(wg *sync.WaitGroup) {
 	if wg != nil {
 		defer wg.Done()
 	}
 
 	l, err := net.Listen("tcp4", ctx.listenAddr)
 	if err != nil {
-		log.Printf("listen %v failed: %v\n", ctx.listenAddr, err)
+		log.Printf("[%v] listen %v failed: %v\n", ctx.svcName, ctx.listenAddr, err)
 		return
 	}
+	log.Printf("[%v] listen %v ok, target=%v@%v\n", ctx.svcName, ctx.listenAddr, ctx.target, ctx.agent)
 
-	for {
-		c1, err := l.Accept()
-		if err != nil {
-			break
-		}
-
-		c2, err := ctx.dial()
-		if err != nil {
-			c1.Close()
-			return
-		}
-		go func(c1, c2 net.Conn) {
-			defer c1.Close()
-			defer c2.Close()
-
-			// 使用socks5升级连接，访问目标
-			c2, err = ctx.proxy.Upgrade(c2, ctx.target)
+	runsvc(ctx.svcName, wg, func() {
+		for {
+			c1, err := l.Accept()
 			if err != nil {
-				return
+				break
 			}
 
-			link(c1, c2)
-		}(c1, c2)
-	}
+			go func(c1 net.Conn) {
+				defer c1.Close()
+				c2, err := ctx.dial()
+				if err != nil {
+					log.Printf("[%v] dial '%v' failed: %v\n", ctx.svcName, ctx.agent, err)
+					return
+				}
+				defer c2.Close()
+
+				// 使用socks5升级连接，访问目标
+				c2, err = ctx.proxy.Upgrade(c2, ctx.target)
+				if err != nil {
+					return
+				}
+
+				link(c1, c2)
+			}(c1)
+		}
+	})
 }
 
 func link(c1, c2 net.Conn) {
@@ -127,7 +135,7 @@ func NewQuickVisit(mnet *agent.MixNet, info agent.ServiceInfo) *QuickVisit {
 
 	ports := make([]*PortContext, 0)
 	for k, v := range info.Param {
-		ctx, err := NewPortContext(k, v, dial, proxy)
+		ctx, err := NewPortContext(info.Name(), agent, k, v, dial, proxy)
 		if err == nil {
 			ports = append(ports, ctx)
 		}
@@ -150,19 +158,14 @@ func (p *QuickVisit) Info() string {
 	return agent.Yellow(fmt.Sprintf("%11v %24v", p.info.Type, "disabled"))
 }
 
-func (p *QuickVisit) Run() error {
+func (p *QuickVisit) Start(wg *sync.WaitGroup) error {
 	if !p.info.Enable {
 		return errors.New("service disabled")
 	}
-	defer log.Printf("[%v] stopped.\n", p.info.Type)
 
-	var wg sync.WaitGroup
 	for _, port := range p.ports {
-		wg.Add(1)
-		go port.Run(&wg)
+		port.Start(wg)
 	}
-
-	wg.Wait()
 	return nil
 }
 

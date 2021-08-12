@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"io"
+	"fmt"
 	"log"
 	"net"
 	"net/url"
@@ -43,8 +43,13 @@ type ServiceInfo struct {
 	Type   string  `json:"type"`   // 类型
 	Param  stParam `json:"param"`  // 参数
 
-	closer io.Closer
+	index int
 }
+
+func (info *ServiceInfo) Name() string {
+	return fmt.Sprintf("%v/%v", info.index, info.Type)
+}
+func (info *ServiceInfo) SetIndex(i int) { info.index = i }
 
 func NewConfig(jsonfile string) (*Config, error) {
 	cfg := &Config{}

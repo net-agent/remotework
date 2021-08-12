@@ -31,11 +31,11 @@ func TestPortproxy(t *testing.T) {
 		},
 	})
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		p.Run()
-		wg.Done()
-	}()
+	err := p.Start(&wg)
+	if err != nil {
+		t.Error("start failed", err)
+		return
+	}
 
 	<-time.After(time.Second)
 	conn, err := mnet.DialURL(addr)
