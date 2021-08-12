@@ -65,8 +65,11 @@ func main() {
 
 	// 开启服务
 	var wg sync.WaitGroup
-	for _, svc := range svcs {
-		svc.Start(&wg)
+	for i, svc := range svcs {
+		err := svc.Start(&wg)
+		if err != nil {
+			log.Printf("[runsvc] service start failed. svcindex=%v err=%v\n", i, err)
+		}
 	}
 	wg.Wait()
 }
