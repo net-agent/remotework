@@ -13,7 +13,6 @@ import (
 	"github.com/net-agent/flex/v2/packet"
 	"github.com/net-agent/flex/v2/switcher"
 	"github.com/net-agent/remotework/utils"
-	"github.com/pkg/errors"
 )
 
 type Config struct {
@@ -62,7 +61,7 @@ func NewConfig(configFileName string) (*Config, error) {
 	case ".toml":
 		err = utils.LoadTomlFile(configFileName, cfg)
 	default:
-		err = errors.Errorf("config file [%s] not support, must be json or toml.", configFileName)
+		err = fmt.Errorf("config file [%s] not support, must be json or toml", configFileName)
 	}
 	return cfg, err
 }
