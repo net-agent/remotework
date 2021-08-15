@@ -2,10 +2,12 @@ package main
 
 import (
 	"log"
+	"path"
 	"sync"
 
 	"github.com/net-agent/flex/v2/switcher"
 	"github.com/net-agent/mixlisten"
+	"github.com/net-agent/remotework/utils"
 )
 
 func main() {
@@ -13,8 +15,22 @@ func main() {
 	flags.Parse()
 
 	// 读取配置
-	log.Printf("read config from '%v'\n", flags.ConfigFileName)
-	config, err := NewConfig(flags.ConfigFileName)
+	configName := flags.ConfigFileName
+	if !utils.FileExist(configName) {
+		// try `config.json` or `config.toml`
+		dir := path.Dir(configName)
+		configJson := path.Join(dir, "config.json")
+		configToml := path.Join(dir, "config.toml")
+		if utils.FileExist(configJson) {
+			configName = configJson
+		} else if utils.FileExist(configToml) {
+			configName = configToml
+		} else {
+			log.Fatal("load config failed: config file not exist!")
+		}
+	}
+	log.Printf("read config from '%v'\n", configName)
+	config, err := NewConfig(configName)
 	if err != nil {
 		log.Fatal("load config failed: ", err)
 	}

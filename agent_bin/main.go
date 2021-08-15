@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path"
 	"sync"
 	"time"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/remotework/agent/service"
+	"github.com/net-agent/remotework/utils"
 )
 
 func loadConfig() *agent.Config {
@@ -16,13 +18,25 @@ func loadConfig() *agent.Config {
 	flags.Parse()
 
 	// 读取配置
-	log.Printf("> read config from '%v'\n", flags.ConfigFileName)
-	var err error
-	config, err := agent.NewConfig(flags.ConfigFileName)
+	configName := flags.ConfigFileName
+	if !utils.FileExist(configName) {
+		// try `config.json` or `config.toml`
+		dir := path.Dir(configName)
+		configJson := path.Join(dir, "config.json")
+		configToml := path.Join(dir, "config.toml")
+		if utils.FileExist(configJson) {
+			configName = configJson
+		} else if utils.FileExist(configToml) {
+			configName = configToml
+		} else {
+			log.Fatal("load config failed: config file not exist!")
+		}
+	}
+	log.Printf("read config from '%v'\n", configName)
+	config, err := agent.NewConfig(configName)
 	if err != nil {
 		log.Fatal("load config failed: ", err)
 	}
-
 	return config
 }
 

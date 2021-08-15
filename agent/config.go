@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"path"
 	"strings"
 
 	"github.com/gorilla/websocket"
@@ -12,6 +13,7 @@ import (
 	"github.com/net-agent/flex/v2/packet"
 	"github.com/net-agent/flex/v2/switcher"
 	"github.com/net-agent/remotework/utils"
+	"github.com/pkg/errors"
 )
 
 type Config struct {
@@ -51,15 +53,18 @@ func (info *ServiceInfo) Name() string {
 }
 func (info *ServiceInfo) SetIndex(i int) { info.index = i }
 
-func NewConfig(jsonfile string) (*Config, error) {
+func NewConfig(configFileName string) (*Config, error) {
 	cfg := &Config{}
-
-	err := utils.LoadJSONFile(jsonfile, cfg)
-	if err != nil {
-		return nil, err
+	var err error
+	switch strings.ToLower(path.Ext(configFileName)) {
+	case ".json":
+		err = utils.LoadJSONFile(configFileName, cfg)
+	case ".toml":
+		err = utils.LoadTomlFile(configFileName, cfg)
+	default:
+		err = errors.Errorf("config file [%s] not support, must be json or toml.", configFileName)
 	}
-
-	return cfg, nil
+	return cfg, err
 }
 
 func (cfg *Config) GetConnectFn() ConnectFunc {
