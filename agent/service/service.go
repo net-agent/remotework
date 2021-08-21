@@ -29,9 +29,9 @@ func NewService(hub *agent.NetHub, info agent.ServiceInfo) Service {
 	case "rce": // remote code execution
 		return nil
 
-	// 快速信赖服务
+	// 快速信赖服务，转移至agent中设置
 	case "quick-trust":
-		return NewQuickTrust(hub, info)
+		return nil
 	// 快速访问服务
 	case "quick-visit":
 		return NewQuickVisit(hub, info)

@@ -49,7 +49,16 @@ func main() {
 		defer logoutput.Close()
 	}
 
+	var wg sync.WaitGroup
 	hub := agent.NewNetHub()
+
+	if len(config.Agents) <= 0 {
+		if config.Agent.Network == "" {
+			config.Agent.Enable = true
+			config.Agent.Network = "flex"
+		}
+		config.Agents = append(config.Agents, config.Agent)
+	}
 
 	log.Println("startup agents:")
 	networkCount := 0
@@ -69,6 +78,11 @@ func main() {
 		go mnet.KeepAlive(ch)
 		<-ch
 
+		if agt.QuickTrust.Enable {
+			svc := service.NewQuickTrust(&agt, mnet)
+			svc.Start(&wg)
+		}
+
 		err := hub.AddNetwork(agt.Network, mnet)
 		if err != nil {
 			log.Printf("add network to hub failed: %v\n", err)
@@ -77,6 +91,9 @@ func main() {
 		}
 	}
 	log.Printf("%v agents added to hub\n\n", networkCount)
+	if networkCount == 0 {
+		return
+	}
 
 	log.Println("startup services:")
 	log.Println("-------------------------------------------------------------------------")
@@ -99,7 +116,6 @@ func main() {
 	log.Println("-------------------------------------------------------------------------")
 
 	// 开启服务
-	var wg sync.WaitGroup
 	for i, svc := range svcs {
 		err := svc.Start(&wg)
 		if err != nil {

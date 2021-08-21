@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/url"
 	"sync"
 
 	"github.com/net-agent/remotework/agent"
@@ -15,10 +16,11 @@ type Portproxy struct {
 	hub  *agent.NetHub
 	info agent.ServiceInfo
 
-	closer       io.Closer
-	listen       string
-	target       string
-	targetDialer agent.QuickDialer
+	closer        io.Closer
+	listen        string
+	listenNetwork string
+	target        string
+	targetDialer  agent.QuickDialer
 }
 
 func NewPortproxy(hub *agent.NetHub, info agent.ServiceInfo) *Portproxy {
@@ -27,13 +29,20 @@ func NewPortproxy(hub *agent.NetHub, info agent.ServiceInfo) *Portproxy {
 	if err != nil {
 		panic(fmt.Sprintf("init portproxy failed, make dialer failed: %v", err))
 	}
+
+	listen := info.Param["listen"]
+	u, err := url.Parse(listen)
+	if err != nil {
+		panic(fmt.Sprintf("parse listen addr failed: %v", err))
+	}
 	return &Portproxy{
 		hub:  hub,
 		info: info,
 
-		listen:       info.Param["listen"],
-		target:       target,
-		targetDialer: dialer,
+		listen:        listen,
+		listenNetwork: u.Scheme,
+		target:        target,
+		targetDialer:  dialer,
 	}
 }
 
@@ -75,7 +84,7 @@ func (p *Portproxy) Close() error {
 func (p *Portproxy) serve(c1 net.Conn) {
 	var dialer string
 	if s, ok := c1.(interface{ Dialer() string }); ok {
-		dialer = "flex://" + s.Dialer()
+		dialer = p.listenNetwork + "://" + s.Dialer()
 	} else {
 		dialer = "tcp://" + c1.RemoteAddr().String()
 	}

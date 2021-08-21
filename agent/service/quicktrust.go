@@ -17,42 +17,38 @@ const (
 )
 
 type QuickTrust struct {
-	hub  *agent.NetHub
-	info agent.ServiceInfo
+	agent *agent.AgentInfo
+	mnet  agent.Network
 
-	closer io.Closer
-	listen string
-	users  map[string]string
+	closer  io.Closer
+	network string
+	host    string
+	query   string
+	users   map[string]string
 }
 
-func NewQuickTrust(hub *agent.NetHub, info agent.ServiceInfo) *QuickTrust {
+func NewQuickTrust(agt *agent.AgentInfo, mnet agent.Network) *QuickTrust {
 	users := make(map[string]string)
-	for k, v := range info.Param {
+	for k, v := range agt.QuickTrust.WhiteList {
 		// 这个 dialer 一定是 cipherconn
 		users[k+"/secret"] = v
 	}
 	return &QuickTrust{
-		hub:    hub,
-		info:   info,
-		listen: fmt.Sprintf("flex://0:%v?secret=%v", QuickPort, QuickSecret),
-		users:  users,
+		agent:   agt,
+		mnet:    mnet,
+		network: agt.Network,
+		host:    fmt.Sprintf("%v:%v", 0, QuickPort),
+		query:   fmt.Sprintf("?secret=%v", QuickSecret),
+		users:   users,
 	}
-}
-
-func (s *QuickTrust) Info() string {
-	if s.info.Enable {
-		u := fmt.Sprintf("flex://0:%v", QuickPort)
-		return agent.Green(fmt.Sprintf("%11v %24v %24v", s.info.Type, u, "tcp4"))
-	}
-	return agent.Yellow(fmt.Sprintf("%11v %24v", s.info.Type, "disabled"))
 }
 
 func (s *QuickTrust) Start(wg *sync.WaitGroup) error {
-	if !s.info.Enable {
+	if !s.agent.Enable {
 		return errors.New("service disabled")
 	}
-
-	l, err := s.hub.ListenURL(s.listen)
+	name := fmt.Sprintf("%v.trust", s.agent.Network)
+	l, err := agent.ListenURL(s.mnet, fmt.Sprintf("%v://%v%v", s.network, s.host, s.query))
 	if err != nil {
 		return err
 	}
@@ -67,13 +63,13 @@ func (s *QuickTrust) Start(wg *sync.WaitGroup) error {
 			u = d.Dialer()
 		}
 		if u == "" {
-			log.Printf("[%v] empty dialer info\n", s.info.Type)
+			log.Printf("[%v] empty dialer info\n", name)
 			return errAuthFailed
 		}
 
 		pswd, found := s.users[u]
 		if !found {
-			log.Printf("[%v] user='%v' not found\n", s.info.Type, u)
+			log.Printf("[%v] user='%v' not found\n", name, u)
 			return errAuthFailed
 		}
 		if pswd != p {
@@ -86,12 +82,12 @@ func (s *QuickTrust) Start(wg *sync.WaitGroup) error {
 	svc.SetAuthChecker(checker)
 	s.closer = svc
 
-	runsvc(s.info.Name(), wg, func() { svc.Run(l) })
+	runsvc(name, wg, func() { svc.Run(l) })
 	return nil
 }
 
 func (s *QuickTrust) Close() error {
-	if !s.info.Enable {
+	if !s.agent.QuickTrust.Enable {
 		return nil
 	}
 	c := s.closer

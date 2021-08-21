@@ -17,6 +17,7 @@ import (
 
 type Config struct {
 	// Server   ServerInfo    `json:"server"`
+	Agent    AgentInfo     `json:"agent"` // 兼容旧版配置
 	Agents   []AgentInfo   `json:"agents"`
 	Services []ServiceInfo `json:"services"`
 }
@@ -29,14 +30,20 @@ type ServerInfo struct {
 }
 
 type AgentInfo struct {
-	Enable   bool   `json:"enable"`
-	Network  string `json:"network"`  // 网络名称，不能为tcp、tcp4、tcp6
-	Address  string `json:"address"`  // 服务端地址
-	Password string `json:"password"` // 连接服务的密码
-	Domain   string `json:"domain"`   // 独立域名（不能重复）
-	WsEnable bool   `json:"wsEnable"` // 是否为Websocket服务
-	Wss      bool   `json:"wss"`      // 是否为wss协议
-	WsPath   string `json:"wsPath"`   // Websocket路径
+	Enable     bool   `json:"enable"`
+	Network    string `json:"network"`  // 网络名称，不能为tcp、tcp4、tcp6
+	Address    string `json:"address"`  // 服务端地址
+	Password   string `json:"password"` // 连接服务的密码
+	Domain     string `json:"domain"`   // 独立域名（不能重复）
+	WsEnable   bool   `json:"wsEnable"` // 是否为Websocket服务
+	Wss        bool   `json:"wss"`      // 是否为wss协议
+	WsPath     string `json:"wsPath"`   // Websocket路径
+	QuickTrust Trust  `json:"trust"`
+}
+
+type Trust struct {
+	Enable    bool              `json:"enable"`
+	WhiteList map[string]string `json:"whiteList"`
 }
 
 type stParam = map[string]string
