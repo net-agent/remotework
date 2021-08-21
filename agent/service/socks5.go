@@ -12,7 +12,7 @@ import (
 )
 
 type Socks5 struct {
-	mnet *agent.MixNet
+	hub  *agent.NetHub
 	info agent.ServiceInfo
 
 	closer   io.Closer
@@ -21,9 +21,9 @@ type Socks5 struct {
 	password string
 }
 
-func NewSocks5(mnet *agent.MixNet, info agent.ServiceInfo) *Socks5 {
+func NewSocks5(hub *agent.NetHub, info agent.ServiceInfo) *Socks5 {
 	return &Socks5{
-		mnet:     mnet,
+		hub:      hub,
 		info:     info,
 		listen:   info.Param["listen"],
 		username: info.Param["username"],
@@ -43,7 +43,7 @@ func (s *Socks5) Start(wg *sync.WaitGroup) error {
 		return errors.New("service disabled")
 	}
 
-	l, err := s.mnet.ListenURL(s.info.Param["listen"])
+	l, err := s.hub.ListenURL(s.info.Param["listen"])
 	if err != nil {
 		return err
 	}

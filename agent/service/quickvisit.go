@@ -21,11 +21,11 @@ type PortContext struct {
 	target     string
 	agent      string
 
-	dial  agent.Dialer
+	dial  agent.QuickDialer
 	proxy *socks.ProxyInfo
 }
 
-func NewPortContext(svcName, agent, key, val string, dial agent.Dialer, proxy *socks.ProxyInfo) (*PortContext, error) {
+func NewPortContext(svcName, agent, key, val string, dial agent.QuickDialer, proxy *socks.ProxyInfo) (*PortContext, error) {
 	ctx := &PortContext{
 		svcName: svcName,
 		dial:    dial,
@@ -108,14 +108,14 @@ func (ctx *PortContext) Close() error {
 }
 
 type QuickVisit struct {
-	mnet   *agent.MixNet
+	hub    *agent.NetHub
 	info   agent.ServiceInfo
 	ports  []*PortContext
 	agent  string
 	secret string
 }
 
-func NewQuickVisit(mnet *agent.MixNet, info agent.ServiceInfo) *QuickVisit {
+func NewQuickVisit(hub *agent.NetHub, info agent.ServiceInfo) *QuickVisit {
 	agent := info.Param["agent"]
 	secret := info.Param["secret"]
 
@@ -128,7 +128,7 @@ func NewQuickVisit(mnet *agent.MixNet, info agent.ServiceInfo) *QuickVisit {
 	}
 	vals := url.Values{}
 	vals.Add("secret", QuickSecret)
-	dial, _ := mnet.URLDialer(fmt.Sprintf("flex://%v:%v?%v", agent, QuickPort, vals.Encode()))
+	dial, _ := hub.URLDialer(fmt.Sprintf("flex://%v:%v?%v", agent, QuickPort, vals.Encode()))
 
 	ports := make([]*PortContext, 0)
 	for k, v := range info.Param {
@@ -139,7 +139,7 @@ func NewQuickVisit(mnet *agent.MixNet, info agent.ServiceInfo) *QuickVisit {
 	}
 
 	return &QuickVisit{
-		mnet:   mnet,
+		hub:    hub,
 		info:   info,
 		ports:  ports,
 		agent:  agent,

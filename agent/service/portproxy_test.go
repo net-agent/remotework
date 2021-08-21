@@ -12,7 +12,7 @@ import (
 	"github.com/net-agent/remotework/agent"
 )
 
-var mnet = agent.NewNetwork(nil)
+var hub = agent.NewNetHub()
 
 const echoAddr = "tcp://localhost:9922"
 
@@ -23,7 +23,7 @@ func init() {
 
 func TestPortproxy(t *testing.T) {
 	addr := "tcp://localhost:9921"
-	p := NewPortproxy(mnet, agent.ServiceInfo{
+	p := NewPortproxy(hub, agent.ServiceInfo{
 		Enable: true,
 		Param: map[string]string{
 			"listen": addr,
@@ -38,7 +38,7 @@ func TestPortproxy(t *testing.T) {
 	}
 
 	<-time.After(time.Second)
-	conn, err := mnet.DialURL(addr)
+	conn, err := hub.DialURL(addr)
 	if err != nil {
 		t.Error(err)
 		return
@@ -71,7 +71,7 @@ func TestPortproxy(t *testing.T) {
 }
 
 func runEchoServer(addr string) {
-	l, err := mnet.ListenURL(addr)
+	l, err := hub.ListenURL(addr)
 	if err != nil {
 		os.Exit(-1)
 	}

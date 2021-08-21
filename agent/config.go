@@ -17,7 +17,8 @@ import (
 
 type Config struct {
 	// Server   ServerInfo    `json:"server"`
-	Agent    AgentInfo     `json:"agent"`
+	Agent    AgentInfo     `json:"agent"` // 兼容旧版配置
+	Agents   []AgentInfo   `json:"agents"`
 	Services []ServiceInfo `json:"services"`
 }
 
@@ -29,12 +30,20 @@ type ServerInfo struct {
 }
 
 type AgentInfo struct {
-	Address  string `json:"address"`  // 服务端地址
-	Password string `json:"password"` // 连接服务的密码
-	Domain   string `json:"domain"`   // 独立域名（不能重复）
-	WsEnable bool   `json:"wsEnable"` // 是否为Websocket服务
-	Wss      bool   `json:"wss"`      // 是否为wss协议
-	WsPath   string `json:"wsPath"`   // Websocket路径
+	Enable     bool   `json:"enable"`
+	Network    string `json:"network"`  // 网络名称，不能为tcp、tcp4、tcp6
+	Address    string `json:"address"`  // 服务端地址
+	Password   string `json:"password"` // 连接服务的密码
+	Domain     string `json:"domain"`   // 独立域名（不能重复）
+	WsEnable   bool   `json:"wsEnable"` // 是否为Websocket服务
+	Wss        bool   `json:"wss"`      // 是否为wss协议
+	WsPath     string `json:"wsPath"`   // Websocket路径
+	QuickTrust Trust  `json:"trust"`
+}
+
+type Trust struct {
+	Enable    bool              `json:"enable"`
+	WhiteList map[string]string `json:"whiteList"`
 }
 
 type stParam = map[string]string
@@ -66,25 +75,25 @@ func NewConfig(configFileName string) (*Config, error) {
 	return cfg, err
 }
 
-func (cfg *Config) GetConnectFn() ConnectFunc {
+func (agent *AgentInfo) GetConnectFn() ConnectFunc {
 	macs, _ := getMacAddr()
 	macStr := strings.Join(macs, " ")
 
-	if cfg.Agent.WsEnable {
-		return cfg.getWsConnectFn(macStr)
+	if agent.WsEnable {
+		return agent.getWsConnectFn(macStr)
 	}
 
-	return cfg.getTcpConnectFn(macStr)
+	return agent.getTcpConnectFn(macStr)
 }
 
-func (cfg *Config) getWsConnectFn(mac string) ConnectFunc {
+func (agent *AgentInfo) getWsConnectFn(mac string) ConnectFunc {
 
 	u := url.URL{
 		Scheme: "ws",
-		Host:   cfg.Agent.Address,
-		Path:   cfg.Agent.WsPath,
+		Host:   agent.Address,
+		Path:   agent.WsPath,
 	}
-	if cfg.Agent.Wss {
+	if agent.Wss {
 		u.Scheme = "wss"
 	}
 	wsurl := u.String()
@@ -98,9 +107,9 @@ func (cfg *Config) getWsConnectFn(mac string) ConnectFunc {
 		pc := packet.NewWithWs(c)
 		node, err := switcher.UpgradeToNode(
 			pc,
-			cfg.Agent.Domain,
+			agent.Domain,
 			mac,
-			cfg.Agent.Password,
+			agent.Password,
 		)
 		if err != nil {
 			c.Close()
@@ -110,20 +119,20 @@ func (cfg *Config) getWsConnectFn(mac string) ConnectFunc {
 	}
 }
 
-func (cfg *Config) getTcpConnectFn(mac string) ConnectFunc {
+func (agent *AgentInfo) getTcpConnectFn(mac string) ConnectFunc {
 
 	return func() (*node.Node, error) {
-		log.Printf("connect to '%v'\n", cfg.Agent.Address)
-		c, err := net.Dial("tcp4", cfg.Agent.Address)
+		log.Printf("connect to '%v'\n", agent.Address)
+		c, err := net.Dial("tcp4", agent.Address)
 		if err != nil {
 			return nil, err
 		}
 		pc := packet.NewWithConn(c)
 		node, err := switcher.UpgradeToNode(
 			pc,
-			cfg.Agent.Domain,
+			agent.Domain,
 			mac,
-			cfg.Agent.Password,
+			agent.Password,
 		)
 		if err != nil {
 			c.Close()

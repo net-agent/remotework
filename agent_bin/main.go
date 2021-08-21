@@ -49,13 +49,51 @@ func main() {
 		defer logoutput.Close()
 	}
 
-	log.Printf("domain='%v'\n", agent.Green(config.Agent.Domain))
+	var wg sync.WaitGroup
+	hub := agent.NewNetHub()
 
-	mnet := agent.NewNetwork(config.GetConnectFn())
-	ch := make(chan struct{}, 4)
-	go mnet.KeepAlive(ch)
+	if len(config.Agents) <= 0 {
+		if config.Agent.Network == "" {
+			config.Agent.Enable = true
+			config.Agent.Network = "flex"
+		}
+		config.Agents = append(config.Agents, config.Agent)
+	}
 
-	<-ch
+	log.Println("startup agents:")
+	networkCount := 0
+	for index, info := range config.Agents {
+		var agt agent.AgentInfo = info // copy value
+		if !agt.Enable {
+			log.Printf("agents[%v] disabled. network='%v' domain='%v'\n",
+				index, agent.Green(agt.Network), agent.Green(agt.Domain))
+			continue
+		}
+
+		log.Printf("agents[%v] connect to network='%v' domain='%v'\n",
+			index, agent.Green(agt.Network), agent.Green(agt.Domain))
+
+		mnet := agent.NewNetwork(agt.GetConnectFn())
+		ch := make(chan struct{}, 4)
+		go mnet.KeepAlive(ch)
+		<-ch
+
+		if agt.QuickTrust.Enable {
+			svc := service.NewQuickTrust(&agt, mnet)
+			svc.Start(&wg)
+		}
+
+		err := hub.AddNetwork(agt.Network, mnet)
+		if err != nil {
+			log.Printf("add network to hub failed: %v\n", err)
+		} else {
+			networkCount++
+		}
+	}
+	log.Printf("%v agents added to hub\n\n", networkCount)
+	if networkCount == 0 {
+		return
+	}
 
 	log.Println("startup services:")
 	log.Println("-------------------------------------------------------------------------")
@@ -66,7 +104,7 @@ func main() {
 	svcs := []service.Service{}
 	for i, info := range config.Services {
 		info.SetIndex(i)
-		svc := service.NewService(mnet, info)
+		svc := service.NewService(hub, info)
 		if svc != nil {
 			svcs = append(svcs, svc)
 			log.Printf("%3v %7v %v\n", i, "run", svc.Info())
@@ -78,7 +116,6 @@ func main() {
 	log.Println("-------------------------------------------------------------------------")
 
 	// 开启服务
-	var wg sync.WaitGroup
 	for i, svc := range svcs {
 		err := svc.Start(&wg)
 		if err != nil {
