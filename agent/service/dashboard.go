@@ -11,7 +11,7 @@ import (
 )
 
 type Dashboard struct {
-	mnet          *agent.MixNet
+	hub           *agent.NetHub
 	Listen        string
 	SiteFilePath  string
 	SiteRoutePath string
@@ -26,7 +26,7 @@ func (s *Dashboard) Run() {
 		return
 	}
 
-	l, err := s.mnet.ListenURL(s.Listen)
+	l, err := s.hub.ListenURL(s.Listen)
 	if err != nil {
 		return
 	}

@@ -12,23 +12,23 @@ import (
 )
 
 type Portproxy struct {
-	mnet *agent.MixNet
+	hub  *agent.NetHub
 	info agent.ServiceInfo
 
 	closer       io.Closer
 	listen       string
 	target       string
-	targetDialer agent.Dialer
+	targetDialer agent.QuickDialer
 }
 
-func NewPortproxy(mnet *agent.MixNet, info agent.ServiceInfo) *Portproxy {
+func NewPortproxy(hub *agent.NetHub, info agent.ServiceInfo) *Portproxy {
 	target := info.Param["target"]
-	dialer, err := mnet.URLDialer(target)
+	dialer, err := hub.URLDialer(target)
 	if err != nil {
 		panic(fmt.Sprintf("init portproxy failed, make dialer failed: %v", err))
 	}
 	return &Portproxy{
-		mnet: mnet,
+		hub:  hub,
 		info: info,
 
 		listen:       info.Param["listen"],
@@ -49,7 +49,7 @@ func (p *Portproxy) Start(wg *sync.WaitGroup) error {
 		return errors.New("service disabled")
 	}
 
-	l, err := p.mnet.ListenURL(p.listen)
+	l, err := p.hub.ListenURL(p.listen)
 	if err != nil {
 		return err
 	}

@@ -14,42 +14,108 @@ import (
 	"github.com/net-agent/flex/v2/node"
 )
 
-type MixNet struct {
-	connectFn ConnectFunc
-	node      *node.Node
-	nodeMut   sync.RWMutex
+type QuickDialer func() (net.Conn, error)
+type Network interface {
+	Dial(network, addr string) (net.Conn, error)
+	Listen(network, addr string) (net.Listener, error)
 }
-type ConnectFunc func() (*node.Node, error)
 
-func NewNetwork(connectFn ConnectFunc) *MixNet {
-	return &MixNet{
-		connectFn: connectFn,
+// tcp network wrap
+type tcpnetwork struct {
+}
+
+func (tcp *tcpnetwork) Dial(network, addr string) (net.Conn, error) {
+	return net.Dial(network, addr)
+}
+func (tcp *tcpnetwork) Listen(network, addr string) (net.Listener, error) {
+	return net.Listen(network, addr)
+}
+
+type NetHub struct {
+	nets map[string]Network
+	mut  sync.RWMutex
+}
+
+func NewNetHub() *NetHub {
+	nets := make(map[string]Network)
+	tcp := &tcpnetwork{}
+	nets["tcp"] = tcp
+	nets["tcp4"] = tcp
+	nets["tcp6"] = tcp
+
+	return &NetHub{nets: nets}
+}
+
+// AddNetwork 在hub中增加network
+func (hub *NetHub) AddNetwork(network string, mnet Network) error {
+	if network == "" {
+		return errors.New("invalid network name=''")
 	}
-}
+	hub.mut.Lock()
+	defer hub.mut.Unlock()
 
-func (mnet *MixNet) connect() (*node.Node, error) {
-	if mnet.connectFn == nil {
-		return nil, errors.New("should call SetConnectFunc first")
+	_, found := hub.nets[network]
+	if found {
+		return errors.New("network exists")
 	}
-
-	return mnet.connectFn()
+	hub.nets[network] = mnet
+	return nil
 }
 
-func (mnet *MixNet) DialURL(raw string) (net.Conn, error) {
+// GetNetwork 获取网络
+func (hub *NetHub) GetNetwork(network string) (Network, error) {
+	if network == "" {
+		return nil, errors.New("invalid network name=''")
+	}
+	hub.mut.RLock()
+	defer hub.mut.RUnlock()
+
+	mnet, found := hub.nets[network]
+	if !found {
+		return nil, fmt.Errorf("network='%v' not found", network)
+	}
+	return mnet, nil
+}
+
+// Dial 创建连接
+func (hub *NetHub) Dial(network, addr string) (net.Conn, error) {
+	mnet, err := hub.GetNetwork(network)
+	if err != nil {
+		return nil, err
+	}
+	return mnet.Dial(network, addr)
+}
+
+// URLDialer 对URL进行预处理，在调用时快速创建连接
+func (hub *NetHub) URLDialer(raw string) (QuickDialer, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
 	}
 
-	return mnet.dialu(u)
+	return func() (net.Conn, error) {
+		return hub.dialu(u)
+	}, nil
 }
 
-func (mnet *MixNet) dialu(u *url.URL) (net.Conn, error) {
-	c, err := mnet.Dial(u.Scheme, u.Host)
+// DialURL 直接根据URL信息创建连接
+func (hub *NetHub) DialURL(raw string) (net.Conn, error) {
+	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
 	}
+	return hub.dialu(u)
+}
 
+// dialu 根据url.URL对象信息创建连接
+// - url.Scheme 对应 network
+// - url.Host 对应 address
+// - url.Query 对应其它控制参数，例如：加密、压缩等
+func (hub *NetHub) dialu(u *url.URL) (net.Conn, error) {
+	c, err := hub.Dial(u.Scheme, u.Host)
+	if err != nil {
+		return nil, err
+	}
 	secret := u.Query().Get("secret")
 	if secret == "" {
 		return c, nil
@@ -62,35 +128,31 @@ func (mnet *MixNet) dialu(u *url.URL) (net.Conn, error) {
 	return c, nil
 }
 
-type Dialer func() (net.Conn, error)
+func (hub *NetHub) Listen(network, addr string) (net.Listener, error) {
+	mnet, err := hub.GetNetwork(network)
+	if err != nil {
+		return nil, err
+	}
+	return mnet.Listen(network, addr)
+}
 
-func (mnet *MixNet) URLDialer(raw string) (Dialer, error) {
+func (hub *NetHub) ListenURL(raw string) (net.Listener, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
 	}
 
-	return func() (net.Conn, error) {
-		return mnet.dialu(u)
-	}, nil
-}
-
-func (mnet *MixNet) Dial(network, addr string) (net.Conn, error) {
-	switch network {
-	case "tcp", "tcp4":
-		return net.Dial(network, addr)
-	case "flex":
-		node, err := mnet.GetNode()
-		if err != nil {
-			return nil, err
-		}
-		if node == nil {
-			return nil, errors.New("dial with nil node")
-		}
-		return node.Dial(addr)
-	default:
-		return nil, fmt.Errorf("unknown network: %v", network)
+	l, err := hub.Listen(u.Scheme, u.Host)
+	if err != nil {
+		return nil, err
 	}
+
+	secret := u.Query().Get("secret")
+	if secret == "" {
+		return l, nil
+	}
+
+	return newSecretListener(l, secret), nil
 }
 
 //
@@ -147,50 +209,56 @@ func (l *secretListener) Accept() (net.Conn, error) {
 	return c, nil
 }
 
-func (mnet *MixNet) ListenURL(raw string) (net.Listener, error) {
-	u, err := url.Parse(raw)
+type MixNet struct {
+	connectFn ConnectFunc
+	node      *node.Node
+	nodeMut   sync.RWMutex
+}
+type ConnectFunc func() (*node.Node, error)
+
+func NewNetwork(connectFn ConnectFunc) *MixNet {
+	return &MixNet{
+		connectFn: connectFn,
+	}
+}
+
+func (mnet *MixNet) connect() (*node.Node, error) {
+	if mnet.connectFn == nil {
+		return nil, errors.New("should call SetConnectFunc first")
+	}
+
+	return mnet.connectFn()
+}
+
+func (mnet *MixNet) Dial(network, addr string) (net.Conn, error) {
+	node, err := mnet.GetNode()
 	if err != nil {
 		return nil, err
 	}
-
-	l, err := mnet.Listen(u.Scheme, u.Host)
-	if err != nil {
-		return nil, err
+	if node == nil {
+		return nil, errors.New("dial with nil node")
 	}
-
-	secret := u.Query().Get("secret")
-	if secret == "" {
-		return l, nil
-	}
-
-	return newSecretListener(l, secret), nil
+	return node.Dial(addr)
 }
 
 func (mnet *MixNet) Listen(network, addr string) (net.Listener, error) {
-	switch network {
-	case "tcp", "tcp4":
-		return net.Listen(network, addr)
-	case "flex":
-		_, portStr, err := net.SplitHostPort(addr)
-		if err != nil {
-			return nil, err
-		}
-		port, err := strconv.Atoi(portStr)
-		if err != nil {
-			return nil, err
-		}
-
-		node, err := mnet.GetNode()
-		if err != nil {
-			return nil, err
-		}
-		if node == nil {
-			return nil, errors.New("listen with nil node")
-		}
-		return node.Listen(uint16(port))
-	default:
-		return nil, fmt.Errorf("unknown network: %v", network)
+	_, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
 	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return nil, err
+	}
+
+	node, err := mnet.GetNode()
+	if err != nil {
+		return nil, err
+	}
+	if node == nil {
+		return nil, errors.New("listen with nil node")
+	}
+	return node.Listen(uint16(port))
 }
 
 func (mnet *MixNet) GetNode() (*node.Node, error) {

@@ -17,7 +17,7 @@ const (
 )
 
 type QuickTrust struct {
-	mnet *agent.MixNet
+	hub  *agent.NetHub
 	info agent.ServiceInfo
 
 	closer io.Closer
@@ -25,14 +25,14 @@ type QuickTrust struct {
 	users  map[string]string
 }
 
-func NewQuickTrust(mnet *agent.MixNet, info agent.ServiceInfo) *QuickTrust {
+func NewQuickTrust(hub *agent.NetHub, info agent.ServiceInfo) *QuickTrust {
 	users := make(map[string]string)
 	for k, v := range info.Param {
 		// 这个 dialer 一定是 cipherconn
 		users[k+"/secret"] = v
 	}
 	return &QuickTrust{
-		mnet:   mnet,
+		hub:    hub,
 		info:   info,
 		listen: fmt.Sprintf("flex://0:%v?secret=%v", QuickPort, QuickSecret),
 		users:  users,
@@ -52,7 +52,7 @@ func (s *QuickTrust) Start(wg *sync.WaitGroup) error {
 		return errors.New("service disabled")
 	}
 
-	l, err := s.mnet.ListenURL(s.listen)
+	l, err := s.hub.ListenURL(s.listen)
 	if err != nil {
 		return err
 	}
