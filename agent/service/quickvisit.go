@@ -19,20 +19,47 @@ type PortContext struct {
 	listenAddr string
 	listener   net.Listener
 	target     string
-	agent      string
+	network    string
+	domain     string
 
 	dial  agent.QuickDialer
 	proxy *socks.ProxyInfo
 }
 
-func NewPortContext(svcName, agent, key, val string, dial agent.QuickDialer, proxy *socks.ProxyInfo) (*PortContext, error) {
+func NewPortContext(hub *agent.NetHub, key, val string) (*PortContext, error) {
+	u, err := url.Parse(val)
+	if err != nil {
+		return nil, err
+	}
+
+	network := u.Scheme
+	domain := u.User.Username()
+	vals := url.Values{}
+	vals.Add("secret", QuickSecret)
+	dial, _ := hub.URLDialer(fmt.Sprintf("%v://%v:%v?%v", network, domain, QuickPort, vals.Encode()))
+
+	secret, ok := u.User.Password()
+	if !ok {
+		return nil, errors.New("parse secret failed")
+	}
+	proxy := &socks.ProxyInfo{
+		Network:  "tcp4",
+		Address:  "", // 只用到upgrader，不需要创建连接
+		NeedAuth: true,
+		Username: "", // 由dialer进行进行校验
+		Password: secret,
+	}
+
 	ctx := &PortContext{
-		svcName: svcName,
+		svcName: fmt.Sprintf("quickvisit/%v", key),
+		network: network,
+		domain:  domain,
 		dial:    dial,
 		proxy:   proxy,
-		agent:   agent,
 		target:  val,
 	}
+
+	// 确定实际监听地址（区别：0.0.0.0与localhost）
 	portstr := key
 	isLocal := true
 	if portstr[0] == ':' {
@@ -62,7 +89,7 @@ func (ctx *PortContext) Start(wg *sync.WaitGroup) {
 		return
 	}
 
-	name := fmt.Sprintf("%v, %v >> %v@%v", ctx.svcName, ctx.listenAddr, ctx.target, ctx.agent)
+	name := fmt.Sprintf("%v, %v >> %v@%v/%v", ctx.svcName, ctx.listenAddr, ctx.target, ctx.network, ctx.domain)
 
 	runsvc(name, wg, func() {
 		for {
@@ -75,7 +102,7 @@ func (ctx *PortContext) Start(wg *sync.WaitGroup) {
 				defer c1.Close()
 				c2, err := ctx.dial()
 				if err != nil {
-					log.Printf("[%v] dial '%v' failed: %v\n", ctx.svcName, ctx.agent, err)
+					log.Printf("[%v] dial '%v/%v' failed: %v\n", ctx.svcName, ctx.network, ctx.domain, err)
 					return
 				}
 				defer c2.Close()
@@ -108,49 +135,30 @@ func (ctx *PortContext) Close() error {
 }
 
 type QuickVisit struct {
-	hub    *agent.NetHub
-	info   agent.ServiceInfo
-	ports  []*PortContext
-	agent  string
-	secret string
+	hub   *agent.NetHub
+	info  agent.ServiceInfo
+	ports []*PortContext
 }
 
 func NewQuickVisit(hub *agent.NetHub, info agent.ServiceInfo) *QuickVisit {
-	agent := info.Param["agent"]
-	secret := info.Param["secret"]
-
-	proxy := &socks.ProxyInfo{
-		Network:  "tcp4",
-		Address:  "",
-		NeedAuth: true,
-		Username: "",
-		Password: secret,
-	}
-	vals := url.Values{}
-	vals.Add("secret", QuickSecret)
-	dial, _ := hub.URLDialer(fmt.Sprintf("flex://%v:%v?%v", agent, QuickPort, vals.Encode()))
-
 	ports := make([]*PortContext, 0)
 	for k, v := range info.Param {
-		ctx, err := NewPortContext(info.Name(), agent, k, v, dial, proxy)
+		ctx, err := NewPortContext(hub, k, v)
 		if err == nil {
 			ports = append(ports, ctx)
 		}
 	}
 
 	return &QuickVisit{
-		hub:    hub,
-		info:   info,
-		ports:  ports,
-		agent:  agent,
-		secret: secret,
+		hub:   hub,
+		info:  info,
+		ports: ports,
 	}
 }
 
 func (p *QuickVisit) Info() string {
 	if p.info.Enable {
-		u := fmt.Sprintf("flex://%v:%v", p.agent, QuickPort)
-		return agent.Green(fmt.Sprintf("%11v %24v %24v", p.info.Type, "multi", u))
+		return agent.Green(fmt.Sprintf("%11v %24v %24v", p.info.Type, "enabled", ""))
 	}
 	return agent.Yellow(fmt.Sprintf("%11v %24v", p.info.Type, "disabled"))
 }
