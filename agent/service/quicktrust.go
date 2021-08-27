@@ -3,9 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
-	"io"
-	"log"
-	"sync"
+	"net"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/socks"
@@ -17,59 +15,45 @@ const (
 )
 
 type QuickTrust struct {
-	agent *agent.AgentInfo
-	mnet  agent.Network
-
-	closer  io.Closer
+	hub     *agent.NetHub
 	network string
-	host    string
-	query   string
-	users   map[string]string
+	domains map[string]string
+
+	users    map[string]string
+	svc      socks.Server
+	listener net.Listener
 }
 
-func NewQuickTrust(agt *agent.AgentInfo, mnet agent.Network) *QuickTrust {
+func NewQuickT(hub *agent.NetHub, network string, domains map[string]string) *QuickTrust {
+	return &QuickTrust{
+		hub:     hub,
+		network: network,
+		domains: domains,
+	}
+}
+
+func (s *QuickTrust) Init() error {
+	// 初始化users信息
 	users := make(map[string]string)
-	for k, v := range agt.QuickTrust.WhiteList {
-		// 这个 dialer 一定是 cipherconn
+	for k, v := range s.domains {
 		users[k+"/secret"] = v
 	}
-	return &QuickTrust{
-		agent:   agt,
-		mnet:    mnet,
-		network: agt.Network,
-		host:    fmt.Sprintf("%v:%v", 0, QuickPort),
-		query:   fmt.Sprintf("?secret=%v", QuickSecret),
-		users:   users,
-	}
-}
 
-func (s *QuickTrust) Start(wg *sync.WaitGroup) error {
-	if !s.agent.Enable {
-		return errors.New("service disabled")
-	}
-	name := fmt.Sprintf("%v.trust", s.agent.Network)
-	l, err := agent.ListenURL(s.mnet, fmt.Sprintf("%v://%v%v", s.network, s.host, s.query))
-	if err != nil {
-		return err
-	}
-
+	// 构建socks5 checker
 	errAuthFailed := errors.New("auth failed")
-	checker := socks.PswdAuthChecker(func(u, p string, ctx socks.Context) error {
+	pswdchecker := socks.PswdAuthChecker(func(u, p string, ctx socks.Context) error {
 		conn := ctx.GetConn()
-
-		// 使用 packet.Stream 的 Dialer 接口，获取请求来自于谁
+		// 使用 packet.Stream 的 Dialer 接口，获取请求的真实身份
 		d, ok := conn.(interface{ Dialer() string })
 		if ok {
 			u = d.Dialer()
 		}
 		if u == "" {
-			log.Printf("[%v] empty dialer info\n", name)
 			return errAuthFailed
 		}
 
 		pswd, found := s.users[u]
 		if !found {
-			log.Printf("[%v] user='%v' not found\n", name, u)
 			return errAuthFailed
 		}
 		if pswd != p {
@@ -77,20 +61,37 @@ func (s *QuickTrust) Start(wg *sync.WaitGroup) error {
 		}
 		return nil
 	})
+	s.svc = socks.NewServer()
+	s.svc.SetAuthChecker(pswdchecker)
 
-	svc := socks.NewServer()
-	svc.SetAuthChecker(checker)
-	s.closer = svc
+	// try to listen
+	listenURL := fmt.Sprintf("%v://0:%v?secret=%v", s.network, QuickPort, QuickSecret)
+	l, err := s.hub.ListenURL(listenURL)
+	if err != nil {
+		return err
+	}
+	s.listener = l
 
-	runsvc(name, wg, func() { svc.Run(l) })
+	return nil
+}
+
+func (s *QuickTrust) Start() error {
+	if s.svc == nil || s.listener == nil {
+		return errors.New("init failed")
+	}
+	s.hub.Attach("trust", func(hub *agent.NetHub) {
+		s.svc.Run(s.listener)
+	})
 	return nil
 }
 
 func (s *QuickTrust) Close() error {
-	if !s.agent.QuickTrust.Enable {
-		return nil
+	if s.listener != nil {
+		s.listener.Close()
 	}
-	c := s.closer
-	s.closer = nil
-	return c.Close()
+	if s.svc != nil {
+		s.svc.Close()
+	}
+
+	return nil
 }

@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/url"
 	"sync"
@@ -31,6 +32,8 @@ func (tcp *tcpnetwork) Listen(network, addr string) (net.Listener, error) {
 type NetHub struct {
 	nets map[string]Network
 	mut  sync.RWMutex
+
+	svcWaiter sync.WaitGroup
 }
 
 func NewNetHub() *NetHub {
@@ -41,6 +44,16 @@ func NewNetHub() *NetHub {
 	nets["tcp6"] = tcp
 
 	return &NetHub{nets: nets}
+}
+
+func (hub *NetHub) Attach(name string, fn func(*NetHub)) {
+	hub.svcWaiter.Add(1)
+	log.Printf("[hub] service='%v' is running\n", name)
+	go func() {
+		fn(hub)
+		log.Printf("[hub] service='%v' stopped.\n", name)
+		hub.svcWaiter.Done()
+	}()
 }
 
 // AddNetwork 在hub中增加network

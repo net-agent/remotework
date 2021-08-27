@@ -5,7 +5,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -23,15 +22,13 @@ func init() {
 
 func TestPortproxy(t *testing.T) {
 	addr := "tcp://localhost:9921"
-	p := NewPortproxy(hub, agent.ServiceInfo{
-		Enable: true,
-		Param: map[string]string{
-			"listen": addr,
-			"target": echoAddr,
-		},
-	})
-	var wg sync.WaitGroup
-	err := p.Start(&wg)
+	p := NewPortproxy(hub, addr, echoAddr)
+	err := p.Init()
+	if err != nil {
+		t.Error("init error", err)
+		return
+	}
+	err = p.Start()
 	if err != nil {
 		t.Error("start failed", err)
 		return
@@ -66,8 +63,7 @@ func TestPortproxy(t *testing.T) {
 		return
 	}
 
-	p.closer.Close()
-	wg.Wait()
+	p.Close()
 }
 
 func runEchoServer(addr string) {

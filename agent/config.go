@@ -16,10 +16,24 @@ import (
 )
 
 type Config struct {
-	// Server   ServerInfo    `json:"server"`
-	Agent    AgentInfo     `json:"agent"` // 兼容旧版配置
-	Agents   []AgentInfo   `json:"agents"`
-	Services []ServiceInfo `json:"services"`
+	Agents    []AgentInfo     `json:"agents"`
+	Portproxy []PortproxyInfo `json:"portproxy"`
+	Socks5    []Socks5Info    `json:"socks5"`
+	RDP       []RDPInfo       `json:"rdp"`
+}
+
+func NewConfig(configFileName string) (*Config, error) {
+	cfg := &Config{}
+	var err error
+	switch strings.ToLower(path.Ext(configFileName)) {
+	case ".json":
+		err = utils.LoadJSONFile(configFileName, cfg)
+	case ".toml":
+		err = utils.LoadTomlFile(configFileName, cfg)
+	default:
+		err = fmt.Errorf("config file [%s] not support, must be json or toml", configFileName)
+	}
+	return cfg, err
 }
 
 type ServerInfo struct {
@@ -44,35 +58,6 @@ type AgentInfo struct {
 type Trust struct {
 	Enable    bool              `json:"enable"`
 	WhiteList map[string]string `json:"whiteList"`
-}
-
-type stParam = map[string]string
-type ServiceInfo struct {
-	Enable bool    `json:"enable"` // 是否启用
-	Desc   string  `json:"desc"`   // 描述信息
-	Type   string  `json:"type"`   // 类型
-	Param  stParam `json:"param"`  // 参数
-
-	index int
-}
-
-func (info *ServiceInfo) Name() string {
-	return fmt.Sprintf("%v/%v", info.index, info.Type)
-}
-func (info *ServiceInfo) SetIndex(i int) { info.index = i }
-
-func NewConfig(configFileName string) (*Config, error) {
-	cfg := &Config{}
-	var err error
-	switch strings.ToLower(path.Ext(configFileName)) {
-	case ".json":
-		err = utils.LoadJSONFile(configFileName, cfg)
-	case ".toml":
-		err = utils.LoadTomlFile(configFileName, cfg)
-	default:
-		err = fmt.Errorf("config file [%s] not support, must be json or toml", configFileName)
-	}
-	return cfg, err
 }
 
 func (agent *AgentInfo) GetConnectFn() ConnectFunc {
@@ -140,6 +125,24 @@ func (agent *AgentInfo) getTcpConnectFn(mac string) ConnectFunc {
 		}
 		return node, nil
 	}
+}
+
+type PortproxyInfo struct {
+	ListenURL string `json:"listen"`
+	TargetURL string `json:"target"`
+	LogName   string `json:"log"`
+}
+
+type Socks5Info struct {
+	ListenURL string `json:"listen"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	LogName   string `json:"log"`
+}
+
+type RDPInfo struct {
+	ListenURL string `json:"listen"`
+	LogName   string `json:"log"`
 }
 
 func getMacAddr() ([]string, error) {

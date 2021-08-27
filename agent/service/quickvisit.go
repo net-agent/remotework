@@ -15,21 +15,27 @@ import (
 )
 
 type PortContext struct {
-	svcName    string
-	listenAddr string
-	listener   net.Listener
-	target     string
-	network    string
-	domain     string
+	hub       *agent.NetHub
+	listenURL string
+	targetURL string
 
-	dial  agent.QuickDialer
-	proxy *socks.ProxyInfo
+	listener net.Listener
+	dialer   agent.QuickDialer
+	upgrader *socks.ProxyInfo
 }
 
-func NewPortContext(hub *agent.NetHub, key, val string) (*PortContext, error) {
-	u, err := url.Parse(val)
+func NewPortContext(hub *agent.NetHub, listenURL, targetURL string) *PortContext {
+	return &PortContext{
+		hub:       hub,
+		listenURL: listenURL,
+		targetURL: targetURL,
+	}
+}
+
+func (ctx *PortContext) Init() error {
+	u, err := url.Parse(ctx.targetURL)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	network := u.Scheme

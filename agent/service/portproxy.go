@@ -3,71 +3,63 @@ package service
 import (
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/url"
-	"sync"
 
 	"github.com/net-agent/remotework/agent"
 )
 
 type Portproxy struct {
-	hub  *agent.NetHub
-	info agent.ServiceInfo
+	hub       *agent.NetHub
+	listenURL string
+	targetURL string
+	enableLog bool
 
-	closer        io.Closer
-	listen        string
+	listener net.Listener
+	dialer   agent.QuickDialer
+
 	listenNetwork string
-	target        string
-	targetDialer  agent.QuickDialer
 }
 
-func NewPortproxy(hub *agent.NetHub, info agent.ServiceInfo) *Portproxy {
-	target := info.Param["target"]
-	dialer, err := hub.URLDialer(target)
-	if err != nil {
-		panic(fmt.Sprintf("init portproxy failed, make dialer failed: %v", err))
-	}
-
-	listen := info.Param["listen"]
-	u, err := url.Parse(listen)
-	if err != nil {
-		panic(fmt.Sprintf("parse listen addr failed: %v", err))
-	}
+func NewPortproxy(hub *agent.NetHub, listenURL, targetURL string) *Portproxy {
 	return &Portproxy{
-		hub:  hub,
-		info: info,
-
-		listen:        listen,
-		listenNetwork: u.Scheme,
-		target:        target,
-		targetDialer:  dialer,
+		hub:       hub,
+		listenURL: listenURL,
+		targetURL: targetURL,
 	}
 }
 
-func (p *Portproxy) Info() string {
-	if p.info.Enable {
-		return agent.Green(fmt.Sprintf("%11v %24v %24v", p.info.Type, p.listen, p.target))
-	}
-	return agent.Yellow(fmt.Sprintf("%11v %24v", p.info.Type, "disabled"))
-}
-
-func (p *Portproxy) Start(wg *sync.WaitGroup) error {
-	if !p.info.Enable {
-		return errors.New("service disabled")
-	}
-
-	l, err := p.hub.ListenURL(p.listen)
+func (s *Portproxy) Init() error {
+	dialer, err := s.hub.URLDialer(s.targetURL)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse target url failed: %v", err)
+	}
+	s.dialer = dialer
+
+	u, err := url.Parse(s.listenURL)
+	if err != nil {
+		return fmt.Errorf("parse listen url failed: %v", err)
+	}
+	s.listenNetwork = u.Scheme
+
+	l, err := s.hub.ListenURL(s.listenURL)
+	if err != nil {
+		return fmt.Errorf("listen url failed: %v", err)
+	}
+	s.listener = l
+
+	return nil
+}
+
+func (p *Portproxy) Start() error {
+	if p.dialer == nil || p.listener == nil {
+		return errors.New("init failed")
 	}
 
-	p.closer = l
-
-	runsvc(p.info.Name(), wg, func() {
+	p.hub.Attach("portproxy", func(hub *agent.NetHub) {
 		for {
-			conn, err := l.Accept()
+			conn, err := p.listener.Accept()
 			if err != nil {
 				return
 			}
@@ -78,7 +70,7 @@ func (p *Portproxy) Start(wg *sync.WaitGroup) error {
 }
 
 func (p *Portproxy) Close() error {
-	return p.closer.Close()
+	return p.listener.Close()
 }
 
 func (p *Portproxy) serve(c1 net.Conn) {
@@ -89,14 +81,15 @@ func (p *Portproxy) serve(c1 net.Conn) {
 		dialer = "tcp://" + c1.RemoteAddr().String()
 	}
 
-	c2, err := p.targetDialer()
+	c2, err := p.dialer()
 	if err != nil {
-		log.Printf("[%v] dial listen='%v' failed. %v\n", p.info.Type, p.listen, err)
+		log.Printf("[portproxy] dial error. target=%v, err=%v\n", p.targetURL, err)
 		c1.Close()
 		return
 	}
 
-	log.Printf("[%v] connect, dialer='%v' listen='%v'\n", p.info.Type, dialer, p.listen)
-
+	if p.enableLog {
+		log.Printf("[portproxy] linked. %v > %v > %v\n", dialer, p.listenURL, p.targetURL)
+	}
 	link(c1, c2)
 }
