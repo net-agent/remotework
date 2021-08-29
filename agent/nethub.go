@@ -33,6 +33,7 @@ type NetHub struct {
 	nets map[string]Network
 	mut  sync.RWMutex
 
+	svcs      []Service
 	svcWaiter sync.WaitGroup
 }
 
@@ -46,14 +47,51 @@ func NewNetHub() *NetHub {
 	return &NetHub{nets: nets}
 }
 
-func (hub *NetHub) Attach(name string, fn func(*NetHub)) {
-	hub.svcWaiter.Add(1)
-	log.Printf("[hub] service='%v' is running\n", name)
-	go func() {
-		fn(hub)
-		log.Printf("[hub] service='%v' stopped.\n", name)
-		hub.svcWaiter.Done()
-	}()
+func (hub *NetHub) AddServices(svcs ...Service) {
+	for _, svc := range svcs {
+		err := svc.Init()
+		if err != nil {
+			log.Printf("[hub] service init. name='%v' failed. err=%v\n", svc.Name(), err)
+			continue
+		}
+
+		hub.svcs = append(hub.svcs, svc)
+	}
+}
+
+func (hub *NetHub) StartServices() {
+	for _, svc := range hub.svcs {
+		hub.svcWaiter.Add(1)
+		log.Printf("[hub] service running. name='%v'\n", svc.Name())
+		go func(svc Service) {
+			defer hub.svcWaiter.Done()
+			err := svc.Start()
+			<-time.After(time.Millisecond * 100)
+			log.Printf("[hub] service stopped. name='%v' err=%v\n", svc.Name(), err)
+		}(svc)
+	}
+}
+
+func (hub *NetHub) ServicesRange(fn func(svc Service)) {
+	for _, svc := range hub.svcs {
+		fn(svc)
+	}
+}
+
+func (hub *NetHub) Wait() {
+	hub.svcWaiter.Wait()
+}
+
+func (hub *NetHub) ServiceReport() ([]ReportInfo, error) {
+	if len(hub.svcs) <= 0 {
+		return nil, errors.New("NO SERVICES")
+	}
+
+	var reports []ReportInfo
+	for _, svc := range hub.svcs {
+		reports = append(reports, svc.Report())
+	}
+	return reports, nil
 }
 
 // AddNetwork 在hub中增加network

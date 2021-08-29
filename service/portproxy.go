@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"sync/atomic"
 
 	"github.com/net-agent/remotework/agent"
 )
@@ -14,19 +15,45 @@ type Portproxy struct {
 	hub       *agent.NetHub
 	listenURL string
 	targetURL string
-	enableLog bool
+	logName   string
 
-	listener net.Listener
-	dialer   agent.QuickDialer
+	enableLog bool
+	listener  net.Listener
+	dialer    agent.QuickDialer
 
 	listenNetwork string
+	actives       int32
+	dones         int32
 }
 
-func NewPortproxy(hub *agent.NetHub, listenURL, targetURL string) *Portproxy {
+func NewPortproxy(hub *agent.NetHub, listenURL, targetURL, logName string) *Portproxy {
 	return &Portproxy{
 		hub:       hub,
 		listenURL: listenURL,
 		targetURL: targetURL,
+		logName:   logName,
+	}
+}
+
+func NewRDP(hub *agent.NetHub, listenURL, logName string) *Portproxy {
+	return NewPortproxy(hub, listenURL, fmt.Sprintf("tcp://localhost:%v", rdpPortNumber()), logName)
+}
+
+func (s *Portproxy) Name() string {
+	if s.logName != "" {
+		return s.logName
+	}
+	return "portp"
+}
+
+func (s *Portproxy) Report() agent.ReportInfo {
+	return agent.ReportInfo{
+		Name:    s.Name(),
+		State:   "uninit",
+		Listen:  s.listenURL,
+		Target:  s.targetURL,
+		Actives: s.actives,
+		Dones:   s.dones,
 	}
 }
 
@@ -49,6 +76,8 @@ func (s *Portproxy) Init() error {
 	}
 	s.listener = l
 
+	s.enableLog = s.logName != ""
+
 	return nil
 }
 
@@ -57,16 +86,13 @@ func (p *Portproxy) Start() error {
 		return errors.New("init failed")
 	}
 
-	p.hub.Attach("portproxy", func(hub *agent.NetHub) {
-		for {
-			conn, err := p.listener.Accept()
-			if err != nil {
-				return
-			}
-			go p.serve(conn)
+	for {
+		conn, err := p.listener.Accept()
+		if err != nil {
+			return err
 		}
-	})
-	return nil
+		go p.serve(conn)
+	}
 }
 
 func (p *Portproxy) Close() error {
@@ -74,6 +100,13 @@ func (p *Portproxy) Close() error {
 }
 
 func (p *Portproxy) serve(c1 net.Conn) {
+	atomic.AddInt32(&p.actives, 1)
+	defer func() {
+		c1.Close()
+		atomic.AddInt32(&p.actives, -1)
+		atomic.AddInt32(&p.dones, 1)
+	}()
+
 	var dialer string
 	if s, ok := c1.(interface{ Dialer() string }); ok {
 		dialer = p.listenNetwork + "://" + s.Dialer()
@@ -83,13 +116,12 @@ func (p *Portproxy) serve(c1 net.Conn) {
 
 	c2, err := p.dialer()
 	if err != nil {
-		log.Printf("[portproxy] dial error. target=%v, err=%v\n", p.targetURL, err)
-		c1.Close()
+		log.Printf("[%v] dial error. target=%v, err=%v\n", p.logName, p.targetURL, err)
 		return
 	}
 
 	if p.enableLog {
-		log.Printf("[portproxy] linked. %v > %v > %v\n", dialer, p.listenURL, p.targetURL)
+		log.Printf("[%v] linked. %v > %v > %v\n", p.logName, dialer, p.listenURL, p.targetURL)
 	}
 	link(c1, c2)
 }

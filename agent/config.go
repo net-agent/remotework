@@ -16,10 +16,11 @@ import (
 )
 
 type Config struct {
-	Agents    []AgentInfo     `json:"agents"`
-	Portproxy []PortproxyInfo `json:"portproxy"`
-	Socks5    []Socks5Info    `json:"socks5"`
-	RDP       []RDPInfo       `json:"rdp"`
+	Agents    []AgentInfo      `json:"agents"`
+	Portproxy []PortproxyInfo  `json:"portproxy"`
+	Socks5    []Socks5Info     `json:"socks5"`
+	RDP       []RDPInfo        `json:"rdp"`
+	Visit     []QuickVisitInfo `json:"visit"`
 }
 
 func NewConfig(configFileName string) (*Config, error) {
@@ -49,6 +50,7 @@ type AgentInfo struct {
 	Address    string `json:"address"`  // 服务端地址
 	Password   string `json:"password"` // 连接服务的密码
 	Domain     string `json:"domain"`   // 独立域名（不能重复）
+	URL        string `json:"url"`      // <Network>://<Domain>:<Password>@<Address>
 	WsEnable   bool   `json:"wsEnable"` // 是否为Websocket服务
 	Wss        bool   `json:"wss"`      // 是否为wss协议
 	WsPath     string `json:"wsPath"`   // Websocket路径
@@ -137,6 +139,12 @@ type Socks5Info struct {
 	ListenURL string `json:"listen"`
 	Username  string `json:"username"`
 	Password  string `json:"password"`
+	LogName   string `json:"log"`
+}
+
+type QuickVisitInfo struct {
+	ListenURL string `json:"listen"`
+	TargetURL string `json:"target"`
 	LogName   string `json:"log"`
 }
 

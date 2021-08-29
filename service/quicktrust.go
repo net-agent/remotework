@@ -18,17 +18,39 @@ type QuickTrust struct {
 	hub     *agent.NetHub
 	network string
 	domains map[string]string
+	logName string
 
 	users    map[string]string
 	svc      socks.Server
 	listener net.Listener
+
+	actives int32
+	dones   int32
 }
 
-func NewQuickT(hub *agent.NetHub, network string, domains map[string]string) *QuickTrust {
+func NewQuickTrust(hub *agent.NetHub, network string, domains map[string]string, logName string) *QuickTrust {
 	return &QuickTrust{
 		hub:     hub,
 		network: network,
 		domains: domains,
+		logName: logName,
+	}
+}
+
+func (s *QuickTrust) Name() string {
+	if s.logName != "" {
+		return s.logName
+	}
+	return "trust"
+}
+func (s *QuickTrust) Report() agent.ReportInfo {
+	return agent.ReportInfo{
+		Name:    s.Name(),
+		State:   "uninit",
+		Listen:  "-",
+		Target:  "-",
+		Actives: s.actives,
+		Dones:   s.dones,
 	}
 }
 
@@ -79,10 +101,7 @@ func (s *QuickTrust) Start() error {
 	if s.svc == nil || s.listener == nil {
 		return errors.New("init failed")
 	}
-	s.hub.Attach("trust", func(hub *agent.NetHub) {
-		s.svc.Run(s.listener)
-	})
-	return nil
+	return s.svc.Run(s.listener)
 }
 
 func (s *QuickTrust) Close() error {
