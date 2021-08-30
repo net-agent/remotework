@@ -3,10 +3,8 @@ package service
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/url"
-	"sync/atomic"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/socks"
@@ -23,8 +21,7 @@ type QuickVisit struct {
 	upgrader   *socks.ProxyInfo
 	targetAddr string
 
-	actives int32
-	dones   int32
+	dphub *DataPorterHub
 }
 
 func NewQuickVisit(hub *agent.NetHub, listenURL, targetURL, logName string) *QuickVisit {
@@ -41,8 +38,8 @@ func (s *QuickVisit) Report() agent.ReportInfo {
 		State:   "uninit",
 		Listen:  s.listenURL,
 		Target:  s.targetURL,
-		Actives: s.actives,
-		Dones:   s.dones,
+		Actives: s.dphub.NumActives(),
+		Dones:   s.dphub.NumDones(),
 	}
 }
 
@@ -86,6 +83,7 @@ func (ctx *QuickVisit) Init() error {
 		return err
 	}
 
+	ctx.dphub = NewDataPorterHub(ctx.Name())
 	return nil
 }
 
@@ -105,11 +103,10 @@ func (ctx *QuickVisit) Start() error {
 }
 
 func (ctx *QuickVisit) serve(c1 net.Conn) {
-	atomic.AddInt32(&ctx.actives, 1)
+	porter := ctx.dphub.NewPorter(c1)
 	defer func() {
 		c1.Close()
-		atomic.AddInt32(&ctx.actives, -1)
-		atomic.AddInt32(&ctx.dones, 1)
+		ctx.dphub.DonePorter(porter)
 	}()
 
 	// connect to network/domain
@@ -125,19 +122,7 @@ func (ctx *QuickVisit) serve(c1 net.Conn) {
 		return
 	}
 
-	link(c1, c2)
-}
-
-func link(c1, c2 net.Conn) {
-	go func() {
-		io.Copy(c1, c2)
-		c1.Close()
-		c2.Close()
-	}()
-
-	io.Copy(c2, c1)
-	c1.Close()
-	c2.Close()
+	porter.LinkDist(c2)
 }
 
 func (ctx *QuickVisit) Close() error {

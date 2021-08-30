@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"net/url"
-	"sync/atomic"
 
 	"github.com/net-agent/remotework/agent"
 )
@@ -22,8 +21,7 @@ type Portproxy struct {
 	dialer    agent.QuickDialer
 
 	listenNetwork string
-	actives       int32
-	dones         int32
+	dphub         *DataPorterHub
 }
 
 func NewPortproxy(hub *agent.NetHub, listenURL, targetURL, logName string) *Portproxy {
@@ -52,8 +50,8 @@ func (s *Portproxy) Report() agent.ReportInfo {
 		State:   "uninit",
 		Listen:  s.listenURL,
 		Target:  s.targetURL,
-		Actives: s.actives,
-		Dones:   s.dones,
+		Actives: s.dphub.NumActives(),
+		Dones:   s.dphub.NumDones(),
 	}
 }
 
@@ -78,6 +76,8 @@ func (s *Portproxy) Init() error {
 
 	s.enableLog = s.logName != ""
 
+	s.dphub = NewDataPorterHub(s.Name())
+
 	return nil
 }
 
@@ -100,11 +100,10 @@ func (p *Portproxy) Close() error {
 }
 
 func (p *Portproxy) serve(c1 net.Conn) {
-	atomic.AddInt32(&p.actives, 1)
+	porter := p.dphub.NewPorter(c1)
 	defer func() {
 		c1.Close()
-		atomic.AddInt32(&p.actives, -1)
-		atomic.AddInt32(&p.dones, 1)
+		p.dphub.DonePorter(porter)
 	}()
 
 	var dialer string
@@ -123,5 +122,6 @@ func (p *Portproxy) serve(c1 net.Conn) {
 	if p.enableLog {
 		log.Printf("[%v] linked. %v > %v > %v\n", p.logName, dialer, p.listenURL, p.targetURL)
 	}
-	link(c1, c2)
+
+	porter.LinkDist(c2)
 }

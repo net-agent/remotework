@@ -23,9 +23,6 @@ type QuickTrust struct {
 	users    map[string]string
 	svc      socks.Server
 	listener net.Listener
-
-	actives int32
-	dones   int32
 }
 
 func NewQuickTrust(hub *agent.NetHub, network string, domains map[string]string, logName string) *QuickTrust {
@@ -49,8 +46,8 @@ func (s *QuickTrust) Report() agent.ReportInfo {
 		State:   "uninit",
 		Listen:  "-",
 		Target:  "-",
-		Actives: s.actives,
-		Dones:   s.dones,
+		Actives: 0,
+		Dones:   0,
 	}
 }
 
