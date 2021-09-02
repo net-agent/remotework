@@ -125,6 +125,10 @@ func (hub *NetHub) GetNetwork(network string) (Network, error) {
 	return mnet, nil
 }
 
+func (hub *NetHub) NetworkReport() (interface{}, error) {
+	return "not implements", nil
+}
+
 // Dial 创建连接
 func (hub *NetHub) Dial(network, addr string) (net.Conn, error) {
 	mnet, err := hub.GetNetwork(network)
