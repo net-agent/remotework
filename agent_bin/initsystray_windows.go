@@ -9,6 +9,8 @@ import (
 )
 
 func initSysTray(hub *agent.NetHub) {
+	log.Println("net hub is working, click systray to get more infos.")
+
 	addClickListener := func(btn *systray.MenuItem, fn func()) {
 		for range btn.ClickedCh {
 			fn()

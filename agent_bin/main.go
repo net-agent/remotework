@@ -22,7 +22,6 @@ func main() {
 	initSysTray(hub)
 	defer systray.Quit()
 
-	log.Println("net hub is working, click systray to get more infos.")
 	hub.Wait()
 	log.Println("main process exit.")
 }
