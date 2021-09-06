@@ -9,3 +9,4 @@ import (
 func initSysTray(hub *agent.NetHub) {
 	log.Println("systray not support")
 }
+func releaseSysTray() {}

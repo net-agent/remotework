@@ -12,7 +12,7 @@ func initAgents(hub *agent.NetHub, agents []agent.AgentInfo) {
 	runcount := 0
 	for _, info := range agents {
 
-		mnet := agent.NewNetwork(info.GetConnectFn())
+		mnet := agent.NewNetwork(info)
 		ch := make(chan struct{}, 2)
 		go mnet.KeepAlive(ch)
 		<-ch

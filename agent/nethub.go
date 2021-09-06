@@ -6,20 +6,19 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/net-agent/cipherconn"
+	"github.com/olekukonko/tablewriter"
 )
-
-type QuickDialer func() (net.Conn, error)
-type Network interface {
-	Dial(network, addr string) (net.Conn, error)
-	Listen(network, addr string) (net.Listener, error)
-}
 
 // tcp network wrap
 type tcpnetwork struct {
+	Type    string
+	Listens int32
+	Dials   int32
 }
 
 func (tcp *tcpnetwork) Dial(network, addr string) (net.Conn, error) {
@@ -27,6 +26,11 @@ func (tcp *tcpnetwork) Dial(network, addr string) (net.Conn, error) {
 }
 func (tcp *tcpnetwork) Listen(network, addr string) (net.Listener, error) {
 	return net.Listen(network, addr)
+}
+func (tcp *tcpnetwork) Report() NodeReport {
+	return NodeReport{
+		Type: tcp.Type,
+	}
 }
 
 type NetHub struct {
@@ -39,10 +43,9 @@ type NetHub struct {
 
 func NewNetHub() *NetHub {
 	nets := make(map[string]Network)
-	tcp := &tcpnetwork{}
-	nets["tcp"] = tcp
-	nets["tcp4"] = tcp
-	nets["tcp6"] = tcp
+	nets["tcp"] = &tcpnetwork{"tcp", 0, 0}
+	nets["tcp4"] = &tcpnetwork{"tcp4", 0, 0}
+	nets["tcp6"] = &tcpnetwork{"tcp6", 0, 0}
 
 	return &NetHub{nets: nets}
 }
@@ -92,6 +95,62 @@ func (hub *NetHub) ServiceReport() ([]ReportInfo, error) {
 		reports = append(reports, svc.Report())
 	}
 	return reports, nil
+}
+func (hub *NetHub) ServiceReportAscii(out *os.File) {
+	reports, err := hub.ServiceReport()
+	if err != nil {
+		out.WriteString(fmt.Sprintf("ServiceReprotAscii failed: %v\n", err))
+		return
+	}
+
+	table := tablewriter.NewWriter(out)
+	table.SetHeader([]string{"index", "name", "state", "listen", "target", "actives", "dones"})
+	for index, info := range reports {
+		table.Append([]string{
+			fmt.Sprintf("%v", index),
+			info.Name,
+			info.State,
+			info.Listen,
+			info.Target,
+			fmt.Sprintf("%v", info.Actives),
+			fmt.Sprintf("%v", info.Dones),
+		})
+	}
+	table.Render()
+}
+
+func (hub *NetHub) NetworkReport() ([]NodeReport, error) {
+	if len(hub.nets) <= 0 {
+		return nil, errors.New("NO NETWORKS")
+	}
+
+	var reports []NodeReport
+	for _, nt := range hub.nets {
+		reports = append(reports, nt.Report())
+	}
+	return reports, nil
+}
+
+func (hub *NetHub) NetworkReportAscii(out *os.File) {
+	reports, err := hub.NetworkReport()
+	if err != nil {
+		out.WriteString(fmt.Sprintf("NetworkReportAscii failed: %v\n", err))
+		return
+	}
+
+	table := tablewriter.NewWriter(out)
+	table.SetHeader([]string{"index", "type", "addr", "domain", "lsn", "dial"})
+	for index, info := range reports {
+		table.Append([]string{
+			fmt.Sprintf("%v", index),
+			info.Type,
+			info.Address,
+			info.Domain,
+			fmt.Sprintf("%v", info.Listens),
+			fmt.Sprintf("%v", info.Dials),
+		})
+	}
+	table.Render()
 }
 
 // AddNetwork 在hub中增加network
@@ -188,7 +247,9 @@ func (hub *NetHub) ListenURL(raw string) (net.Listener, error) {
 	return ListenURL(hub, raw)
 }
 
-func ListenURL(network Network, raw string) (net.Listener, error) {
+func ListenURL(network interface {
+	Listen(network, addr string) (net.Listener, error)
+}, raw string) (net.Listener, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err

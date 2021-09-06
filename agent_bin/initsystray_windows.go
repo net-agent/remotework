@@ -7,6 +7,9 @@ import (
 	"github.com/getlantern/systray"
 	"github.com/net-agent/remotework/agent"
 )
+func releaseSysTray() {
+	systray.Quit()
+}
 
 func initSysTray(hub *agent.NetHub) {
 	log.Println("net hub is working, click systray to get more infos.")
@@ -22,16 +25,14 @@ func initSysTray(hub *agent.NetHub) {
 		systray.SetTitle("init systray title")
 		systray.SetTooltip("Make remotework easy again!")
 
-		systray.AddMenuItem("查看虚拟网络状态", "list all services")
+		btnNetwork := systray.AddMenuItem("查看虚拟网络状态", "list all services")
+		go addClickListener(btnNetwork, func() {
+			hub.NetworkReportAscii(os.Stdout)
+		})
 
 		btnReport := systray.AddMenuItem("服务状态打印", "report hub states")
 		go addClickListener(btnReport, func() {
-			reports, err := hub.ServiceReport()
-			if err != nil {
-				log.Printf("make services report failed: %v\n", err)
-				return
-			}
-			agent.PrintReportInfos(os.Stdout, reports)
+			hub.ServiceReportAscii(os.Stdout)
 		})
 
 		btnServices := systray.AddMenuItem("服务列表明细", "list all services")

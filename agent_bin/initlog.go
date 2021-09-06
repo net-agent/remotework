@@ -18,8 +18,8 @@ func initLogOutput() (f *os.File, shouldClose bool) {
 		}
 	}
 
-	log.SetOutput(os.Stdout)
-	return os.Stdout, false
+	// log.SetOutput(os.Stderr)
+	return os.Stderr, false
 }
 
 func FileExist(name string) bool {

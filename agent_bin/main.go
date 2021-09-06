@@ -2,8 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
 
-	"github.com/getlantern/systray"
 	"github.com/net-agent/remotework/agent"
 )
 
@@ -20,7 +20,11 @@ func main() {
 	initAgents(hub, config.Agents)
 	initServices(hub, config)
 	initSysTray(hub)
-	defer systray.Quit()
+	defer releaseSysTray()
+
+	// 打印状态
+	hub.NetworkReportAscii(os.Stdout)
+	hub.ServiceReportAscii(os.Stdout)
 
 	hub.Wait()
 	log.Println("main process exit.")

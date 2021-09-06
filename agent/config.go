@@ -89,8 +89,11 @@ func (agent *AgentInfo) getWsConnectFn(mac string) ConnectFunc {
 		log.Printf("connect to '%v'\n", wsurl)
 		c, _, err := websocket.DefaultDialer.Dial(wsurl, nil)
 		if err != nil {
+			log.Printf("connect to '%v' failed.\n", wsurl)
 			return nil, err
 		}
+		log.Printf("connect to '%v' success.\n", wsurl)
+
 		pc := packet.NewWithWs(c)
 		node, err := switcher.UpgradeToNode(
 			pc,
@@ -99,9 +102,11 @@ func (agent *AgentInfo) getWsConnectFn(mac string) ConnectFunc {
 			agent.Password,
 		)
 		if err != nil {
+			log.Printf("upgrade as '%v' failed. err=%v\n", agent.Domain, err)
 			c.Close()
 			return nil, err
 		}
+		log.Printf("upgrade as '%v' success.\n", agent.Domain)
 		return node, nil
 	}
 }
@@ -112,8 +117,11 @@ func (agent *AgentInfo) getTcpConnectFn(mac string) ConnectFunc {
 		log.Printf("connect to '%v'\n", agent.Address)
 		c, err := net.Dial("tcp4", agent.Address)
 		if err != nil {
+			log.Printf("connect to '%v' failed.\n", agent.Address)
 			return nil, err
 		}
+		log.Printf("connect to '%v' success.\n", agent.Address)
+
 		pc := packet.NewWithConn(c)
 		node, err := switcher.UpgradeToNode(
 			pc,
@@ -122,9 +130,11 @@ func (agent *AgentInfo) getTcpConnectFn(mac string) ConnectFunc {
 			agent.Password,
 		)
 		if err != nil {
+			log.Printf("upgrade as '%v' failed. err=%v\n", agent.Domain, err)
 			c.Close()
 			return nil, err
 		}
+		log.Printf("upgrade as '%v' success.\n", agent.Domain)
 		return node, nil
 	}
 }
