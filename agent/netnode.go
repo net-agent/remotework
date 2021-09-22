@@ -81,14 +81,6 @@ func (mnet *NetNode) Report() NodeReport {
 	}
 }
 
-func (mnet *NetNode) connect() (*node.Node, error) {
-	if mnet.connectFn == nil {
-		return nil, errors.New("should call SetConnectFunc first")
-	}
-
-	return mnet.connectFn()
-}
-
 func (mnet *NetNode) Dial(network, addr string) (net.Conn, error) {
 	node, err := mnet.GetNode()
 	if err != nil {
@@ -121,16 +113,30 @@ func (mnet *NetNode) Listen(network, addr string) (net.Listener, error) {
 }
 
 func (mnet *NetNode) GetNode() (*node.Node, error) {
-	mnet.nodeMut.RLock()
-	defer mnet.nodeMut.RUnlock()
+	mnet.nodeMut.Lock()
+	defer mnet.nodeMut.Unlock()
 
-	if mnet.node == nil {
-		if mnet.connectFn == nil {
-			return nil, errors.New("need call SetConnectFunc first")
-		}
+	if mnet.node != nil {
+		return mnet.node, nil
 	}
 
+	if mnet.connectFn == nil {
+		return nil, errors.New("need call SetConnectFunc first")
+	}
+
+	node, err := mnet.connectFn()
+	if err != nil {
+		return nil, err
+	}
+
+	mnet.node = node
 	return mnet.node, nil
+}
+
+func (mnet *NetNode) ResetNode() {
+	mnet.nodeMut.Lock()
+	defer mnet.nodeMut.Unlock()
+	mnet.node = nil
 }
 
 func (mnet *NetNode) SetConnectFunc(fn ConnectFunc) {
@@ -139,51 +145,37 @@ func (mnet *NetNode) SetConnectFunc(fn ConnectFunc) {
 
 func (mnet *NetNode) KeepAlive(evch chan struct{}) {
 	dur := time.Second * 0
+	minWaitDur := 3 * time.Second
+	maxWaitDur := 1 * time.Minute
+	minRunDur := 30 * time.Second // 至少执行30秒
+	durStep := 3 * time.Second
+
 	for {
-		if dur > time.Minute {
-			dur = time.Minute
-		}
-		if dur > time.Millisecond {
-			log.Printf("connect to server after %v\n\n", dur)
-			<-time.After(dur)
-		}
-
-		var wg sync.WaitGroup
-
-		mnet.nodeMut.Lock()
-		node, err := mnet.connect()
-		if err == nil && node != nil {
-			mnet.node = node
-			wg.Add(1)
-			go func() {
-				select {
-				case evch <- struct{}{}:
-				default:
-				}
-				node.Run()
-				mnet.node = nil
-				wg.Done()
-			}()
-		}
-		mnet.nodeMut.Unlock()
-
-		// 如果发生错误，打印错误，然后增加3秒停顿时间
+		node, err := mnet.GetNode()
 		if err != nil {
-			dur += time.Second * 3
+			// 如果发生错误，打印错误，然后增加3秒停顿时间
+			dur += durStep
 			log.Printf("connect failed: %v\n", err)
-			continue
+		} else {
+			select {
+			case evch <- struct{}{}:
+			default:
+			}
+
+			// 等待node.Run返回，并根据执行时间判断停顿时长
+			start := time.Now()
+			node.Run()
+			mnet.ResetNode()
+			dur = minRunDur - time.Since(start)
 		}
 
-		// 等待node.Run返回，并根据执行时间判断停顿时长
-		start := time.Now()
-		wg.Wait()
-		mnet.node = nil
-		runDur := time.Since(start)
-		if runDur > time.Second*27 {
-			dur = time.Second * 3
-		} else {
-			// 确保至少30秒连接一次服务器。执行时间不足30秒的，需要等待
-			dur = (time.Second * 30) - runDur
+		if dur < minWaitDur {
+			dur = minWaitDur
+		} else if dur > maxWaitDur {
+			dur = maxWaitDur
 		}
+
+		log.Printf("connect to server after %v\n", dur)
+		<-time.After(dur)
 	}
 }
