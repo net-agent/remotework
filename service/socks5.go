@@ -2,7 +2,9 @@ package service
 
 import (
 	"errors"
+	"log"
 	"net"
+	"net/url"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/socks"
@@ -15,8 +17,9 @@ type Socks5 struct {
 	password  string
 	logName   string
 
-	listener net.Listener
-	server   socks.Server
+	listener      net.Listener
+	listenNetwork string
+	server        socks.Server
 }
 
 func NewSocks5(hub *agent.NetHub, listenURL, username, password, logName string) *Socks5 {
@@ -35,6 +38,7 @@ func (s *Socks5) Name() string {
 	}
 	return "sock5"
 }
+func (s *Socks5) Network() string { return s.listenNetwork }
 
 func (s *Socks5) Report() agent.ReportInfo {
 	return agent.ReportInfo{
@@ -47,13 +51,30 @@ func (s *Socks5) Report() agent.ReportInfo {
 }
 
 func (s *Socks5) Init() error {
-	var err error
-	s.listener, err = s.hub.ListenURL(s.listenURL)
+	s.server = socks.NewPswdServer(s.username, s.password)
+
+	u, err := url.Parse(s.listenURL)
 	if err != nil {
 		return err
 	}
+	s.listenNetwork = u.Scheme
 
-	s.server = socks.NewPswdServer(s.username, s.password)
+	if err := s.Update(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Socks5) Update() error {
+	l, err := s.hub.ListenURL(s.listenURL)
+	if err != nil {
+		return err
+	}
+	if s.listener != nil {
+		s.listener.Close()
+	}
+	s.listener = l
 
 	return nil
 }
@@ -63,7 +84,18 @@ func (s *Socks5) Start() error {
 		return errors.New("init failed")
 	}
 
-	return s.server.Run(s.listener)
+	l := s.listener
+	for {
+		err := s.server.Run(l)
+
+		if l != s.listener && s.listener != nil {
+			log.Printf("[%v] listener updated\n", s.logName)
+			l = s.listener
+			continue
+		}
+
+		return err
+	}
 }
 
 func (s *Socks5) Close() error {

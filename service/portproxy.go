@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"sync"
 	"sync/atomic"
 
 	"github.com/net-agent/remotework/agent"
@@ -20,6 +21,7 @@ type Portproxy struct {
 	enableLog bool
 	listener  net.Listener
 	dialer    agent.QuickDialer
+	mut       sync.Mutex
 
 	listenNetwork string
 	actives       int32
@@ -46,6 +48,8 @@ func (s *Portproxy) Name() string {
 	return "portp"
 }
 
+func (s *Portproxy) Network() string { return s.listenNetwork }
+
 func (s *Portproxy) Report() agent.ReportInfo {
 	return agent.ReportInfo{
 		Name:    s.Name(),
@@ -70,15 +74,38 @@ func (s *Portproxy) Init() error {
 	}
 	s.listenNetwork = u.Scheme
 
-	l, err := s.hub.ListenURL(s.listenURL)
-	if err != nil {
-		return fmt.Errorf("listen url failed: %v", err)
+	if err = s.Update(); err != nil {
+		return err
 	}
-	s.listener = l
 
 	s.enableLog = s.logName != ""
 
 	return nil
+}
+
+func (s *Portproxy) Update() error {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	l, err := s.hub.ListenURL(s.listenURL)
+	if err != nil {
+		return fmt.Errorf("listen url failed: %v", err)
+	}
+
+	// close old listener
+	if s.listener != nil {
+		s.listener.Close()
+	}
+	s.listener = l
+
+	return nil
+}
+
+func (s *Portproxy) getlistener() net.Listener {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	return s.listener
 }
 
 func (p *Portproxy) Start() error {
@@ -86,11 +113,22 @@ func (p *Portproxy) Start() error {
 		return errors.New("init failed")
 	}
 
+	l := p.getlistener()
+
 	for {
-		conn, err := p.listener.Accept()
+		conn, err := l.Accept()
 		if err != nil {
+			if l != p.getlistener() {
+				// 如果出现错误，并且listener更新了，则切换listener，然后继续服务
+				l = p.getlistener()
+				if l != nil {
+					log.Printf("[%v] listener updated\n", p.logName)
+					continue
+				}
+			}
 			return err
 		}
+
 		go p.serve(conn)
 	}
 }
