@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/url"
+	"sync"
 	"sync/atomic"
 
 	"github.com/net-agent/remotework/agent"
@@ -22,6 +24,7 @@ type QuickVisit struct {
 	dialer     agent.QuickDialer
 	upgrader   *socks.ProxyInfo
 	targetAddr string
+	mut        sync.Mutex
 
 	actives int32
 	dones   int32
@@ -52,6 +55,7 @@ func (s *QuickVisit) Name() string {
 	}
 	return "portp"
 }
+func (s *QuickVisit) Network() string { return "tcp4" }
 
 func (ctx *QuickVisit) Init() error {
 	// init network domain dialer
@@ -81,12 +85,31 @@ func (ctx *QuickVisit) Init() error {
 	}
 
 	// init listener
-	ctx.listener, err = ctx.hub.ListenURL(ctx.listenURL)
-	if err != nil {
+	if err = ctx.Update(); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (ctx *QuickVisit) Update() error {
+	ctx.mut.Lock()
+	defer ctx.mut.Unlock()
+
+	l, err := ctx.hub.ListenURL(ctx.listenURL)
+	if err != nil {
+		return err
+	}
+	if ctx.listener != nil {
+		ctx.listener.Close()
+	}
+	ctx.listener = l
+	return nil
+}
+func (ctx *QuickVisit) getlistener() net.Listener {
+	ctx.mut.Lock()
+	defer ctx.mut.Unlock()
+	return ctx.listener
 }
 
 func (ctx *QuickVisit) Start() error {
@@ -94,9 +117,17 @@ func (ctx *QuickVisit) Start() error {
 		return errors.New("init failed")
 	}
 
+	l := ctx.getlistener()
 	for {
-		c1, err := ctx.listener.Accept()
+		c1, err := l.Accept()
 		if err != nil {
+			if l != ctx.getlistener() {
+				l = ctx.getlistener()
+				if l != nil {
+					log.Printf("[%v] listener updated\n", ctx.logName)
+					continue
+				}
+			}
 			return err
 		}
 

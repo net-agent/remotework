@@ -3,7 +3,9 @@ package service
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net"
+	"sync"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/socks"
@@ -23,6 +25,7 @@ type QuickTrust struct {
 	users    map[string]string
 	svc      socks.Server
 	listener net.Listener
+	mut      sync.Mutex
 
 	actives int32
 	dones   int32
@@ -43,6 +46,7 @@ func (s *QuickTrust) Name() string {
 	}
 	return "trust"
 }
+func (s *QuickTrust) Network() string { return s.network }
 func (s *QuickTrust) Report() agent.ReportInfo {
 	return agent.ReportInfo{
 		Name:    s.Name(),
@@ -87,10 +91,24 @@ func (s *QuickTrust) Init() error {
 	s.svc.SetAuthChecker(pswdchecker)
 
 	// try to listen
+	if err := s.Update(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *QuickTrust) Update() error {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
 	listenURL := fmt.Sprintf("%v://0:%v?secret=%v", s.network, QuickPort, QuickSecret)
 	l, err := s.hub.ListenURL(listenURL)
 	if err != nil {
 		return err
+	}
+	if s.listener != nil {
+		s.listener.Close()
 	}
 	s.listener = l
 
@@ -101,7 +119,18 @@ func (s *QuickTrust) Start() error {
 	if s.svc == nil || s.listener == nil {
 		return errors.New("init failed")
 	}
-	return s.svc.Run(s.listener)
+	l := s.listener
+	for {
+		err := s.svc.Run(l)
+
+		if l != s.listener && s.listener != nil {
+			log.Printf("[%v] listener updated\n", s.logName)
+			l = s.listener
+			continue
+		}
+
+		return err
+	}
 }
 
 func (s *QuickTrust) Close() error {

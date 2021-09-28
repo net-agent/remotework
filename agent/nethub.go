@@ -50,6 +50,15 @@ func NewNetHub() *NetHub {
 	return &NetHub{nets: nets}
 }
 
+func (hub *NetHub) TriggerNetworkUpdate(network string) {
+	log.Printf("[hub] network='%v' updated.\n", network)
+	for _, svc := range hub.svcs {
+		if svc.Network() == network {
+			go svc.Update()
+		}
+	}
+}
+
 func (hub *NetHub) AddServices(svcs ...Service) {
 	for _, svc := range svcs {
 		err := svc.Init()
