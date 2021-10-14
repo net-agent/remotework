@@ -2,9 +2,11 @@ package service
 
 import (
 	"errors"
+	"io"
 	"log"
 	"net"
 	"net/url"
+	"sync/atomic"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/socks"
@@ -20,6 +22,9 @@ type Socks5 struct {
 	listener      net.Listener
 	listenNetwork string
 	server        socks.Server
+
+	actives int32
+	dones   int32
 }
 
 func NewSocks5(hub *agent.NetHub, listenURL, username, password, logName string) *Socks5 {
@@ -46,12 +51,21 @@ func (s *Socks5) Report() agent.ReportInfo {
 		State:   "uninit",
 		Listen:  s.listenURL,
 		Target:  "-",
-		Actives: 0,
+		Actives: s.actives,
+		Dones:   s.dones,
 	}
 }
 
 func (s *Socks5) Init() error {
 	s.server = socks.NewPswdServer(s.username, s.password)
+	s.server.SetConnLinker(func(a, b io.ReadWriteCloser) (a2b int64, b2a int64, err error) {
+		atomic.AddInt32(&s.actives, 1)
+		defer func() {
+			atomic.AddInt32(&s.actives, -1)
+			atomic.AddInt32(&s.dones, 1)
+		}()
+		return link(a, b)
+	})
 
 	u, err := url.Parse(s.listenURL)
 	if err != nil {
