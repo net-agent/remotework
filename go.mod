@@ -8,7 +8,7 @@ require (
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.4.2
 	github.com/net-agent/cipherconn v1.0.2
-	github.com/net-agent/flex/v2 v2.0.5
+	github.com/net-agent/flex/v2 v2.0.6
 	github.com/net-agent/mixlisten v1.0.2
 	github.com/net-agent/socks v1.0.5
 	github.com/olekukonko/tablewriter v0.0.5
