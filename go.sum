@@ -30,8 +30,8 @@ github.com/net-agent/flex/v2 v2.0.6 h1:Tng3nKkSadNB/gwgbFiTj5U19sE+ruAgQKTwiZ0un
 github.com/net-agent/flex/v2 v2.0.6/go.mod h1:sllgtaVPyU9YQy81DsoMFqQsLzJrSVyQl8v444EnYaE=
 github.com/net-agent/mixlisten v1.0.2 h1:ScPaWHRaV51zVldCKu0gzJ/aHynDdF1A3yzeX2fva3g=
 github.com/net-agent/mixlisten v1.0.2/go.mod h1:QLmhQEm+XalWU0bR/91kTrzjta3T4uLMtIDSe2FHTec=
-github.com/net-agent/socks v1.0.6 h1:VN32nR6nag6Qlvv17IIzq2tjrOiNnKxmTpHzGHFsTxc=
-github.com/net-agent/socks v1.0.6/go.mod h1:eTGyjNpxER5eNWaEJuyOQb+WCuiH9wXWc/USHDAd1yI=
+github.com/net-agent/socks v1.0.7 h1:v30CsksBdGvQhrhLLq9hwJwmTql3bg+OvaMvwTTLqHs=
+github.com/net-agent/socks v1.0.7/go.mod h1:eTGyjNpxER5eNWaEJuyOQb+WCuiH9wXWc/USHDAd1yI=
 github.com/olekukonko/tablewriter v0.0.5 h1:P2Ga83D34wi1o9J6Wh1mRuqd4mF/x/lgBS7N7AbDhec=
 github.com/olekukonko/tablewriter v0.0.5/go.mod h1:hPp6KlRPjbx+hW8ykQs1w3UBbZlj6HuIJcUGPhkA7kY=
 github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c h1:rp5dCmg/yLR3mgFuSOe4oEnDDmGLROTvMragMUXpTQw=
