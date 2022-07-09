@@ -2,7 +2,7 @@
 # 生成agent镜像方法：在项目根目录下执行
 # docker build -f ./DockerfileAgent -t remotework/agent:latest .
 FROM golang:1.18
-# 上下文目录 . 应为项目根目录
+# 默认上下文目录 . 应为项目根目录
 COPY . /app
 RUN cd /app && \
     go env -w GO111MODULE=on && \
@@ -10,7 +10,7 @@ RUN cd /app && \
     go mod tidy && \
     cd /app/agent_bin && \
     go build -o remote_agent && \
-    mkdir /remote_agent && \
+    mkdir -p /remote_agent/temp && \
     cp remote_agent /remote_agent
 
 # 启动容器时，需要将配置文件挂载到容器目录/remote_agent，并开放相应端口
@@ -18,5 +18,5 @@ WORKDIR /remote_agent
 RUN chmod +x remote_agent
 CMD ./remote_agent
 
-# 典型启动容器命令(在原92服务器上，需要根据配置文件自行修改端口及宿主机上配置文件地址)
-# docker run -d -p 10081-10082:10081-10082 -v /home/hfr/remotework/config.toml:/remote_agent/config.toml --name remotework_hfr_agent remotework/agent:latest
+# 典型启动容器命令
+# docker run -d -p ZZZ:YYY -v XXX/config.toml:/remote_agent/config.toml --name remotework_agent_XXX remotework/agent:latest
