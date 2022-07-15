@@ -16,11 +16,11 @@ import (
 )
 
 type Config struct {
-	Agents    []AgentInfo      `json:"agents"`
-	Portproxy []PortproxyInfo  `json:"portproxy"`
-	Socks5    []Socks5Info     `json:"socks5"`
-	RDP       []RDPInfo        `json:"rdp"`
-	Visit     []QuickVisitInfo `json:"visit"`
+	Agents    []AgentInfo      `json:"agents" toml:"agents"`
+	Portproxy []PortproxyInfo  `json:"portproxy" toml:"portproxy"`
+	Socks5    []Socks5Info     `json:"socks5" toml:"socks5"`
+	RDP       []RDPInfo        `json:"rdp" toml:"rdp"`
+	Visit     []QuickVisitInfo `json:"visit" toml:"visit"`
 }
 
 func NewConfig(configFileName string) (*Config, error) {
