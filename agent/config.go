@@ -2,16 +2,9 @@ package agent
 
 import (
 	"fmt"
-	"log"
-	"net"
-	"net/url"
 	"path"
 	"strings"
 
-	"github.com/gorilla/websocket"
-	"github.com/net-agent/flex/v2/node"
-	"github.com/net-agent/flex/v2/packet"
-	"github.com/net-agent/flex/v2/switcher"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -62,83 +55,6 @@ type Trust struct {
 	WhiteList map[string]string `json:"whiteList" toml:"whiteList"`
 }
 
-func (agent *AgentInfo) GetConnectFn() ConnectFunc {
-	macs, _ := getMacAddr()
-	macStr := strings.Join(macs, " ")
-
-	if agent.WsEnable {
-		return agent.getWsConnectFn(macStr)
-	}
-
-	return agent.getTcpConnectFn(macStr)
-}
-
-func (agent *AgentInfo) getWsConnectFn(mac string) ConnectFunc {
-
-	u := url.URL{
-		Scheme: "ws",
-		Host:   agent.Address,
-		Path:   agent.WsPath,
-	}
-	if agent.Wss {
-		u.Scheme = "wss"
-	}
-	wsurl := u.String()
-
-	return func() (*node.Node, error) {
-		log.Printf("connect to '%v'\n", wsurl)
-		c, _, err := websocket.DefaultDialer.Dial(wsurl, nil)
-		if err != nil {
-			log.Printf("connect to '%v' failed.\n", wsurl)
-			return nil, err
-		}
-		log.Printf("connect to '%v' success.\n", wsurl)
-
-		pc := packet.NewWithWs(c)
-		node, err := switcher.UpgradeToNode(
-			pc,
-			agent.Domain,
-			mac,
-			agent.Password,
-		)
-		if err != nil {
-			log.Printf("upgrade as '%v' failed. err=%v\n", agent.Domain, err)
-			c.Close()
-			return nil, err
-		}
-		log.Printf("upgrade as '%v' success.\n", agent.Domain)
-		return node, nil
-	}
-}
-
-func (agent *AgentInfo) getTcpConnectFn(mac string) ConnectFunc {
-
-	return func() (*node.Node, error) {
-		log.Printf("connect to '%v'\n", agent.Address)
-		c, err := net.Dial("tcp4", agent.Address)
-		if err != nil {
-			log.Printf("connect to '%v' failed.\n", agent.Address)
-			return nil, err
-		}
-		log.Printf("connect to '%v' success.\n", agent.Address)
-
-		pc := packet.NewWithConn(c)
-		node, err := switcher.UpgradeToNode(
-			pc,
-			agent.Domain,
-			mac,
-			agent.Password,
-		)
-		if err != nil {
-			log.Printf("upgrade as '%v' failed. err=%v\n", agent.Domain, err)
-			c.Close()
-			return nil, err
-		}
-		log.Printf("upgrade as '%v' success.\n", agent.Domain)
-		return node, nil
-	}
-}
-
 type PortproxyInfo struct {
 	ListenURL string `json:"listen" toml:"listen"`
 	TargetURL string `json:"target" toml:"target"`
@@ -161,19 +77,4 @@ type QuickVisitInfo struct {
 type RDPInfo struct {
 	ListenURL string `json:"listen" toml:"listen"`
 	LogName   string `json:"log" toml:"log"`
-}
-
-func getMacAddr() ([]string, error) {
-	ifas, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-	var as []string
-	for _, ifa := range ifas {
-		a := ifa.HardwareAddr.String()
-		if a != "" {
-			as = append(as, a)
-		}
-	}
-	return as, nil
 }

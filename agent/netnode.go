@@ -2,13 +2,18 @@ package agent
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/net-agent/flex/v2/node"
+	"github.com/net-agent/flex/v2/packet"
+	"github.com/net-agent/flex/v2/switcher"
+	"github.com/net-agent/remotework/utils"
 )
 
 type QuickDialer func() (net.Conn, error)
@@ -29,13 +34,15 @@ type NodeReport struct {
 	Recvs   int64
 }
 type NetNode struct {
-	connectFn ConnectFunc
-	node      *node.Node
-	nodeMut   sync.RWMutex
+	nl      *utils.NamedLogger
+	node    *node.Node
+	nodeMut sync.RWMutex
 
 	Type      string
 	Address   string
 	Domain    string
+	Password  string
+	MacStr    string
 	StartTime time.Time
 	Listens   int32
 	Accepts   int32
@@ -43,14 +50,15 @@ type NetNode struct {
 	Sends     int64
 	Recvs     int64
 }
-type ConnectFunc func() (*node.Node, error)
 
 func NewNetwork(info AgentInfo) *NetNode {
 	n := &NetNode{
-		connectFn: info.GetConnectFn(),
+		nl: utils.NewNamedLogger(info.Network),
 
 		Type:      info.Network,
 		Domain:    info.Domain,
+		Password:  info.Password,
+		MacStr:    utils.GetMacAddressStr(),
 		StartTime: time.Now(),
 	}
 
@@ -65,6 +73,45 @@ func NewNetwork(info AgentInfo) *NetNode {
 	}
 
 	return n
+}
+
+func (mnet *NetNode) connect() (*node.Node, error) {
+	// step1: dial
+	mnet.nl.Printf("connect to '%v'\n", mnet.Address)
+	var pc packet.Conn
+	var err error
+
+	if strings.HasPrefix(mnet.Address, "ws") {
+		var c *websocket.Conn
+		c, _, err = websocket.DefaultDialer.Dial(mnet.Address, nil)
+		if err == nil && c != nil {
+			pc = packet.NewWithWs(c)
+		}
+	} else {
+		var c net.Conn
+		c, err = net.Dial("tcp4", mnet.Address)
+		if err != nil && c != nil {
+			pc = packet.NewWithConn(c)
+		}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if pc == nil {
+		return nil, fmt.Errorf("connect failed with no error")
+	}
+
+	// step2: upgrade
+	mnet.nl.Printf("upgrade as '%v'\n", mnet.Domain)
+	node, err := switcher.UpgradeToNode(pc, mnet.Domain, mnet.MacStr, mnet.Password)
+	if err != nil {
+		pc.Close()
+		return nil, err
+	}
+
+	return node, nil
 }
 
 func (mnet *NetNode) Report() NodeReport {
@@ -120,11 +167,7 @@ func (mnet *NetNode) GetNode() (*node.Node, error) {
 		return mnet.node, nil
 	}
 
-	if mnet.connectFn == nil {
-		return nil, errors.New("need call SetConnectFunc first")
-	}
-
-	node, err := mnet.connectFn()
+	node, err := mnet.connect()
 	if err != nil {
 		return nil, err
 	}
@@ -139,10 +182,6 @@ func (mnet *NetNode) ResetNode() {
 	mnet.node = nil
 }
 
-func (mnet *NetNode) SetConnectFunc(fn ConnectFunc) {
-	mnet.connectFn = fn
-}
-
 func (mnet *NetNode) KeepAlive(evch chan struct{}) {
 	dur := time.Second * 0
 	minWaitDur := 3 * time.Second
@@ -155,7 +194,7 @@ func (mnet *NetNode) KeepAlive(evch chan struct{}) {
 		if err != nil {
 			// 如果发生错误，打印错误，然后增加3秒停顿时间
 			dur += durStep
-			log.Printf("connect failed: %v\n", err)
+			mnet.nl.Printf("connect/upgrade failed: %v\n", err)
 		} else {
 			select {
 			case evch <- struct{}{}:
@@ -175,7 +214,7 @@ func (mnet *NetNode) KeepAlive(evch chan struct{}) {
 			dur = maxWaitDur
 		}
 
-		log.Printf("connect to server after %v\n", dur)
+		mnet.nl.Printf("connect to server after %v\n", dur)
 		<-time.After(dur)
 	}
 }
