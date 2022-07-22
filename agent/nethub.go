@@ -3,7 +3,6 @@ package agent
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/url"
 	"os"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/net-agent/cipherconn"
+	"github.com/net-agent/remotework/utils"
 	"github.com/olekukonko/tablewriter"
 )
 
@@ -34,6 +34,7 @@ func (tcp *tcpnetwork) Report() NodeReport {
 }
 
 type NetHub struct {
+	nl   *utils.NamedLogger
 	nets map[string]Network
 	mut  sync.RWMutex
 
@@ -47,11 +48,14 @@ func NewNetHub() *NetHub {
 	nets["tcp4"] = &tcpnetwork{"tcp4", 0, 0}
 	nets["tcp6"] = &tcpnetwork{"tcp6", 0, 0}
 
-	return &NetHub{nets: nets}
+	return &NetHub{
+		nl:   utils.NewNamedLogger("hub"),
+		nets: nets,
+	}
 }
 
 func (hub *NetHub) TriggerNetworkUpdate(network string) {
-	log.Printf("[hub] network='%v' updated.\n", network)
+	hub.nl.Printf("network='%v' updated.\n", network)
 	for _, svc := range hub.svcs {
 		if svc.Network() == network {
 			go svc.Update()
@@ -63,7 +67,7 @@ func (hub *NetHub) AddServices(svcs ...Service) {
 	for _, svc := range svcs {
 		err := svc.Init()
 		if err != nil {
-			log.Printf("[hub] service init. name='%v' failed. err=%v\n", svc.Name(), err)
+			hub.nl.Printf("service init. name='%v' failed. err=%v\n", svc.Name(), err)
 			continue
 		}
 
@@ -74,12 +78,12 @@ func (hub *NetHub) AddServices(svcs ...Service) {
 func (hub *NetHub) StartServices() {
 	for _, svc := range hub.svcs {
 		hub.svcWaiter.Add(1)
-		log.Printf("[hub] service running. name='%v'\n", svc.Name())
+		hub.nl.Printf("service running. name='%v'\n", svc.Name())
 		go func(svc Service) {
 			defer hub.svcWaiter.Done()
 			err := svc.Start()
 			<-time.After(time.Millisecond * 100)
-			log.Printf("[hub] service stopped. name='%v' err=%v\n", svc.Name(), err)
+			hub.nl.Printf("service stopped. name='%v' err=%v\n", svc.Name(), err)
 		}(svc)
 	}
 }

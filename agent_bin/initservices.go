@@ -2,15 +2,12 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/remotework/service"
 )
 
 func initServices(hub *agent.NetHub, cfg *agent.Config) {
-	log.Println("startup services:")
-
 	hub.AddServices(createTrusts(hub, cfg.Agents)...)
 	hub.AddServices(createPortproxys(hub, cfg.Portproxy)...)
 	hub.AddServices(createSocks5s(hub, cfg.Socks5)...)

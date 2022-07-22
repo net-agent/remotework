@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/url"
 	"sync"
@@ -15,6 +14,7 @@ import (
 )
 
 type QuickVisit struct {
+	nl        *utils.NamedLogger
 	hub       *agent.NetHub
 	listenURL string // example: "tcp://localhost:1000", "flex://0:1001"
 	targetURL string // example: "tcp://agentname:secret@localhost:3389"
@@ -32,6 +32,7 @@ type QuickVisit struct {
 
 func NewQuickVisit(hub *agent.NetHub, listenURL, targetURL, logName string) *QuickVisit {
 	return &QuickVisit{
+		nl:        utils.NewNamedLogger(logName),
 		hub:       hub,
 		listenURL: listenURL,
 		targetURL: targetURL,
@@ -124,7 +125,7 @@ func (ctx *QuickVisit) Start() error {
 			if l != ctx.getlistener() {
 				l = ctx.getlistener()
 				if l != nil {
-					log.Printf("[%v] listener updated\n", ctx.logName)
+					ctx.nl.Println("listener updated")
 					continue
 				}
 			}

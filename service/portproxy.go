@@ -3,25 +3,25 @@ package service
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/url"
 	"sync"
 	"sync/atomic"
 
 	"github.com/net-agent/remotework/agent"
+	"github.com/net-agent/remotework/utils"
 )
 
 type Portproxy struct {
+	nl        *utils.NamedLogger
 	hub       *agent.NetHub
 	listenURL string
 	targetURL string
 	logName   string
 
-	enableLog bool
-	listener  net.Listener
-	dialer    agent.QuickDialer
-	mut       sync.Mutex
+	listener net.Listener
+	dialer   agent.QuickDialer
+	mut      sync.Mutex
 
 	listenNetwork string
 	actives       int32
@@ -30,6 +30,7 @@ type Portproxy struct {
 
 func NewPortproxy(hub *agent.NetHub, listenURL, targetURL, logName string) *Portproxy {
 	return &Portproxy{
+		nl:        utils.NewNamedLogger(logName),
 		hub:       hub,
 		listenURL: listenURL,
 		targetURL: targetURL,
@@ -78,8 +79,6 @@ func (s *Portproxy) Init() error {
 		return err
 	}
 
-	s.enableLog = s.logName != ""
-
 	return nil
 }
 
@@ -117,19 +116,28 @@ func (p *Portproxy) Start() error {
 
 	for {
 		conn, err := l.Accept()
-		if err != nil {
-			if l != p.getlistener() {
-				// 如果出现错误，并且listener更新了，则切换listener，然后继续服务
-				l = p.getlistener()
-				if l != nil {
-					log.Printf("[%v] listener updated\n", p.logName)
-					continue
-				}
-			}
-			return err
+
+		if err == nil {
+			go p.serve(conn)
+			continue
 		}
 
-		go p.serve(conn)
+		//
+		// accept连接出现错误后，尝试恢复服务，等待新的listener
+		// 如果尝试恢复listener失败后，才真正返回错误
+		//
+		newListener := p.getlistener()
+		if newListener != nil && l != newListener {
+			// 更新listener成功，继续恢复accept循环
+			l = newListener
+
+			p.nl.Println("listener updated")
+
+			continue
+		}
+
+		// 最终恢复失败后，返回
+		return err
 	}
 }
 
@@ -154,12 +162,10 @@ func (p *Portproxy) serve(c1 net.Conn) {
 
 	c2, err := p.dialer()
 	if err != nil {
-		log.Printf("[%v] dial error. target=%v, err=%v\n", p.logName, p.targetURL, err)
+		p.nl.Printf("dial error. target=%v, err=%v\n", p.targetURL, err)
 		return
 	}
 
-	if p.enableLog {
-		log.Printf("[%v] linked. %v > %v > %v\n", p.logName, dialer, p.listenURL, p.targetURL)
-	}
-	link(c1, c2)
+	p.nl.Printf("linked. %v > %v > %v\n", dialer, p.listenURL, p.targetURL)
+	utils.LinkReadWriter(c1, c2)
 }

@@ -3,11 +3,11 @@ package service
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 
 	"github.com/net-agent/remotework/agent"
+	"github.com/net-agent/remotework/utils"
 	"github.com/net-agent/socks"
 )
 
@@ -17,6 +17,7 @@ const (
 )
 
 type QuickTrust struct {
+	nl      *utils.NamedLogger
 	hub     *agent.NetHub
 	network string
 	domains map[string]string
@@ -33,6 +34,7 @@ type QuickTrust struct {
 
 func NewQuickTrust(hub *agent.NetHub, network string, domains map[string]string, logName string) *QuickTrust {
 	return &QuickTrust{
+		nl:      utils.NewNamedLogger(logName),
 		hub:     hub,
 		network: network,
 		domains: domains,
@@ -124,7 +126,7 @@ func (s *QuickTrust) Start() error {
 		err := s.svc.Run(l)
 
 		if l != s.listener && s.listener != nil {
-			log.Printf("[%v] listener updated\n", s.logName)
+			s.nl.Println("listener updated")
 			l = s.listener
 			continue
 		}

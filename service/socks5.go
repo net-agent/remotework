@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"io"
-	"log"
 	"net"
 	"net/url"
 	"sync/atomic"
@@ -14,6 +13,7 @@ import (
 )
 
 type Socks5 struct {
+	nl        *utils.NamedLogger
 	hub       *agent.NetHub
 	listenURL string
 	username  string
@@ -30,6 +30,7 @@ type Socks5 struct {
 
 func NewSocks5(hub *agent.NetHub, listenURL, username, password, logName string) *Socks5 {
 	return &Socks5{
+		nl:        utils.NewNamedLogger(logName),
 		hub:       hub,
 		listenURL: listenURL,
 		username:  username,
@@ -104,7 +105,7 @@ func (s *Socks5) Start() error {
 		err := s.server.Run(l)
 
 		if l != s.listener && s.listener != nil {
-			log.Printf("[%v] listener updated\n", s.logName)
+			s.nl.Println("listener updated")
 			l = s.listener
 			continue
 		}
