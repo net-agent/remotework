@@ -1,11 +1,13 @@
 package main
 
 import (
-	"log"
 	"os"
 
 	"github.com/net-agent/remotework/agent"
+	"github.com/net-agent/remotework/utils"
 )
+
+var syslog = utils.NewNamedLogger("sys", true)
 
 func main() {
 	config := loadConfig()
@@ -27,5 +29,5 @@ func main() {
 	hub.ServiceReportAscii(os.Stdout)
 
 	hub.Wait()
-	log.Println("main process exit.")
+	syslog.Println("main process exit.")
 }

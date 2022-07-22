@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"path"
 	"sync"
 
@@ -9,6 +8,8 @@ import (
 	"github.com/net-agent/mixlisten"
 	"github.com/net-agent/remotework/utils"
 )
+
+var syslog = utils.NewNamedLogger("sys", false)
 
 func main() {
 	var flags ServerFlags
@@ -26,19 +27,19 @@ func main() {
 		} else if utils.FileExist(configToml) {
 			configName = configToml
 		} else {
-			log.Fatal("load config failed: config file not exist!")
+			syslog.Fatal("load config failed: config file not exist!")
 		}
 	}
-	log.Printf("read config from '%v'\n", configName)
+	syslog.Printf("read config from '%v'\n", configName)
 	config, err := NewConfig(configName)
 	if err != nil {
-		log.Fatal("load config failed: ", err)
+		syslog.Fatal("load config failed: ", err)
 	}
 
 	// 初始化
 	app := switcher.NewServer(config.Server.Password)
 
-	log.Printf("try to listen on '%v'\n", config.Server.Listen)
+	syslog.Printf("try to listen on '%v'\n", config.Server.Listen)
 
 	// 监听本地端口（混合协议模式）
 	mxl := mixlisten.Listen("tcp", config.Server.Listen)
@@ -53,7 +54,7 @@ func main() {
 	// 处理Flex协议监听
 	flexListener, err := mxl.GetListener("flex")
 	if err != nil {
-		log.Fatal("get flex listener failed: ", err)
+		syslog.Fatal("get flex listener failed: ", err)
 	}
 	wg.Add(1)
 	go func() {
@@ -64,7 +65,7 @@ func main() {
 	// 处理HTTP协议监听
 	httpListener, err := mxl.GetListener("http")
 	if err != nil {
-		log.Fatal("get http listener failed: ", err)
+		syslog.Fatal("get http listener failed: ", err)
 	}
 	wg.Add(1)
 	go func() {
@@ -74,5 +75,5 @@ func main() {
 
 	// 等待所有协成结束
 	wg.Wait()
-	log.Println("server stopped")
+	syslog.Println("server stopped")
 }

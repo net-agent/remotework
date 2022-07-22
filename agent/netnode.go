@@ -53,7 +53,7 @@ type NetNode struct {
 
 func NewNetwork(info AgentInfo) *NetNode {
 	n := &NetNode{
-		nl: utils.NewNamedLogger(info.Network),
+		nl: utils.NewNamedLogger(info.Network, true),
 
 		Type:      info.Network,
 		Domain:    info.Domain,

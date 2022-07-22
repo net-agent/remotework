@@ -30,7 +30,7 @@ type Portproxy struct {
 
 func NewPortproxy(hub *agent.NetHub, listenURL, targetURL, logName string) *Portproxy {
 	return &Portproxy{
-		nl:        utils.NewNamedLogger(logName),
+		nl:        utils.NewNamedLogger(logName, true),
 		hub:       hub,
 		listenURL: listenURL,
 		targetURL: targetURL,

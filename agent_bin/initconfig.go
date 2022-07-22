@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"net/url"
 	"path"
 
@@ -25,13 +24,13 @@ func loadConfig() *agent.Config {
 		} else if utils.FileExist(configToml) {
 			configName = configToml
 		} else {
-			log.Fatal("load config failed: config file not exist!")
+			syslog.Fatal("load config failed: config file not exist!")
 		}
 	}
-	log.Printf("read config from '%v'\n", configName)
+	syslog.Printf("read config from '%v'\n", configName)
 	config, err := agent.NewConfig(configName)
 	if err != nil {
-		log.Fatal("load config failed: ", err)
+		syslog.Fatal("load config failed: ", err)
 	}
 
 	// parse agents url

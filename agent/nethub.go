@@ -49,7 +49,7 @@ func NewNetHub() *NetHub {
 	nets["tcp6"] = &tcpnetwork{"tcp6", 0, 0}
 
 	return &NetHub{
-		nl:   utils.NewNamedLogger("hub"),
+		nl:   utils.NewNamedLogger("hub", true),
 		nets: nets,
 	}
 }

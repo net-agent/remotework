@@ -1,18 +1,18 @@
 package main
 
 import (
-	"log"
 	"os"
 
 	"github.com/getlantern/systray"
 	"github.com/net-agent/remotework/agent"
 )
+
 func releaseSysTray() {
 	systray.Quit()
 }
 
 func initSysTray(hub *agent.NetHub) {
-	log.Println("net hub is working, click systray to get more infos.")
+	syslog.Println("net hub is working, click systray to get more infos.")
 
 	addClickListener := func(btn *systray.MenuItem, fn func()) {
 		for range btn.ClickedCh {
@@ -40,7 +40,7 @@ func initSysTray(hub *agent.NetHub) {
 			btn := btnServices.AddSubMenuItem(svc.Name(), "detail report")
 			go addClickListener(btn, func() {
 				report := svc.Report()
-				log.Printf(
+				syslog.Printf(
 					"[systray] service detail. name='%v' state='%v' actives=%v dones=%v\n",
 					report.Name,
 					report.State,
@@ -56,7 +56,7 @@ func initSysTray(hub *agent.NetHub) {
 			os.Exit(-1)
 		})
 	}, func() {
-		log.Println("systray exit")
+		syslog.Println("systray exit")
 	})
 }
 

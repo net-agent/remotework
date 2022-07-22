@@ -30,7 +30,7 @@ type Socks5 struct {
 
 func NewSocks5(hub *agent.NetHub, listenURL, username, password, logName string) *Socks5 {
 	return &Socks5{
-		nl:        utils.NewNamedLogger(logName),
+		nl:        utils.NewNamedLogger(logName, true),
 		hub:       hub,
 		listenURL: listenURL,
 		username:  username,

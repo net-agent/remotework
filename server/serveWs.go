@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 
@@ -30,7 +29,7 @@ func GetWsHandler(app *switcher.Server) http.HandlerFunc {
 		}
 
 		pc := packet.NewWithWs(c)
-		log.Printf("ws  agent connected, remote=%v\n", c.RemoteAddr())
+		syslog.Printf("ws  agent connected, remote=%v\n", c.RemoteAddr())
 		go app.ServeConn(pc)
 	}
 }

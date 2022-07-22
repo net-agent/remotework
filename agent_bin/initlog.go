@@ -2,23 +2,23 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"time"
+
+	"github.com/net-agent/remotework/utils"
 )
 
 func initLogOutput() (f *os.File, shouldClose bool) {
 	if FileExist("./temp") {
 		fpath := fmt.Sprintf("./temp/agent_%v.log", time.Now().Format("20060102_150405"))
-		fmt.Printf("write log to file: %v\n", fpath)
+		syslog.Printf("write log to file: %v\n", fpath)
 		f, err := os.OpenFile(fpath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		if err == nil {
-			log.SetOutput(f)
+			utils.SetNamedLoggerOutputDist(f)
 			return f, true
 		}
 	}
 
-	// log.SetOutput(os.Stderr)
 	return os.Stderr, false
 }
 

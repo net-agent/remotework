@@ -34,7 +34,7 @@ type QuickTrust struct {
 
 func NewQuickTrust(hub *agent.NetHub, network string, domains map[string]string, logName string) *QuickTrust {
 	return &QuickTrust{
-		nl:      utils.NewNamedLogger(logName),
+		nl:      utils.NewNamedLogger(logName, true),
 		hub:     hub,
 		network: network,
 		domains: domains,

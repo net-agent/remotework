@@ -1,14 +1,13 @@
 package main
 
 import (
-	"log"
 	"sync"
 
 	"github.com/net-agent/remotework/agent"
 )
 
 func initAgents(hub *agent.NetHub, agents []agent.AgentInfo) {
-	log.Println("startup agents:")
+	syslog.Println("startup agents:")
 
 	runcount := 0
 	for _, info := range agents {
@@ -36,13 +35,13 @@ func initAgents(hub *agent.NetHub, agents []agent.AgentInfo) {
 
 		err := hub.AddNetwork(info.Network, mnet)
 		if err != nil {
-			log.Printf("add network failed. network='%v', err=%v\n", info.Network, err)
+			syslog.Printf("add network failed. network='%v', err=%v\n", info.Network, err)
 			continue
 		}
 
 		runcount++
 	}
 	if runcount == 0 {
-		log.Println("WARN: NO AGENTS ARE RUNNING")
+		syslog.Println("WARN: NO AGENTS ARE RUNNING")
 	}
 }

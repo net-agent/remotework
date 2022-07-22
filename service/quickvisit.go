@@ -32,7 +32,7 @@ type QuickVisit struct {
 
 func NewQuickVisit(hub *agent.NetHub, listenURL, targetURL, logName string) *QuickVisit {
 	return &QuickVisit{
-		nl:        utils.NewNamedLogger(logName),
+		nl:        utils.NewNamedLogger(logName, true),
 		hub:       hub,
 		listenURL: listenURL,
 		targetURL: targetURL,
