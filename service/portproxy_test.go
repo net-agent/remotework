@@ -28,11 +28,7 @@ func TestPortproxy(t *testing.T) {
 		t.Error("init error", err)
 		return
 	}
-	err = p.Start()
-	if err != nil {
-		t.Error("start failed", err)
-		return
-	}
+	go p.Start()
 
 	<-time.After(time.Second)
 	conn, err := hub.DialURL(addr)
