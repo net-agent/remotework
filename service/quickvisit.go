@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/url"
@@ -11,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/net-agent/remotework/agent"
+	"github.com/net-agent/remotework/utils"
 	"github.com/net-agent/socks"
 )
 
@@ -156,27 +156,7 @@ func (ctx *QuickVisit) serve(c1 net.Conn) {
 		return
 	}
 
-	link(c1, c2)
-}
-
-func link(c1, c2 io.ReadWriteCloser) (c1ReadN, c1WriteN int64, err error) {
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		c1WriteN, _ = io.Copy(c1, c2)
-		c1.Close()
-		c2.Close()
-		wg.Done()
-	}()
-
-	c1ReadN, _ = io.Copy(c2, c1)
-	c1.Close()
-	c2.Close()
-
-	wg.Wait()
-
-	return
+	utils.LinkReadWriter(c1, c2)
 }
 
 func (ctx *QuickVisit) Close() error {

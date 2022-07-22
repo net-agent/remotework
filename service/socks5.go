@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/net-agent/remotework/agent"
+	"github.com/net-agent/remotework/utils"
 	"github.com/net-agent/socks"
 )
 
@@ -64,7 +65,7 @@ func (s *Socks5) Init() error {
 			atomic.AddInt32(&s.actives, -1)
 			atomic.AddInt32(&s.dones, 1)
 		}()
-		return link(a, b)
+		return utils.LinkReadWriter(a, b)
 	})
 
 	u, err := url.Parse(s.listenURL)
