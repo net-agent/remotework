@@ -65,11 +65,11 @@ func NewNetwork(info AgentInfo) *NetNode {
 	}
 
 	if info.WsEnable {
+		protocol := "ws:"
 		if info.Wss {
-			n.URL = "wss://" + info.Address
-		} else {
-			n.URL = "ws://" + info.Address
+			protocol = "wss:"
 		}
+		n.URL = fmt.Sprintf("%v//%v%v", protocol, info.Address, info.WsPath)
 	} else {
 		n.URL = "tcp://" + info.Address
 	}
@@ -79,17 +79,18 @@ func NewNetwork(info AgentInfo) *NetNode {
 
 func (mnet *NetNode) connect() (*node.Node, error) {
 	// step1: dial
-	mnet.nl.Printf("connect to '%v'\n", mnet.URL)
 	var pc packet.Conn
 	var err error
 
 	if strings.HasPrefix(mnet.URL, "ws") {
+		mnet.nl.Printf("connect to '%v'\n", mnet.URL)
 		var c *websocket.Conn
 		c, _, err = websocket.DefaultDialer.Dial(mnet.URL, nil)
 		if err == nil && c != nil {
 			pc = packet.NewWithWs(c)
 		}
 	} else {
+		mnet.nl.Printf("connect to '%v'\n", mnet.Address)
 		var c net.Conn
 		c, err = net.Dial("tcp4", mnet.Address)
 		if err == nil && c != nil {
