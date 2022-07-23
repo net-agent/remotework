@@ -7,7 +7,7 @@ import (
 	"github.com/net-agent/remotework/utils"
 )
 
-var syslog = utils.NewNamedLogger("sys", true)
+var syslog = utils.NewNamedLogger("sys", false)
 
 func main() {
 	config := loadConfig()

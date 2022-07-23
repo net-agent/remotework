@@ -16,6 +16,7 @@ type NamedLogger struct {
 }
 
 func NewNamedLogger(name string, asyncOutput bool) *NamedLogger {
+	asyncOutput = false
 	name = strings.Trim(name, " ")
 	if name == "" {
 		return &NamedLogger{

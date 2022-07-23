@@ -40,6 +40,7 @@ type NetNode struct {
 
 	Type      string
 	Address   string
+	URL       string
 	Domain    string
 	Password  string
 	MacStr    string
@@ -57,6 +58,7 @@ func NewNetwork(info AgentInfo) *NetNode {
 
 		Type:      info.Network,
 		Domain:    info.Domain,
+		Address:   info.Address,
 		Password:  info.Password,
 		MacStr:    utils.GetMacAddressStr(),
 		StartTime: time.Now(),
@@ -64,12 +66,12 @@ func NewNetwork(info AgentInfo) *NetNode {
 
 	if info.WsEnable {
 		if info.Wss {
-			n.Address = "wss://" + info.Address
+			n.URL = "wss://" + info.Address
 		} else {
-			n.Address = "ws://" + info.Address
+			n.URL = "ws://" + info.Address
 		}
 	} else {
-		n.Address = "tcp://" + info.Address
+		n.URL = "tcp://" + info.Address
 	}
 
 	return n
@@ -77,20 +79,20 @@ func NewNetwork(info AgentInfo) *NetNode {
 
 func (mnet *NetNode) connect() (*node.Node, error) {
 	// step1: dial
-	mnet.nl.Printf("connect to '%v'\n", mnet.Address)
+	mnet.nl.Printf("connect to '%v'\n", mnet.URL)
 	var pc packet.Conn
 	var err error
 
-	if strings.HasPrefix(mnet.Address, "ws") {
+	if strings.HasPrefix(mnet.URL, "ws") {
 		var c *websocket.Conn
-		c, _, err = websocket.DefaultDialer.Dial(mnet.Address, nil)
+		c, _, err = websocket.DefaultDialer.Dial(mnet.URL, nil)
 		if err == nil && c != nil {
 			pc = packet.NewWithWs(c)
 		}
 	} else {
 		var c net.Conn
 		c, err = net.Dial("tcp4", mnet.Address)
-		if err != nil && c != nil {
+		if err == nil && c != nil {
 			pc = packet.NewWithConn(c)
 		}
 	}

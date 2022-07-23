@@ -49,7 +49,7 @@ func NewNetHub() *NetHub {
 	nets["tcp6"] = &tcpnetwork{"tcp6", 0, 0}
 
 	return &NetHub{
-		nl:   utils.NewNamedLogger("hub", true),
+		nl:   utils.NewNamedLogger("hub", false),
 		nets: nets,
 	}
 }
@@ -76,9 +76,9 @@ func (hub *NetHub) AddServices(svcs ...Service) {
 }
 
 func (hub *NetHub) StartServices() {
-	for _, svc := range hub.svcs {
+	for index, svc := range hub.svcs {
 		hub.svcWaiter.Add(1)
-		hub.nl.Printf("service running. name='%v'\n", svc.Name())
+		hub.nl.Printf("service running. name='%v' index=%v\n", svc.Name(), index)
 		go func(svc Service) {
 			defer hub.svcWaiter.Done()
 			err := svc.Start()
