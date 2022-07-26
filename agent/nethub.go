@@ -10,32 +10,14 @@ import (
 	"time"
 
 	"github.com/net-agent/cipherconn"
+	"github.com/net-agent/remotework/network"
 	"github.com/net-agent/remotework/utils"
 	"github.com/olekukonko/tablewriter"
 )
 
-// tcp network wrap
-type tcpnetwork struct {
-	Type    string
-	Listens int32
-	Dials   int32
-}
-
-func (tcp *tcpnetwork) Dial(network, addr string) (net.Conn, error) {
-	return net.Dial(network, addr)
-}
-func (tcp *tcpnetwork) Listen(network, addr string) (net.Listener, error) {
-	return net.Listen(network, addr)
-}
-func (tcp *tcpnetwork) Report() NodeReport {
-	return NodeReport{
-		Type: tcp.Type,
-	}
-}
-
 type NetHub struct {
 	nl   *utils.NamedLogger
-	nets map[string]Network
+	nets map[string]network.Network
 	mut  sync.RWMutex
 
 	svcs      []Service
@@ -43,10 +25,10 @@ type NetHub struct {
 }
 
 func NewNetHub() *NetHub {
-	nets := make(map[string]Network)
-	nets["tcp"] = &tcpnetwork{"tcp", 0, 0}
-	nets["tcp4"] = &tcpnetwork{"tcp4", 0, 0}
-	nets["tcp6"] = &tcpnetwork{"tcp6", 0, 0}
+	nets := make(map[string]network.Network)
+	nets["tcp"] = network.NewTcp()
+	nets["tcp4"] = network.NewTcp4()
+	nets["tcp6"] = network.NewTcp6()
 
 	return &NetHub{
 		nl:   utils.NewNamedLogger("hub", false),
@@ -132,12 +114,12 @@ func (hub *NetHub) ServiceReportAscii(out *os.File) {
 	table.Render()
 }
 
-func (hub *NetHub) NetworkReport() ([]NodeReport, error) {
+func (hub *NetHub) NetworkReport() ([]network.NodeReport, error) {
 	if len(hub.nets) <= 0 {
 		return nil, errors.New("NO NETWORKS")
 	}
 
-	var reports []NodeReport
+	var reports []network.NodeReport
 	for _, nt := range hub.nets {
 		reports = append(reports, nt.Report())
 	}
@@ -167,7 +149,7 @@ func (hub *NetHub) NetworkReportAscii(out *os.File) {
 }
 
 // AddNetwork 在hub中增加network
-func (hub *NetHub) AddNetwork(network string, mnet Network) error {
+func (hub *NetHub) AddNetwork(network string, mnet network.Network) error {
 	if network == "" {
 		return errors.New("invalid network name=''")
 	}
@@ -183,7 +165,7 @@ func (hub *NetHub) AddNetwork(network string, mnet Network) error {
 }
 
 // GetNetwork 获取网络
-func (hub *NetHub) GetNetwork(network string) (Network, error) {
+func (hub *NetHub) GetNetwork(network string) (network.Network, error) {
 	if network == "" {
 		return nil, errors.New("invalid network name=''")
 	}

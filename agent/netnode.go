@@ -13,26 +13,11 @@ import (
 	"github.com/net-agent/flex/v2/node"
 	"github.com/net-agent/flex/v2/packet"
 	"github.com/net-agent/flex/v2/switcher"
+	"github.com/net-agent/remotework/network"
 	"github.com/net-agent/remotework/utils"
 )
 
 type QuickDialer func() (net.Conn, error)
-type Network interface {
-	Dial(network, addr string) (net.Conn, error)
-	Listen(network, addr string) (net.Listener, error)
-	Report() NodeReport
-}
-type NodeReport struct {
-	Type    string
-	Address string
-	Domain  string
-	Alive   time.Duration
-	Listens int32
-	Accepts int32
-	Dials   int32
-	Sends   int64
-	Recvs   int64
-}
 type NetNode struct {
 	nl      *utils.NamedLogger
 	node    *node.Node
@@ -117,8 +102,8 @@ func (mnet *NetNode) connect() (*node.Node, error) {
 	return node, nil
 }
 
-func (mnet *NetNode) Report() NodeReport {
-	return NodeReport{
+func (mnet *NetNode) Report() network.NodeReport {
+	return network.NodeReport{
 		Type:    mnet.Type,
 		Address: mnet.Address,
 		Domain:  mnet.Domain,
