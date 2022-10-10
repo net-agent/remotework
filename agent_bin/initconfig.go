@@ -39,7 +39,8 @@ func loadConfig() *agent.Config {
 			u, err := url.Parse(config.Agents[i].URL)
 			var ok bool
 			if err == nil {
-				config.Agents[i].Network = u.Scheme
+				config.Agents[i].Name = u.Scheme
+				config.Agents[i].Protocol = "tcp" // 默认只通过tcp连接服务端
 				config.Agents[i].Domain = u.User.Username()
 				config.Agents[i].Password, ok = u.User.Password()
 				if !ok {
@@ -48,6 +49,40 @@ func loadConfig() *agent.Config {
 				config.Agents[i].Address = u.Host
 			}
 		}
+	}
+
+	// parse agent name map
+	// 与agents数组的url类似，但是url里的scheme含义发生了变化
+	for k, v := range config.AgentMap {
+		u, err := url.Parse(v)
+		if err == nil {
+			var ok bool
+			var ag agent.AgentInfo
+			ag.Name = k
+			ag.Protocol = u.Scheme
+			ag.Domain = u.User.Username()
+			ag.Password, ok = u.User.Password()
+			if !ok {
+				ag.Password = ""
+			}
+			ag.Address = u.Host
+
+			config.Agents = append(config.Agents, ag)
+		}
+	}
+
+	// parse pipe map
+	// 是portproxy的别名，简化书写
+	for k, v := range config.PipeMap {
+		v.LogName = k
+		config.Portproxy = append(config.Portproxy, v)
+	}
+
+	// porse sox
+	// 是socks5的别名，简化书写
+	for k, v := range config.SocksMap {
+		v.LogName = k
+		config.Socks5 = append(config.Socks5, v)
 	}
 
 	return config

@@ -1,47 +1,23 @@
 package main
 
 import (
-	"sync"
-
 	"github.com/net-agent/remotework/agent"
 )
 
 func initAgents(hub *agent.NetHub, agents []agent.AgentInfo) {
-	syslog.Println("startup agents:")
+	syslog.Println("register agents:")
 
 	runcount := 0
 	for _, info := range agents {
-
-		mnet := agent.NewNetwork(info)
-
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func(network string) {
-			ch := make(chan struct{}, 2)
-			go mnet.KeepAlive(ch)
-
-			done := false
-			for range ch {
-				// 重连后，触发hub的网络更新事件
-				hub.TriggerNetworkUpdate(network)
-
-				if !done {
-					done = true
-					wg.Done()
-				}
-			}
-		}(info.Network)
-		wg.Wait()
-
-		err := hub.AddNetwork(info.Network, mnet)
+		mnet := agent.NewNetwork(hub, info)
+		err := hub.AddNetwork(info.Name, mnet)
 		if err != nil {
-			syslog.Printf("add network failed. network='%v', err=%v\n", info.Network, err)
+			syslog.Printf("add network failed. name='%v', err=%v\n", info.Name, err)
 			continue
 		}
-
 		runcount++
 	}
 	if runcount == 0 {
-		syslog.Println("WARN: NO AGENTS ARE RUNNING")
+		syslog.Println("WARN: NO AGENT REGISTERED")
 	}
 }

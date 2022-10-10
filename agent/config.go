@@ -9,11 +9,14 @@ import (
 )
 
 type Config struct {
-	Agents    []AgentInfo      `json:"agents" toml:"agents"`
-	Portproxy []PortproxyInfo  `json:"portproxy" toml:"portproxy"`
-	Socks5    []Socks5Info     `json:"socks5" toml:"socks5"`
-	RDP       []RDPInfo        `json:"rdp" toml:"rdp"`
-	Visit     []QuickVisitInfo `json:"visit" toml:"visit"`
+	AgentMap  map[string]string        `json:"agent" toml:"agent"`
+	PipeMap   map[string]PortproxyInfo `json:"pipe" toml:"pipe"`
+	SocksMap  map[string]Socks5Info    `json:"sox" toml:"sox"`
+	Agents    []AgentInfo              `json:"agents" toml:"agents"`
+	Portproxy []PortproxyInfo          `json:"portproxy" toml:"portproxy"`
+	Socks5    []Socks5Info             `json:"socks5" toml:"socks5"`
+	RDP       []RDPInfo                `json:"rdp" toml:"rdp"`
+	Visit     []QuickVisitInfo         `json:"visit" toml:"visit"`
 }
 
 func NewConfig(configFileName string) (*Config, error) {
@@ -39,7 +42,8 @@ type ServerInfo struct {
 
 type AgentInfo struct {
 	Enable     bool   `json:"enable" toml:"enable"`
-	Network    string `json:"network" toml:"network"`   // 网络名称，不能为tcp、tcp4、tcp6
+	Name       string `json:"name" toml:"name"` // 网络名称，不能为tcp、tcp4、tcp6
+	Protocol   string `json:"protocol" toml:"protocol"`
 	Address    string `json:"address" toml:"address"`   // 服务端地址
 	Password   string `json:"password" toml:"password"` // 连接服务的密码
 	Domain     string `json:"domain" toml:"domain"`     // 独立域名（不能重复）

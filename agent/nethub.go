@@ -29,7 +29,7 @@ func (tcp *tcpnetwork) Listen(network, addr string) (net.Listener, error) {
 }
 func (tcp *tcpnetwork) Report() NodeReport {
 	return NodeReport{
-		Type: tcp.Type,
+		Name: tcp.Type,
 	}
 }
 
@@ -152,11 +152,11 @@ func (hub *NetHub) NetworkReportAscii(out *os.File) {
 	}
 
 	table := tablewriter.NewWriter(out)
-	table.SetHeader([]string{"index", "type", "addr", "domain", "lsn", "dial"})
+	table.SetHeader([]string{"index", "name", "addr", "domain", "lsn", "dial"})
 	for index, info := range reports {
 		table.Append([]string{
 			fmt.Sprintf("%v", index),
-			info.Type,
+			info.Name,
 			info.Address,
 			info.Domain,
 			fmt.Sprintf("%v", info.Listens),

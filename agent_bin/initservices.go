@@ -23,9 +23,9 @@ func createTrusts(hub *agent.NetHub, agents []agent.AgentInfo) []agent.Service {
 		if info.QuickTrust.Enable {
 			svc := service.NewQuickTrust(
 				hub,
-				info.Network,
+				info.Name,
 				info.QuickTrust.WhiteList,
-				fmt.Sprintf("trust-%v", info.Network),
+				fmt.Sprintf("trust-%v", info.Name),
 			)
 			svcs = append(svcs, svc)
 		}
