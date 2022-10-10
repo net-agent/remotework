@@ -12,7 +12,7 @@ func initAgents(hub *agent.NetHub, agents []agent.AgentInfo) {
 		mnet := agent.NewNetwork(hub, info)
 		err := hub.AddNetwork(info.Name, mnet)
 		if err != nil {
-			syslog.Printf("add network failed. name='%v', err=%v\n", info.Name, err)
+			syslog.Printf("register agent failed. name='%v', err=%v\n", info.Name, err)
 			continue
 		}
 		runcount++

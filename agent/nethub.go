@@ -65,37 +65,38 @@ func (hub *NetHub) TriggerNetworkUpdate(network string) {
 
 func (hub *NetHub) AddServices(svcs ...Service) {
 	for _, svc := range svcs {
-		err := svc.Init()
-		if err != nil {
-			hub.nl.Printf("service init. name='%v' failed. err=%v\n", svc.Name(), err)
-			continue
-		}
-
+		svc.SetState("uninit")
 		hub.svcs = append(hub.svcs, svc)
+		hub.nl.Printf("service registered. name='%v'\n", svc.Name())
 	}
 }
 
 func (hub *NetHub) StartServices() {
-	for index, svc := range hub.svcs {
+	hub.nl.Println("start services:")
+	for _, svc := range hub.svcs {
 		hub.svcWaiter.Add(1)
-		hub.nl.Printf("service running. name='%v' index=%v\n", svc.Name(), index)
 		go func(svc Service) {
 			defer hub.svcWaiter.Done()
+			hub.nl.Printf("init service. name='%v'\n", svc.Name())
+			svc.SetState("init")
+			if err := svc.Init(); err != nil {
+				svc.SetState("init failed")
+				hub.nl.Printf("init service failed. name='%v' err='%v'\n", svc.Name(), err)
+				return
+			}
+			svc.SetState("running")
 			err := svc.Start()
-			<-time.After(time.Millisecond * 100)
-			hub.nl.Printf("service stopped. name='%v' err=%v\n", svc.Name(), err)
+			svc.SetState("stopped")
+			hub.nl.Printf("service stopped. name='%v' err='%v'\n", svc.Name(), err)
 		}(svc)
 	}
+	hub.svcWaiter.Wait()
 }
 
 func (hub *NetHub) ServicesRange(fn func(svc Service)) {
 	for _, svc := range hub.svcs {
 		fn(svc)
 	}
-}
-
-func (hub *NetHub) Wait() {
-	hub.svcWaiter.Wait()
 }
 
 func (hub *NetHub) ServiceReport() ([]ReportInfo, error) {
@@ -179,6 +180,8 @@ func (hub *NetHub) AddNetwork(network string, mnet Network) error {
 		return errors.New("network exists")
 	}
 	hub.nets[network] = mnet
+
+	hub.nl.Printf("agent registered. name='%v'\n", network)
 	return nil
 }
 

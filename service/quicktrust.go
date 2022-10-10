@@ -30,6 +30,7 @@ type QuickTrust struct {
 
 	actives int32
 	dones   int32
+	state   string
 }
 
 func NewQuickTrust(hub *agent.NetHub, network string, domains map[string]string, logName string) *QuickTrust {
@@ -42,6 +43,7 @@ func NewQuickTrust(hub *agent.NetHub, network string, domains map[string]string,
 	}
 }
 
+func (s *QuickTrust) SetState(st string) { s.state = st }
 func (s *QuickTrust) Name() string {
 	if s.logName != "" {
 		return s.logName
@@ -52,7 +54,7 @@ func (s *QuickTrust) Network() string { return s.network }
 func (s *QuickTrust) Report() agent.ReportInfo {
 	return agent.ReportInfo{
 		Name:    s.Name(),
-		State:   "uninit",
+		State:   s.state,
 		Listen:  "-",
 		Target:  "-",
 		Actives: s.actives,

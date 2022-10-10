@@ -71,14 +71,12 @@ func NewNetwork(hub *NetHub, info AgentInfo) *NetNode {
 	}
 
 	if info.WsEnable {
-		protocol := "ws:"
+		info.Protocol = "ws"
 		if info.Wss {
-			protocol = "wss:"
+			info.Protocol = "wss"
 		}
-		n.URL = fmt.Sprintf("%v//%v%v", protocol, info.Address, info.WsPath)
-	} else {
-		n.URL = "tcp://" + info.Address
 	}
+	n.URL = fmt.Sprintf("%v://%v%v", info.Protocol, info.Address, info.WsPath)
 
 	return n
 }
@@ -110,9 +108,12 @@ func (mnet *NetNode) Dial(network, addr string) (net.Conn, error) {
 }
 
 func (mnet *NetNode) Listen(network, addr string) (net.Listener, error) {
-	_, portStr, err := net.SplitHostPort(addr)
+	hostname, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
+	}
+	if hostname != "" && hostname != "0" && hostname != "local" && hostname != "localhost" {
+		return nil, errors.New("invalid listen hostname")
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil {

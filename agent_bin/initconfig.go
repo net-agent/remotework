@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/url"
 	"path"
 
@@ -15,6 +16,7 @@ func loadConfig() *agent.Config {
 	// 读取配置
 	configName := flags.ConfigFileName
 	if !utils.FileExist(configName) {
+		syslog.Printf("load '%v' failed, try config.json/config.toml\n", configName)
 		// try `config.json` or `config.toml`
 		dir := path.Dir(configName)
 		configJson := path.Join(dir, "config.json")
@@ -53,7 +55,9 @@ func loadConfig() *agent.Config {
 
 	// parse agent name map
 	// 与agents数组的url类似，但是url里的scheme含义发生了变化
-	for k, v := range config.AgentMap {
+	agentMap := make(map[string]string)
+	json.Unmarshal(config.AgentMap, &agentMap)
+	for k, v := range agentMap {
 		u, err := url.Parse(v)
 		if err == nil {
 			var ok bool
@@ -62,6 +66,7 @@ func loadConfig() *agent.Config {
 			ag.Protocol = u.Scheme
 			ag.Domain = u.User.Username()
 			ag.Password, ok = u.User.Password()
+			ag.WsPath = u.Path
 			if !ok {
 				ag.Password = ""
 			}
@@ -73,14 +78,18 @@ func loadConfig() *agent.Config {
 
 	// parse pipe map
 	// 是portproxy的别名，简化书写
-	for k, v := range config.PipeMap {
+	pipeMap := make(map[string]agent.PortproxyInfo)
+	json.Unmarshal(config.PipeMap, &pipeMap)
+	for k, v := range pipeMap {
 		v.LogName = k
 		config.Portproxy = append(config.Portproxy, v)
 	}
 
 	// porse sox
 	// 是socks5的别名，简化书写
-	for k, v := range config.SocksMap {
+	socksMap := make(map[string]agent.Socks5Info)
+	json.Unmarshal(config.SocksMap, &socksMap)
+	for k, v := range socksMap {
 		v.LogName = k
 		config.Socks5 = append(config.Socks5, v)
 	}

@@ -28,6 +28,6 @@ func main() {
 	hub.NetworkReportAscii(os.Stdout)
 	hub.ServiceReportAscii(os.Stdout)
 
-	hub.Wait()
+	hub.StartServices()
 	syslog.Println("main process exit.")
 }

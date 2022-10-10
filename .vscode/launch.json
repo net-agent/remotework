@@ -21,11 +21,12 @@
       "args": ["-c", "${workspaceFolder}/dist/config.json"]
     },
     {
-      "name": "Debug:Launcher",
+      "name": "Debug:Agent_v3",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/launcher"
+      "program": "${workspaceFolder}/agent_bin",
+      "args": ["-c", "${workspaceFolder}/dist/config_v3.json"]
     }
   ]
 }

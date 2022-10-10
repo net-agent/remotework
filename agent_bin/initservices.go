@@ -13,8 +13,6 @@ func initServices(hub *agent.NetHub, cfg *agent.Config) {
 	hub.AddServices(createSocks5s(hub, cfg.Socks5)...)
 	hub.AddServices(createQuickvisits(hub, cfg.Visit)...)
 	hub.AddServices(createRDPs(hub, cfg.RDP)...)
-
-	hub.StartServices()
 }
 
 func createTrusts(hub *agent.NetHub, agents []agent.AgentInfo) []agent.Service {

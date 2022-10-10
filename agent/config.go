@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"path"
 	"strings"
@@ -9,14 +10,14 @@ import (
 )
 
 type Config struct {
-	AgentMap  map[string]string        `json:"agent" toml:"agent"`
-	PipeMap   map[string]PortproxyInfo `json:"pipe" toml:"pipe"`
-	SocksMap  map[string]Socks5Info    `json:"sox" toml:"sox"`
-	Agents    []AgentInfo              `json:"agents" toml:"agents"`
-	Portproxy []PortproxyInfo          `json:"portproxy" toml:"portproxy"`
-	Socks5    []Socks5Info             `json:"socks5" toml:"socks5"`
-	RDP       []RDPInfo                `json:"rdp" toml:"rdp"`
-	Visit     []QuickVisitInfo         `json:"visit" toml:"visit"`
+	AgentMap  json.RawMessage  `json:"agent" toml:"agent"`
+	PipeMap   json.RawMessage  `json:"pipe" toml:"pipe"`
+	SocksMap  json.RawMessage  `json:"sox" toml:"sox"`
+	Agents    []AgentInfo      `json:"agents" toml:"agents"`
+	Portproxy []PortproxyInfo  `json:"portproxy" toml:"portproxy"`
+	Socks5    []Socks5Info     `json:"socks5" toml:"socks5"`
+	RDP       []RDPInfo        `json:"rdp" toml:"rdp"`
+	Visit     []QuickVisitInfo `json:"visit" toml:"visit"`
 }
 
 func NewConfig(configFileName string) (*Config, error) {

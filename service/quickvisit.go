@@ -28,6 +28,7 @@ type QuickVisit struct {
 
 	actives int32
 	dones   int32
+	state   string
 }
 
 func NewQuickVisit(hub *agent.NetHub, listenURL, targetURL, logName string) *QuickVisit {
@@ -42,7 +43,7 @@ func NewQuickVisit(hub *agent.NetHub, listenURL, targetURL, logName string) *Qui
 func (s *QuickVisit) Report() agent.ReportInfo {
 	return agent.ReportInfo{
 		Name:    s.Name(),
-		State:   "uninit",
+		State:   s.state,
 		Listen:  s.listenURL,
 		Target:  s.targetURL,
 		Actives: s.actives,
@@ -50,6 +51,7 @@ func (s *QuickVisit) Report() agent.ReportInfo {
 	}
 }
 
+func (s *QuickVisit) SetState(st string) { s.state = st }
 func (s *QuickVisit) Name() string {
 	if s.logName != "" {
 		return s.logName

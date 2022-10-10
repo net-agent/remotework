@@ -26,6 +26,7 @@ type Socks5 struct {
 
 	actives int32
 	dones   int32
+	state   string
 }
 
 func NewSocks5(hub *agent.NetHub, listenURL, username, password, logName string) *Socks5 {
@@ -39,6 +40,7 @@ func NewSocks5(hub *agent.NetHub, listenURL, username, password, logName string)
 	}
 }
 
+func (s *Socks5) SetState(st string) { s.state = st }
 func (s *Socks5) Name() string {
 	if s.logName != "" {
 		return s.logName
@@ -50,7 +52,7 @@ func (s *Socks5) Network() string { return s.listenNetwork }
 func (s *Socks5) Report() agent.ReportInfo {
 	return agent.ReportInfo{
 		Name:    s.Name(),
-		State:   "uninit",
+		State:   s.state,
 		Listen:  s.listenURL,
 		Target:  "-",
 		Actives: s.actives,

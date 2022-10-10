@@ -23,6 +23,7 @@ type Portproxy struct {
 	dialer   agent.QuickDialer
 	mut      sync.Mutex
 
+	state         string
 	listenNetwork string
 	actives       int32
 	dones         int32
@@ -49,12 +50,14 @@ func (s *Portproxy) Name() string {
 	return "portp"
 }
 
+func (s *Portproxy) SetState(st string) { s.state = st }
+
 func (s *Portproxy) Network() string { return s.listenNetwork }
 
 func (s *Portproxy) Report() agent.ReportInfo {
 	return agent.ReportInfo{
 		Name:    s.Name(),
-		State:   "uninit",
+		State:   s.state,
 		Listen:  s.listenURL,
 		Target:  s.targetURL,
 		Actives: s.actives,
@@ -62,7 +65,7 @@ func (s *Portproxy) Report() agent.ReportInfo {
 	}
 }
 
-func (s *Portproxy) Init() error {
+func (s *Portproxy) Init() (reterr error) {
 	dialer, err := s.hub.URLDialer(s.targetURL)
 	if err != nil {
 		return fmt.Errorf("parse target url failed: %v", err)

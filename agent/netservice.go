@@ -8,6 +8,7 @@ type Service interface {
 	Close() error
 	Update() error // 依赖的netnode重连后，能够更新runner
 	Report() ReportInfo
+	SetState(string)
 }
 
 type ReportInfos []ReportInfo
