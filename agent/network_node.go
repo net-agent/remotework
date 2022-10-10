@@ -16,12 +16,6 @@ import (
 	"github.com/net-agent/remotework/utils"
 )
 
-type QuickDialer func() (net.Conn, error)
-type Network interface {
-	Dial(network, addr string) (net.Conn, error)
-	Listen(network, addr string) (net.Listener, error)
-	Report() NodeReport
-}
 type NodeReport struct {
 	Name     string
 	Protocol string

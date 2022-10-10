@@ -7,31 +7,11 @@ import (
 	"net/url"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/net-agent/cipherconn"
 	"github.com/net-agent/remotework/utils"
 	"github.com/olekukonko/tablewriter"
 )
-
-// tcp network wrap
-type tcpnetwork struct {
-	Type    string
-	Listens int32
-	Dials   int32
-}
-
-func (tcp *tcpnetwork) Dial(network, addr string) (net.Conn, error) {
-	return net.Dial(network, addr)
-}
-func (tcp *tcpnetwork) Listen(network, addr string) (net.Listener, error) {
-	return net.Listen(network, addr)
-}
-func (tcp *tcpnetwork) Report() NodeReport {
-	return NodeReport{
-		Name: tcp.Type,
-	}
-}
 
 type NetHub struct {
 	nl   *utils.NamedLogger
@@ -185,8 +165,8 @@ func (hub *NetHub) AddNetwork(network string, mnet Network) error {
 	return nil
 }
 
-// GetNetwork 获取网络
-func (hub *NetHub) GetNetwork(network string) (Network, error) {
+// findNetwork 获取网络
+func (hub *NetHub) findNetwork(network string) (Network, error) {
 	if network == "" {
 		return nil, errors.New("invalid network name=''")
 	}
@@ -202,7 +182,7 @@ func (hub *NetHub) GetNetwork(network string) (Network, error) {
 
 // Dial 创建连接
 func (hub *NetHub) Dial(network, addr string) (net.Conn, error) {
-	mnet, err := hub.GetNetwork(network)
+	mnet, err := hub.findNetwork(network)
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +232,7 @@ func (hub *NetHub) dialu(u *url.URL) (net.Conn, error) {
 }
 
 func (hub *NetHub) Listen(network, addr string) (net.Listener, error) {
-	mnet, err := hub.GetNetwork(network)
+	mnet, err := hub.findNetwork(network)
 	if err != nil {
 		return nil, err
 	}
@@ -282,58 +262,4 @@ func ListenURL(network interface {
 	}
 
 	return newSecretListener(l, secret), nil
-}
-
-//
-//
-// Listener
-//
-
-type secretListener struct {
-	net.Listener
-	ch chan net.Conn
-}
-
-func newSecretListener(l net.Listener, secret string) net.Listener {
-	ch := make(chan net.Conn, 128)
-	go func() {
-		var wg sync.WaitGroup
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				break
-			}
-
-			wg.Add(1)
-			go func(c net.Conn) {
-				defer wg.Done()
-				cc, err := cipherconn.New(c, secret)
-				if err != nil {
-					c.Close()
-					return
-				}
-				select {
-				case ch <- cc:
-				case <-time.After(time.Second * 20):
-				}
-			}(conn)
-		}
-		wg.Wait() // wait all channel push done
-		close(ch)
-	}()
-
-	sl := &secretListener{
-		Listener: l,
-		ch:       ch,
-	}
-
-	return sl
-}
-
-func (l *secretListener) Accept() (net.Conn, error) {
-	c, ok := <-l.ch
-	if !ok {
-		return nil, errors.New("listener closed")
-	}
-	return c, nil
 }
