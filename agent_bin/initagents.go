@@ -4,7 +4,7 @@ import (
 	"github.com/net-agent/remotework/agent"
 )
 
-func initAgents(hub *agent.NetHub, agents []agent.AgentInfo) {
+func initAgents(hub *agent.Hub, agents []agent.AgentInfo) {
 	syslog.Println("register agents:")
 
 	runcount := 0

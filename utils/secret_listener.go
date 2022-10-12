@@ -1,4 +1,4 @@
-package agent
+package utils
 
 import (
 	"errors"
@@ -19,7 +19,7 @@ type secretListener struct {
 	ch chan net.Conn
 }
 
-func newSecretListener(l net.Listener, secret string) net.Listener {
+func NewSecretListener(l net.Listener, secret string) net.Listener {
 	ch := make(chan net.Conn, 128)
 	go func() {
 		var wg sync.WaitGroup

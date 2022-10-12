@@ -1,29 +1,25 @@
 package agent
 
-import "net"
+import (
+	"net"
+	"time"
+)
 
 type QuickDialer func() (net.Conn, error)
 type Network interface {
 	Dial(network, addr string) (net.Conn, error)
 	Listen(network, addr string) (net.Listener, error)
-	Report() NodeReport
+	Report() NetworkReport
 }
-
-// tcp network wrap
-type tcpnetwork struct {
-	Type    string
-	Listens int32
-	Dials   int32
-}
-
-func (tcp *tcpnetwork) Dial(network, addr string) (net.Conn, error) {
-	return net.Dial(network, addr)
-}
-func (tcp *tcpnetwork) Listen(network, addr string) (net.Listener, error) {
-	return net.Listen(network, addr)
-}
-func (tcp *tcpnetwork) Report() NodeReport {
-	return NodeReport{
-		Name: tcp.Type,
-	}
+type NetworkReport struct {
+	Name     string
+	Protocol string
+	Address  string
+	Domain   string
+	Alive    time.Duration
+	Listens  int32
+	Accepts  int32
+	Dials    int32
+	Sends    int64
+	Recvs    int64
 }

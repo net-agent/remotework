@@ -1,4 +1,4 @@
-package service
+package agent
 
 import (
 	"bytes"
@@ -7,11 +7,9 @@ import (
 	"os"
 	"testing"
 	"time"
-
-	"github.com/net-agent/remotework/agent"
 )
 
-var hub = agent.NewNetHub()
+var hub = NewHub()
 
 const echoAddr = "tcp://localhost:9922"
 

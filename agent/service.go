@@ -1,20 +1,32 @@
 package agent
 
 type Service interface {
-	Name() string
 	Network() string
 	Init() error
 	Start() error
 	Close() error
 	Update() error // 依赖的netnode重连后，能够更新runner
-	Report() ReportInfo
-	SetState(string)
+	ServiceInfo
 }
 
-type ReportInfos []ReportInfo
+type ServiceInfo interface {
+	SetName(name string)
+	GetName() string
+	SetState(state string)
+	GetState() string
+	SetID(id int32)
+	GetID() int32
+	AddActiveCount(n int32)
+	AddDoneCount(n int32)
+	SetListenAndTarget(l, t string)
+	Detail() ServiceDetail
+}
 
-type ReportInfo struct {
+type ServiceDetails []ServiceDetail
+
+type ServiceDetail struct {
 	Name    string
+	Type    string
 	State   string
 	Listen  string
 	Target  string

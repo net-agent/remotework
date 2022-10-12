@@ -16,20 +16,8 @@ import (
 	"github.com/net-agent/remotework/utils"
 )
 
-type NodeReport struct {
-	Name     string
-	Protocol string
-	Address  string
-	Domain   string
-	Alive    time.Duration
-	Listens  int32
-	Accepts  int32
-	Dials    int32
-	Sends    int64
-	Recvs    int64
-}
-type NetNode struct {
-	hub        *NetHub
+type networkImpl struct {
+	hub        *Hub
 	nl         *utils.NamedLogger
 	node       *node.Node
 	onceInit   sync.Once
@@ -50,8 +38,8 @@ type NetNode struct {
 	Recvs     int64
 }
 
-func NewNetwork(hub *NetHub, info AgentInfo) *NetNode {
-	n := &NetNode{
+func NewNetwork(hub *Hub, info AgentInfo) *networkImpl {
+	n := &networkImpl{
 		hub: hub,
 		nl:  utils.NewNamedLogger(info.Name, true),
 
@@ -75,8 +63,8 @@ func NewNetwork(hub *NetHub, info AgentInfo) *NetNode {
 	return n
 }
 
-func (mnet *NetNode) Report() NodeReport {
-	return NodeReport{
+func (mnet *networkImpl) Report() NetworkReport {
+	return NetworkReport{
 		Name:     mnet.Name,
 		Protocol: mnet.Protocol,
 		Address:  mnet.Address,
@@ -90,7 +78,7 @@ func (mnet *NetNode) Report() NodeReport {
 	}
 }
 
-func (mnet *NetNode) Dial(network, addr string) (net.Conn, error) {
+func (mnet *networkImpl) Dial(network, addr string) (net.Conn, error) {
 	node, err := mnet.getNode()
 	if err != nil {
 		return nil, err
@@ -101,7 +89,7 @@ func (mnet *NetNode) Dial(network, addr string) (net.Conn, error) {
 	return node.Dial(addr)
 }
 
-func (mnet *NetNode) Listen(network, addr string) (net.Listener, error) {
+func (mnet *networkImpl) Listen(network, addr string) (net.Listener, error) {
 	hostname, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
@@ -124,7 +112,7 @@ func (mnet *NetNode) Listen(network, addr string) (net.Listener, error) {
 	return node.Listen(uint16(port))
 }
 
-func (mnet *NetNode) getNode() (*node.Node, error) {
+func (mnet *networkImpl) getNode() (*node.Node, error) {
 	mnet.onceInit.Do(func() {
 		ch := make(chan *node.Node, 1)
 		mnet.nodeWaiter = ch
@@ -143,7 +131,7 @@ func (mnet *NetNode) getNode() (*node.Node, error) {
 // keepalive 创建连接，并保持连接在线。出现异常时会不断尝试重连，直至连接成功为止
 // 该方法在第一次尝试调用getNode时触发
 // 每一次调用Dial和Listen时，都会调用getNode
-func (mnet *NetNode) keepalive() {
+func (mnet *networkImpl) keepalive() {
 	cooldownTime := time.Second * 0
 	minCooldown := 3 * time.Second
 	maxCooldown := 1 * time.Minute
@@ -184,7 +172,7 @@ func (mnet *NetNode) keepalive() {
 }
 
 // connect 连接中转服务器，创建会话。每次断线后需要重新调用
-func (mnet *NetNode) connect() (*node.Node, error) {
+func (mnet *networkImpl) connect() (*node.Node, error) {
 	// step1: 尝试通过tcp或ws连接中转服务
 	var pc packet.Conn
 	var err error

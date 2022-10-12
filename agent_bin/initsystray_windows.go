@@ -11,7 +11,7 @@ func releaseSysTray() {
 	systray.Quit()
 }
 
-func initSysTray(hub *agent.NetHub) {
+func initSysTray(hub *agent.Hub) {
 	syslog.Println("net hub is working, click systray to get more infos.")
 
 	addClickListener := func(btn *systray.MenuItem, fn func()) {
@@ -37,9 +37,9 @@ func initSysTray(hub *agent.NetHub) {
 
 		btnServices := systray.AddMenuItem("服务列表明细", "list all services")
 		hub.ServicesRange(func(svc agent.Service) {
-			btn := btnServices.AddSubMenuItem(svc.Name(), "detail report")
+			btn := btnServices.AddSubMenuItem(svc.GetName(), "detail report")
 			go addClickListener(btn, func() {
-				report := svc.Report()
+				report := svc.Detail()
 				syslog.Printf(
 					"[systray] service detail. name='%v' state='%v' actives=%v dones=%v\n",
 					report.Name,

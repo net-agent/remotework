@@ -1,4 +1,4 @@
-package service
+package agent
 
 import (
 	"errors"
@@ -6,64 +6,45 @@ import (
 	"net"
 	"net/url"
 	"sync"
-	"sync/atomic"
 
-	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/remotework/utils"
 )
 
 type Portproxy struct {
+	svcinfo
 	nl        *utils.NamedLogger
-	hub       *agent.NetHub
+	hub       *Hub
 	listenURL string
 	targetURL string
 	logName   string
 
 	listener net.Listener
-	dialer   agent.QuickDialer
+	dialer   QuickDialer
 	mut      sync.Mutex
 
-	state         string
 	listenNetwork string
-	actives       int32
-	dones         int32
 }
 
-func NewPortproxy(hub *agent.NetHub, listenURL, targetURL, logName string) *Portproxy {
+func NewPortproxy(hub *Hub, listenURL, targetURL, logName string) *Portproxy {
 	return &Portproxy{
 		nl:        utils.NewNamedLogger(logName, true),
 		hub:       hub,
 		listenURL: listenURL,
 		targetURL: targetURL,
 		logName:   logName,
+		svcinfo: svcinfo{
+			name:   svcName(logName, "portproxy"),
+			listen: listenURL,
+			target: targetURL,
+		},
 	}
 }
 
-func NewRDP(hub *agent.NetHub, listenURL, logName string) *Portproxy {
-	return NewPortproxy(hub, listenURL, fmt.Sprintf("tcp://localhost:%v", rdpPortNumber()), logName)
+func NewRDP(hub *Hub, listenURL, logName string) *Portproxy {
+	return NewPortproxy(hub, listenURL, fmt.Sprintf("tcp://localhost:%v", utils.GetRDPPort()), logName)
 }
-
-func (s *Portproxy) Name() string {
-	if s.logName != "" {
-		return s.logName
-	}
-	return "portp"
-}
-
-func (s *Portproxy) SetState(st string) { s.state = st }
 
 func (s *Portproxy) Network() string { return s.listenNetwork }
-
-func (s *Portproxy) Report() agent.ReportInfo {
-	return agent.ReportInfo{
-		Name:    s.Name(),
-		State:   s.state,
-		Listen:  s.listenURL,
-		Target:  s.targetURL,
-		Actives: s.actives,
-		Dones:   s.dones,
-	}
-}
 
 func (s *Portproxy) Init() (reterr error) {
 	dialer, err := s.hub.URLDialer(s.targetURL)
@@ -149,11 +130,10 @@ func (p *Portproxy) Close() error {
 }
 
 func (p *Portproxy) serve(c1 net.Conn) {
-	atomic.AddInt32(&p.actives, 1)
+	p.AddActiveCount(1)
 	defer func() {
 		c1.Close()
-		atomic.AddInt32(&p.actives, -1)
-		atomic.AddInt32(&p.dones, 1)
+		p.AddDoneCount(1)
 	}()
 
 	var dialer string

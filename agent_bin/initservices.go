@@ -1,40 +1,19 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/net-agent/remotework/agent"
-	"github.com/net-agent/remotework/service"
 )
 
-func initServices(hub *agent.NetHub, cfg *agent.Config) {
-	hub.AddServices(createTrusts(hub, cfg.Agents)...)
+func initServices(hub *agent.Hub, cfg *agent.Config) {
 	hub.AddServices(createPortproxys(hub, cfg.Portproxy)...)
 	hub.AddServices(createSocks5s(hub, cfg.Socks5)...)
-	hub.AddServices(createQuickvisits(hub, cfg.Visit)...)
 	hub.AddServices(createRDPs(hub, cfg.RDP)...)
 }
 
-func createTrusts(hub *agent.NetHub, agents []agent.AgentInfo) []agent.Service {
-	svcs := []agent.Service{}
-	for _, info := range agents {
-		if info.QuickTrust.Enable {
-			svc := service.NewQuickTrust(
-				hub,
-				info.Name,
-				info.QuickTrust.WhiteList,
-				fmt.Sprintf("trust-%v", info.Name),
-			)
-			svcs = append(svcs, svc)
-		}
-	}
-	return svcs
-}
-
-func createPortproxys(hub *agent.NetHub, pps []agent.PortproxyInfo) []agent.Service {
+func createPortproxys(hub *agent.Hub, pps []agent.PortproxyInfo) []agent.Service {
 	svcs := []agent.Service{}
 	for _, info := range pps {
-		svc := service.NewPortproxy(hub,
+		svc := agent.NewPortproxy(hub,
 			info.ListenURL,
 			info.TargetURL,
 			info.LogName,
@@ -44,24 +23,10 @@ func createPortproxys(hub *agent.NetHub, pps []agent.PortproxyInfo) []agent.Serv
 	return svcs
 }
 
-func createQuickvisits(hub *agent.NetHub, visits []agent.QuickVisitInfo) []agent.Service {
-	svcs := []agent.Service{}
-	for _, info := range visits {
-		svc := service.NewQuickVisit(
-			hub,
-			info.ListenURL,
-			info.TargetURL,
-			info.LogName,
-		)
-		svcs = append(svcs, svc)
-	}
-	return svcs
-}
-
-func createSocks5s(hub *agent.NetHub, ss []agent.Socks5Info) []agent.Service {
+func createSocks5s(hub *agent.Hub, ss []agent.Socks5Info) []agent.Service {
 	svcs := []agent.Service{}
 	for _, info := range ss {
-		svc := service.NewSocks5(hub,
+		svc := agent.NewSocks5(hub,
 			info.ListenURL,
 			info.Username,
 			info.Password,
@@ -72,10 +37,10 @@ func createSocks5s(hub *agent.NetHub, ss []agent.Socks5Info) []agent.Service {
 	return svcs
 }
 
-func createRDPs(hub *agent.NetHub, rdps []agent.RDPInfo) []agent.Service {
+func createRDPs(hub *agent.Hub, rdps []agent.RDPInfo) []agent.Service {
 	svcs := []agent.Service{}
 	for _, info := range rdps {
-		svc := service.NewRDP(hub, info.ListenURL, info.LogName)
+		svc := agent.NewRDP(hub, info.ListenURL, info.LogName)
 		svcs = append(svcs, svc)
 	}
 	return svcs

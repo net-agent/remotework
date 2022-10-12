@@ -18,7 +18,7 @@ func main() {
 		defer logoutput.Close()
 	}
 
-	hub := agent.NewNetHub()
+	hub := agent.NewHub()
 	initAgents(hub, config.Agents)
 	initServices(hub, config)
 	initSysTray(hub)

@@ -7,34 +7,38 @@ import (
 	"net/url"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/net-agent/cipherconn"
 	"github.com/net-agent/remotework/utils"
 	"github.com/olekukonko/tablewriter"
 )
 
-type NetHub struct {
+type Hub struct {
 	nl   *utils.NamedLogger
 	nets map[string]Network
 	mut  sync.RWMutex
 
-	svcs      []Service
-	svcWaiter sync.WaitGroup
+	svcs     []Service
+	svcNames map[string]Service
+	svcMut   sync.RWMutex
+	svcID    int32
 }
 
-func NewNetHub() *NetHub {
+func NewHub() *Hub {
 	nets := make(map[string]Network)
 	nets["tcp"] = &tcpnetwork{"tcp", 0, 0}
 	nets["tcp4"] = &tcpnetwork{"tcp4", 0, 0}
 	nets["tcp6"] = &tcpnetwork{"tcp6", 0, 0}
 
-	return &NetHub{
-		nl:   utils.NewNamedLogger("hub", false),
-		nets: nets,
+	return &Hub{
+		nl:       utils.NewNamedLogger("hub", false),
+		nets:     nets,
+		svcNames: make(map[string]Service),
 	}
 }
 
-func (hub *NetHub) TriggerNetworkUpdate(network string) {
+func (hub *Hub) TriggerNetworkUpdate(network string) {
 	hub.nl.Printf("network='%v' updated.\n", network)
 	for _, svc := range hub.svcs {
 		if svc.Network() == network {
@@ -43,54 +47,82 @@ func (hub *NetHub) TriggerNetworkUpdate(network string) {
 	}
 }
 
-func (hub *NetHub) AddServices(svcs ...Service) {
+func (hub *Hub) AddServices(svcs ...Service) {
 	for _, svc := range svcs {
-		svc.SetState("uninit")
-		hub.svcs = append(hub.svcs, svc)
-		hub.nl.Printf("service registered. name='%v'\n", svc.Name())
+		hub.AddService(svc)
 	}
 }
 
-func (hub *NetHub) StartServices() {
+func (hub *Hub) AddService(svc Service) error {
+	svc.SetID(atomic.AddInt32(&hub.svcID, 1))
+
+	hub.svcMut.Lock()
+	defer hub.svcMut.Unlock()
+
+	if _, found := hub.svcNames[svc.GetName()]; !found {
+		return errors.New("service exists")
+	}
+
+	svc.SetState("uninit")
+	hub.svcs = append(hub.svcs, svc)
+	hub.svcNames[svc.GetName()] = svc
+	hub.nl.Printf("service registered. name='%v'\n", svc.GetName())
+
+	return nil
+}
+
+func (hub *Hub) FindService(name string) (Service, error) {
+	hub.svcMut.RLock()
+	defer hub.svcMut.RUnlock()
+
+	svc, found := hub.svcNames[name]
+	if !found {
+		return nil, errors.New("service not found")
+	}
+	return svc, nil
+}
+
+func (hub *Hub) StartServices() {
 	hub.nl.Println("start services:")
+	var wg sync.WaitGroup
 	for _, svc := range hub.svcs {
-		hub.svcWaiter.Add(1)
+		wg.Add(1)
 		go func(svc Service) {
-			defer hub.svcWaiter.Done()
-			hub.nl.Printf("init service. name='%v'\n", svc.Name())
+			defer wg.Done()
+			hub.nl.Printf("init service. name='%v'\n", svc.GetName())
 			svc.SetState("init")
 			if err := svc.Init(); err != nil {
 				svc.SetState("init failed")
-				hub.nl.Printf("init service failed. name='%v' err='%v'\n", svc.Name(), err)
+				hub.nl.Printf("init service failed. name='%v' err='%v'\n", svc.GetName(), err)
 				return
 			}
 			svc.SetState("running")
 			err := svc.Start()
 			svc.SetState("stopped")
-			hub.nl.Printf("service stopped. name='%v' err='%v'\n", svc.Name(), err)
+			hub.nl.Printf("service stopped. name='%v' err='%v'\n", svc.GetName(), err)
 		}(svc)
 	}
-	hub.svcWaiter.Wait()
+	wg.Wait()
 }
 
-func (hub *NetHub) ServicesRange(fn func(svc Service)) {
+func (hub *Hub) ServicesRange(fn func(svc Service)) {
 	for _, svc := range hub.svcs {
 		fn(svc)
 	}
 }
 
-func (hub *NetHub) ServiceReport() ([]ReportInfo, error) {
+func (hub *Hub) ServiceReport() ([]ServiceDetail, error) {
 	if len(hub.svcs) <= 0 {
 		return nil, errors.New("NO SERVICES")
 	}
 
-	var reports []ReportInfo
+	var reports []ServiceDetail
 	for _, svc := range hub.svcs {
-		reports = append(reports, svc.Report())
+		reports = append(reports, svc.Detail())
 	}
 	return reports, nil
 }
-func (hub *NetHub) ServiceReportAscii(out *os.File) {
+func (hub *Hub) ServiceReportAscii(out *os.File) {
 	reports, err := hub.ServiceReport()
 	if err != nil {
 		out.WriteString(fmt.Sprintf("ServiceReprotAscii failed: %v\n", err))
@@ -113,19 +145,19 @@ func (hub *NetHub) ServiceReportAscii(out *os.File) {
 	table.Render()
 }
 
-func (hub *NetHub) NetworkReport() ([]NodeReport, error) {
+func (hub *Hub) NetworkReport() ([]NetworkReport, error) {
 	if len(hub.nets) <= 0 {
 		return nil, errors.New("NO NETWORKS")
 	}
 
-	var reports []NodeReport
+	var reports []NetworkReport
 	for _, nt := range hub.nets {
 		reports = append(reports, nt.Report())
 	}
 	return reports, nil
 }
 
-func (hub *NetHub) NetworkReportAscii(out *os.File) {
+func (hub *Hub) NetworkReportAscii(out *os.File) {
 	reports, err := hub.NetworkReport()
 	if err != nil {
 		out.WriteString(fmt.Sprintf("NetworkReportAscii failed: %v\n", err))
@@ -148,7 +180,7 @@ func (hub *NetHub) NetworkReportAscii(out *os.File) {
 }
 
 // AddNetwork 在hub中增加network
-func (hub *NetHub) AddNetwork(network string, mnet Network) error {
+func (hub *Hub) AddNetwork(network string, mnet Network) error {
 	if network == "" {
 		return errors.New("invalid network name=''")
 	}
@@ -165,8 +197,8 @@ func (hub *NetHub) AddNetwork(network string, mnet Network) error {
 	return nil
 }
 
-// findNetwork 获取网络
-func (hub *NetHub) findNetwork(network string) (Network, error) {
+// FindNetwork 获取网络
+func (hub *Hub) FindNetwork(network string) (Network, error) {
 	if network == "" {
 		return nil, errors.New("invalid network name=''")
 	}
@@ -181,8 +213,8 @@ func (hub *NetHub) findNetwork(network string) (Network, error) {
 }
 
 // Dial 创建连接
-func (hub *NetHub) Dial(network, addr string) (net.Conn, error) {
-	mnet, err := hub.findNetwork(network)
+func (hub *Hub) Dial(network, addr string) (net.Conn, error) {
+	mnet, err := hub.FindNetwork(network)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +222,7 @@ func (hub *NetHub) Dial(network, addr string) (net.Conn, error) {
 }
 
 // URLDialer 对URL进行预处理，在调用时快速创建连接
-func (hub *NetHub) URLDialer(raw string) (QuickDialer, error) {
+func (hub *Hub) URLDialer(raw string) (QuickDialer, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
@@ -202,7 +234,7 @@ func (hub *NetHub) URLDialer(raw string) (QuickDialer, error) {
 }
 
 // DialURL 直接根据URL信息创建连接
-func (hub *NetHub) DialURL(raw string) (net.Conn, error) {
+func (hub *Hub) DialURL(raw string) (net.Conn, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
@@ -214,7 +246,7 @@ func (hub *NetHub) DialURL(raw string) (net.Conn, error) {
 // - url.Scheme 对应 network
 // - url.Host 对应 address
 // - url.Query 对应其它控制参数，例如：加密、压缩等
-func (hub *NetHub) dialu(u *url.URL) (net.Conn, error) {
+func (hub *Hub) dialu(u *url.URL) (net.Conn, error) {
 	c, err := hub.Dial(u.Scheme, u.Host)
 	if err != nil {
 		return nil, err
@@ -231,15 +263,15 @@ func (hub *NetHub) dialu(u *url.URL) (net.Conn, error) {
 	return c, nil
 }
 
-func (hub *NetHub) Listen(network, addr string) (net.Listener, error) {
-	mnet, err := hub.findNetwork(network)
+func (hub *Hub) Listen(network, addr string) (net.Listener, error) {
+	mnet, err := hub.FindNetwork(network)
 	if err != nil {
 		return nil, err
 	}
 	return mnet.Listen(network, addr)
 }
 
-func (hub *NetHub) ListenURL(raw string) (net.Listener, error) {
+func (hub *Hub) ListenURL(raw string) (net.Listener, error) {
 	return ListenURL(hub, raw)
 }
 
@@ -261,5 +293,5 @@ func ListenURL(network interface {
 		return l, nil
 	}
 
-	return newSecretListener(l, secret), nil
+	return utils.NewSecretListener(l, secret), nil
 }
