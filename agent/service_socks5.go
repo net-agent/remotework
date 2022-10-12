@@ -24,11 +24,11 @@ type Socks5 struct {
 	server        socks.Server
 }
 
+func NewSocks5WithConfig(hub *Hub, info Socks5Info) *Socks5 {
+	return NewSocks5(hub, info.ListenURL, info.Username, info.Password, info.LogName)
+}
+
 func NewSocks5(hub *Hub, listenURL, username, password, logName string) *Socks5 {
-	name := logName
-	if name == "" {
-		name = "socks5"
-	}
 	return &Socks5{
 		nl:        utils.NewNamedLogger(logName, true),
 		hub:       hub,
@@ -37,9 +37,10 @@ func NewSocks5(hub *Hub, listenURL, username, password, logName string) *Socks5 
 		password:  password,
 		logName:   logName,
 		svcinfo: svcinfo{
-			name:   name,
-			listen: listenURL,
-			target: "-",
+			name:    svcName(logName, "socks5"),
+			svctype: "socks5",
+			listen:  listenURL,
+			target:  "-",
 		},
 	}
 }

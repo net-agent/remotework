@@ -19,8 +19,8 @@ func main() {
 	}
 
 	hub := agent.NewHub()
-	initAgents(hub, config.Agents)
-	initServices(hub, config)
+	hub.MountConfig(config)
+
 	initSysTray(hub)
 	defer releaseSysTray()
 

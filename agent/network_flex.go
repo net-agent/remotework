@@ -17,6 +17,7 @@ import (
 )
 
 type networkImpl struct {
+	networkinfo
 	hub        *Hub
 	nl         *utils.NamedLogger
 	node       *node.Node
@@ -31,17 +32,15 @@ type networkImpl struct {
 	Password  string
 	MacStr    string
 	StartTime time.Time
-	Listens   int32
-	Accepts   int32
-	Dials     int32
 	Sends     int64
 	Recvs     int64
 }
 
 func NewNetwork(hub *Hub, info AgentInfo) *networkImpl {
 	n := &networkImpl{
-		hub: hub,
-		nl:  utils.NewNamedLogger(info.Name, true),
+		networkinfo: networkinfo{name: info.Name},
+		hub:         hub,
+		nl:          utils.NewNamedLogger(info.Name, true),
 
 		Name:      info.Name,
 		Protocol:  info.Protocol,
@@ -70,9 +69,9 @@ func (mnet *networkImpl) Report() NetworkReport {
 		Address:  mnet.Address,
 		Domain:   mnet.Domain,
 		Alive:    time.Since(mnet.StartTime),
-		Listens:  mnet.Listens,
-		Accepts:  mnet.Accepts,
-		Dials:    mnet.Dials,
+		Listens:  mnet.listenCount,
+		Accepts:  0,
+		Dials:    mnet.dialCount,
 		Sends:    mnet.Sends,
 		Recvs:    mnet.Recvs,
 	}
@@ -86,6 +85,7 @@ func (mnet *networkImpl) Dial(network, addr string) (net.Conn, error) {
 	if node == nil {
 		return nil, errors.New("dial with nil node")
 	}
+	mnet.addDialCount(1)
 	return node.Dial(addr)
 }
 
@@ -109,6 +109,7 @@ func (mnet *networkImpl) Listen(network, addr string) (net.Listener, error) {
 	if node == nil {
 		return nil, errors.New("listen with nil node")
 	}
+	mnet.addListenCount(1)
 	return node.Listen(uint16(port))
 }
 

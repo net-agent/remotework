@@ -7,6 +7,7 @@ import (
 
 type QuickDialer func() (net.Conn, error)
 type Network interface {
+	GetName() string
 	Dial(network, addr string) (net.Conn, error)
 	Listen(network, addr string) (net.Listener, error)
 	Report() NetworkReport

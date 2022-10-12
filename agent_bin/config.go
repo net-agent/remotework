@@ -8,7 +8,7 @@ import (
 )
 
 func loadConfig() *agent.Config {
-	var flags agent.AgentFlags
+	var flags ClientFlags
 	flags.Parse()
 
 	// 读取配置

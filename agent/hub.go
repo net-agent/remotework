@@ -26,15 +26,33 @@ type Hub struct {
 }
 
 func NewHub() *Hub {
-	nets := make(map[string]Network)
-	nets["tcp"] = &tcpnetwork{"tcp", 0, 0}
-	nets["tcp4"] = &tcpnetwork{"tcp4", 0, 0}
-	nets["tcp6"] = &tcpnetwork{"tcp6", 0, 0}
-
-	return &Hub{
+	hub := &Hub{
 		nl:       utils.NewNamedLogger("hub", false),
-		nets:     nets,
+		nets:     make(map[string]Network),
 		svcNames: make(map[string]Service),
+	}
+
+	hub.AddNetwork(newTcpNetwork("tcp"))
+	hub.AddNetwork(newTcpNetwork("tcp4"))
+	hub.AddNetwork(newTcpNetwork("tcp6"))
+
+	return hub
+}
+
+func (hub *Hub) MountConfig(cfg *Config) {
+	cfg.PreProcess()
+
+	for _, info := range cfg.Agents {
+		hub.AddNetwork(NewNetwork(hub, info))
+	}
+	for _, info := range cfg.Portproxy {
+		hub.AddService(NewPortproxyWithConfig(hub, info))
+	}
+	for _, info := range cfg.Socks5 {
+		hub.AddService(NewSocks5WithConfig(hub, info))
+	}
+	for _, info := range cfg.RDP {
+		hub.AddService(NewRDPWithConfig(hub, info))
 	}
 }
 
@@ -47,20 +65,15 @@ func (hub *Hub) TriggerNetworkUpdate(network string) {
 	}
 }
 
-func (hub *Hub) AddServices(svcs ...Service) {
-	for _, svc := range svcs {
-		hub.AddService(svc)
-	}
-}
-
 func (hub *Hub) AddService(svc Service) error {
 	svc.SetID(atomic.AddInt32(&hub.svcID, 1))
 
 	hub.svcMut.Lock()
 	defer hub.svcMut.Unlock()
 
-	if _, found := hub.svcNames[svc.GetName()]; !found {
-		return errors.New("service exists")
+	if _, found := hub.svcNames[svc.GetName()]; found {
+		hub.nl.Printf("service register failed. dump service name='%v'\n", svc.GetName())
+		return errors.New("dump service name")
 	}
 
 	svc.SetState("uninit")
@@ -130,10 +143,11 @@ func (hub *Hub) ServiceReportAscii(out *os.File) {
 	}
 
 	table := tablewriter.NewWriter(out)
-	table.SetHeader([]string{"index", "name", "state", "listen", "target", "actives", "dones"})
+	table.SetHeader([]string{"index", "type", "name", "state", "listen", "target", "actives", "dones"})
 	for index, info := range reports {
 		table.Append([]string{
 			fmt.Sprintf("%v", index),
+			info.Type,
 			info.Name,
 			info.State,
 			info.Listen,
@@ -180,20 +194,21 @@ func (hub *Hub) NetworkReportAscii(out *os.File) {
 }
 
 // AddNetwork 在hub中增加network
-func (hub *Hub) AddNetwork(network string, mnet Network) error {
-	if network == "" {
+func (hub *Hub) AddNetwork(mnet Network) error {
+	name := mnet.GetName()
+	if name == "" {
 		return errors.New("invalid network name=''")
 	}
 	hub.mut.Lock()
 	defer hub.mut.Unlock()
 
-	_, found := hub.nets[network]
+	_, found := hub.nets[name]
 	if found {
 		return errors.New("network exists")
 	}
-	hub.nets[network] = mnet
+	hub.nets[name] = mnet
 
-	hub.nl.Printf("agent registered. name='%v'\n", network)
+	hub.nl.Printf("agent registered. name='%v'\n", name)
 	return nil
 }
 

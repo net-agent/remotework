@@ -25,11 +25,11 @@ type ServiceInfo interface {
 type ServiceDetails []ServiceDetail
 
 type ServiceDetail struct {
-	Name    string
-	Type    string
-	State   string
-	Listen  string
-	Target  string
-	Actives int32
-	Dones   int32
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	State   string `json:"state"`
+	Listen  string `json:"listen"`
+	Target  string `json:"target"`
+	Actives int32  `josn:"actives"`
+	Dones   int32  `json:"dones"`
 }

@@ -25,6 +25,10 @@ type Portproxy struct {
 	listenNetwork string
 }
 
+func NewPortproxyWithConfig(hub *Hub, info PortproxyInfo) *Portproxy {
+	return NewPortproxy(hub, info.ListenURL, info.TargetURL, info.LogName)
+}
+
 func NewPortproxy(hub *Hub, listenURL, targetURL, logName string) *Portproxy {
 	return &Portproxy{
 		nl:        utils.NewNamedLogger(logName, true),
@@ -33,13 +37,17 @@ func NewPortproxy(hub *Hub, listenURL, targetURL, logName string) *Portproxy {
 		targetURL: targetURL,
 		logName:   logName,
 		svcinfo: svcinfo{
-			name:   svcName(logName, "portproxy"),
-			listen: listenURL,
-			target: targetURL,
+			name:    svcName(logName, "portproxy"),
+			svctype: "portproxy",
+			listen:  listenURL,
+			target:  targetURL,
 		},
 	}
 }
 
+func NewRDPWithConfig(hub *Hub, info RDPInfo) *Portproxy {
+	return NewPortproxy(hub, info.ListenURL, fmt.Sprintf("tcp://localhost:%v", utils.GetRDPPort()), info.LogName)
+}
 func NewRDP(hub *Hub, listenURL, logName string) *Portproxy {
 	return NewPortproxy(hub, listenURL, fmt.Sprintf("tcp://localhost:%v", utils.GetRDPPort()), logName)
 }

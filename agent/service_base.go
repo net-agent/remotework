@@ -5,9 +5,10 @@ import (
 )
 
 type svcinfo struct {
-	id    int32
-	state string
-	name  string
+	id      int32
+	svctype string
+	state   string
+	name    string
 
 	_actives int32
 	_dones   int32
@@ -28,7 +29,15 @@ func (s *svcinfo) AddDoneCount(n int32) {
 }
 func (s *svcinfo) SetListenAndTarget(l, t string) { s.listen = l; s.target = t }
 func (s *svcinfo) Detail() ServiceDetail {
-	detail := ServiceDetail{}
+	detail := ServiceDetail{
+		Name:    s.name,
+		Type:    s.svctype,
+		State:   s.state,
+		Listen:  s.listen,
+		Target:  s.target,
+		Actives: s._actives,
+		Dones:   s._dones,
+	}
 	return detail
 }
 
