@@ -1,17 +1,16 @@
 package agent
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
 	"net/url"
-	"os"
 	"sync"
 	"sync/atomic"
 
 	"github.com/net-agent/cipherconn"
 	"github.com/net-agent/remotework/utils"
-	"github.com/olekukonko/tablewriter"
 )
 
 type Hub struct {
@@ -19,8 +18,8 @@ type Hub struct {
 	nets map[string]Network
 	mut  sync.RWMutex
 
-	svcs     []Service
-	svcNames map[string]Service
+	svcs     []*Service
+	svcNames map[string]*Service
 	svcMut   sync.RWMutex
 	svcID    int32
 }
@@ -29,7 +28,7 @@ func NewHub() *Hub {
 	hub := &Hub{
 		nl:       utils.NewNamedLogger("hub", false),
 		nets:     make(map[string]Network),
-		svcNames: make(map[string]Service),
+		svcNames: make(map[string]*Service),
 	}
 
 	hub.AddNetwork(newTcpNetwork("tcp"))
@@ -46,45 +45,47 @@ func (hub *Hub) MountConfig(cfg *Config) {
 		hub.AddNetwork(NewNetwork(hub, info))
 	}
 	for _, info := range cfg.Portproxy {
-		hub.AddService(NewPortproxyWithConfig(hub, info))
+		hub.AddService(NewPortproxyService(hub, info))
 	}
 	for _, info := range cfg.Socks5 {
-		hub.AddService(NewSocks5WithConfig(hub, info))
+		hub.AddService(NewSocks5Service(hub, info))
 	}
 	for _, info := range cfg.RDP {
-		hub.AddService(NewRDPWithConfig(hub, info))
+		hub.AddService(NewRDPService(hub, info))
 	}
 }
 
-func (hub *Hub) TriggerNetworkUpdate(network string) {
-	hub.nl.Printf("network='%v' updated.\n", network)
+func (hub *Hub) UpdateNetwork(network string) {
+	count := 0
 	for _, svc := range hub.svcs {
-		if svc.Network() == network {
-			go svc.Update()
+		if svc.IsDepend(network) {
+			go svc.controller.Update()
+			count++
 		}
 	}
+	hub.nl.Printf("update network='%v', %v service updated\n", network, count)
 }
 
-func (hub *Hub) AddService(svc Service) error {
-	svc.SetID(atomic.AddInt32(&hub.svcID, 1))
+func (hub *Hub) AddService(svc *Service) error {
+	svc.ID = atomic.AddInt32(&hub.svcID, 1)
 
 	hub.svcMut.Lock()
 	defer hub.svcMut.Unlock()
 
-	if _, found := hub.svcNames[svc.GetName()]; found {
-		hub.nl.Printf("service register failed. dump service name='%v'\n", svc.GetName())
+	if _, found := hub.svcNames[svc.Name]; found {
+		hub.nl.Printf("service register failed. dump service name='%v'\n", svc.Name)
 		return errors.New("dump service name")
 	}
 
-	svc.SetState("uninit")
+	svc.State = "uninit"
 	hub.svcs = append(hub.svcs, svc)
-	hub.svcNames[svc.GetName()] = svc
-	hub.nl.Printf("service registered. name='%v'\n", svc.GetName())
+	hub.svcNames[svc.Name] = svc
+	hub.nl.Printf("service registered. name='%v'\n", svc.Name)
 
 	return nil
 }
 
-func (hub *Hub) FindService(name string) (Service, error) {
+func (hub *Hub) FindService(name string) (*Service, error) {
 	hub.svcMut.RLock()
 	defer hub.svcMut.RUnlock()
 
@@ -100,66 +101,72 @@ func (hub *Hub) StartServices() {
 	var wg sync.WaitGroup
 	for _, svc := range hub.svcs {
 		wg.Add(1)
-		go func(svc Service) {
+		go func(svc *Service) {
 			defer wg.Done()
-			hub.nl.Printf("init service. name='%v'\n", svc.GetName())
-			svc.SetState("init")
-			if err := svc.Init(); err != nil {
-				svc.SetState("init failed")
-				hub.nl.Printf("init service failed. name='%v' err='%v'\n", svc.GetName(), err)
+			hub.nl.Printf("init service. name='%v'\n", svc.Name)
+
+			svc.State = "init"
+			if err := svc.controller.Init(); err != nil {
+				svc.State = "init failed"
+				hub.nl.Printf("init service failed. name='%v' err='%v'\n", svc.Name, err)
 				return
 			}
-			svc.SetState("running")
-			err := svc.Start()
-			svc.SetState("stopped")
-			hub.nl.Printf("service stopped. name='%v' err='%v'\n", svc.GetName(), err)
+
+			svc.State = "running"
+			err := svc.controller.Start()
+
+			svc.State = "stopped"
+			hub.nl.Printf("service stopped. name='%v' err='%v'\n", svc.Name, err)
 		}(svc)
 	}
 	wg.Wait()
+	hub.nl.Println("no service is running")
 }
 
-func (hub *Hub) ServicesRange(fn func(svc Service)) {
+func (hub *Hub) RangeAllService(fn func(svc *Service)) {
 	for _, svc := range hub.svcs {
 		fn(svc)
 	}
 }
 
-func (hub *Hub) ServiceReport() ([]ServiceDetail, error) {
+func (hub *Hub) GetAllServiceState() ([]ServiceState, error) {
 	if len(hub.svcs) <= 0 {
 		return nil, errors.New("NO SERVICES")
 	}
 
-	var reports []ServiceDetail
+	var reports []ServiceState
 	for _, svc := range hub.svcs {
-		reports = append(reports, svc.Detail())
+		reports = append(reports, svc.ServiceState)
 	}
 	return reports, nil
 }
-func (hub *Hub) ServiceReportAscii(out *os.File) {
-	reports, err := hub.ServiceReport()
+func (hub *Hub) GetAllServiceStateString() string {
+	reports, err := hub.GetAllServiceState()
 	if err != nil {
-		out.WriteString(fmt.Sprintf("ServiceReprotAscii failed: %v\n", err))
-		return
+		return fmt.Sprintf("report service failed: %v\n", err)
 	}
 
-	table := tablewriter.NewWriter(out)
-	table.SetHeader([]string{"index", "type", "name", "state", "listen", "target", "actives", "dones"})
-	for index, info := range reports {
-		table.Append([]string{
-			fmt.Sprintf("%v", index),
-			info.Type,
-			info.Name,
-			info.State,
-			info.Listen,
-			info.Target,
-			fmt.Sprintf("%v", info.Actives),
-			fmt.Sprintf("%v", info.Dones),
-		})
-	}
-	table.Render()
+	buf := bytes.NewBufferString("report service:\n")
+	utils.RenderAsciiTable(buf, reports,
+		[]string{"index", "type", "name", "state", "listen", "target", "actives", "dones"},
+		func(d interface{}, index int) []string {
+			s := d.(ServiceState)
+			return []string{
+				fmt.Sprintf("%v", index),
+				s.Type,
+				s.Name,
+				s.State,
+				s.ListenURL,
+				s.TargetURL,
+				fmt.Sprintf("%v", s.Actives),
+				fmt.Sprintf("%v", s.Dones),
+			}
+		},
+	)
+	return buf.String()
 }
 
-func (hub *Hub) NetworkReport() ([]NetworkReport, error) {
+func (hub *Hub) ReportAllNetwork() ([]NetworkReport, error) {
 	if len(hub.nets) <= 0 {
 		return nil, errors.New("NO NETWORKS")
 	}
@@ -171,26 +178,28 @@ func (hub *Hub) NetworkReport() ([]NetworkReport, error) {
 	return reports, nil
 }
 
-func (hub *Hub) NetworkReportAscii(out *os.File) {
-	reports, err := hub.NetworkReport()
+func (hub *Hub) GetAllNetworkString() string {
+	reports, err := hub.ReportAllNetwork()
 	if err != nil {
-		out.WriteString(fmt.Sprintf("NetworkReportAscii failed: %v\n", err))
-		return
+		return fmt.Sprintf("report network failed: %v\n", err)
 	}
 
-	table := tablewriter.NewWriter(out)
-	table.SetHeader([]string{"index", "name", "addr", "domain", "lsn", "dial"})
-	for index, info := range reports {
-		table.Append([]string{
-			fmt.Sprintf("%v", index),
-			info.Name,
-			info.Address,
-			info.Domain,
-			fmt.Sprintf("%v", info.Listens),
-			fmt.Sprintf("%v", info.Dials),
-		})
-	}
-	table.Render()
+	buf := bytes.NewBufferString("report network:\n")
+	utils.RenderAsciiTable(buf, reports,
+		[]string{"index", "name", "addr", "domain", "lsn", "dial"},
+		func(d interface{}, index int) []string {
+			s := d.(NetworkReport)
+			return []string{
+				fmt.Sprintf("%v", index),
+				s.Name,
+				s.Address,
+				s.Domain,
+				fmt.Sprintf("%v", s.Listens),
+				fmt.Sprintf("%v", s.Dials),
+			}
+		},
+	)
+	return buf.String()
 }
 
 // AddNetwork 在hub中增加network

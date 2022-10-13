@@ -4,68 +4,35 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
 	"sync"
 
 	"github.com/net-agent/remotework/utils"
 )
 
-type Portproxy struct {
-	svcinfo
-	nl        *utils.NamedLogger
-	hub       *Hub
-	listenURL string
-	targetURL string
-	logName   string
+type PortproxyController struct {
+	state *ServiceState
+	nl    *utils.NamedLogger
+	hub   *Hub
 
 	listener net.Listener
 	dialer   QuickDialer
 	mut      sync.Mutex
-
-	listenNetwork string
 }
 
-func NewPortproxyWithConfig(hub *Hub, info PortproxyInfo) *Portproxy {
-	return NewPortproxy(hub, info.ListenURL, info.TargetURL, info.LogName)
-}
-
-func NewPortproxy(hub *Hub, listenURL, targetURL, logName string) *Portproxy {
-	return &Portproxy{
-		nl:        utils.NewNamedLogger(logName, true),
-		hub:       hub,
-		listenURL: listenURL,
-		targetURL: targetURL,
-		logName:   logName,
-		svcinfo: svcinfo{
-			name:    svcName(logName, "portproxy"),
-			svctype: "portproxy",
-			listen:  listenURL,
-			target:  targetURL,
-		},
+func NewPortproxyController(hub *Hub, state *ServiceState) *PortproxyController {
+	return &PortproxyController{
+		state: state,
+		nl:    utils.NewNamedLogger(state.Name, true),
+		hub:   hub,
 	}
 }
 
-func NewRDPWithConfig(hub *Hub, info RDPInfo) *Portproxy {
-	return NewPortproxy(hub, info.ListenURL, fmt.Sprintf("tcp://localhost:%v", utils.GetRDPPort()), info.LogName)
-}
-func NewRDP(hub *Hub, listenURL, logName string) *Portproxy {
-	return NewPortproxy(hub, listenURL, fmt.Sprintf("tcp://localhost:%v", utils.GetRDPPort()), logName)
-}
-
-func (s *Portproxy) Network() string { return s.listenNetwork }
-
-func (s *Portproxy) Init() (reterr error) {
-	dialer, err := s.hub.URLDialer(s.targetURL)
+func (s *PortproxyController) Init() (reterr error) {
+	dialer, err := s.hub.URLDialer(s.state.TargetURL)
 	if err != nil {
 		return fmt.Errorf("parse target url failed: %v", err)
 	}
 	s.dialer = dialer
-
-	u, err := url.Parse(s.listenURL)
-	if err != nil {
-		return fmt.Errorf("parse listen url failed: %v", err)
-	}
-	s.listenNetwork = u.Scheme
 
 	if err = s.Update(); err != nil {
 		return err
@@ -74,11 +41,11 @@ func (s *Portproxy) Init() (reterr error) {
 	return nil
 }
 
-func (s *Portproxy) Update() error {
+func (s *PortproxyController) Update() error {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
-	l, err := s.hub.ListenURL(s.listenURL)
+	l, err := s.hub.ListenURL(s.state.ListenURL)
 	if err != nil {
 		return fmt.Errorf("listen url failed: %v", err)
 	}
@@ -92,14 +59,14 @@ func (s *Portproxy) Update() error {
 	return nil
 }
 
-func (s *Portproxy) getlistener() net.Listener {
+func (s *PortproxyController) getlistener() net.Listener {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
 	return s.listener
 }
 
-func (p *Portproxy) Start() error {
+func (p *PortproxyController) Start() error {
 	if p.dialer == nil || p.listener == nil {
 		return errors.New("init failed")
 	}
@@ -133,30 +100,30 @@ func (p *Portproxy) Start() error {
 	}
 }
 
-func (p *Portproxy) Close() error {
+func (p *PortproxyController) Close() error {
 	return p.listener.Close()
 }
 
-func (p *Portproxy) serve(c1 net.Conn) {
-	p.AddActiveCount(1)
+func (p *PortproxyController) serve(c1 net.Conn) {
+	p.state.AddActiveCount(1)
 	defer func() {
 		c1.Close()
-		p.AddDoneCount(1)
+		p.state.AddDoneCount(1)
 	}()
 
 	var dialer string
 	if s, ok := c1.(interface{ Dialer() string }); ok {
-		dialer = p.listenNetwork + "://" + s.Dialer()
+		dialer = "mnet://" + s.Dialer()
 	} else {
 		dialer = "tcp://" + c1.RemoteAddr().String()
 	}
 
 	c2, err := p.dialer()
 	if err != nil {
-		p.nl.Printf("dial error. target=%v, err=%v\n", p.targetURL, err)
+		p.nl.Printf("dial error. target=%v, err=%v\n", p.state.TargetURL, err)
 		return
 	}
 
-	p.nl.Printf("linked. %v > %v > %v\n", dialer, p.listenURL, p.targetURL)
+	p.nl.Printf("linked. %v > %v > %v\n", dialer, p.state.ListenURL, p.state.TargetURL)
 	utils.LinkReadWriter(c1, c2)
 }

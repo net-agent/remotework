@@ -4,63 +4,37 @@ import (
 	"errors"
 	"io"
 	"net"
-	"net/url"
 
 	"github.com/net-agent/remotework/utils"
 	"github.com/net-agent/socks"
 )
 
-type Socks5 struct {
-	svcinfo
-	nl        *utils.NamedLogger
-	hub       *Hub
-	listenURL string
-	username  string
-	password  string
-	logName   string
+type Socks5Controller struct {
+	state *ServiceState
+	nl    *utils.NamedLogger
+	hub   *Hub
 
-	listener      net.Listener
-	listenNetwork string
-	server        socks.Server
+	listener net.Listener
+	server   socks.Server
 }
 
-func NewSocks5WithConfig(hub *Hub, info Socks5Info) *Socks5 {
-	return NewSocks5(hub, info.ListenURL, info.Username, info.Password, info.LogName)
-}
-
-func NewSocks5(hub *Hub, listenURL, username, password, logName string) *Socks5 {
-	return &Socks5{
-		nl:        utils.NewNamedLogger(logName, true),
-		hub:       hub,
-		listenURL: listenURL,
-		username:  username,
-		password:  password,
-		logName:   logName,
-		svcinfo: svcinfo{
-			name:    svcName(logName, "socks5"),
-			svctype: "socks5",
-			listen:  listenURL,
-			target:  "-",
-		},
+func NewSocks5Controller(hub *Hub, state *ServiceState) *Socks5Controller {
+	return &Socks5Controller{
+		state: state,
+		nl:    utils.NewNamedLogger(state.Name, true),
+		hub:   hub,
 	}
 }
 
-func (s *Socks5) Network() string { return s.listenNetwork }
-func (s *Socks5) Init() error {
-	s.server = socks.NewPswdServer(s.username, s.password)
+func (s *Socks5Controller) Init() error {
+	s.server = socks.NewPswdServer(s.state.Username, s.state.Password)
 	s.server.SetConnLinker(func(a, b io.ReadWriteCloser) (a2b int64, b2a int64, err error) {
-		s.AddActiveCount(1)
+		s.state.AddActiveCount(1)
 		defer func() {
-			s.AddDoneCount(1)
+			s.state.AddDoneCount(1)
 		}()
 		return utils.LinkReadWriter(a, b)
 	})
-
-	u, err := url.Parse(s.listenURL)
-	if err != nil {
-		return err
-	}
-	s.listenNetwork = u.Scheme
 
 	if err := s.Update(); err != nil {
 		return err
@@ -69,8 +43,8 @@ func (s *Socks5) Init() error {
 	return nil
 }
 
-func (s *Socks5) Update() error {
-	l, err := s.hub.ListenURL(s.listenURL)
+func (s *Socks5Controller) Update() error {
+	l, err := s.hub.ListenURL(s.state.ListenURL)
 	if err != nil {
 		return err
 	}
@@ -82,7 +56,7 @@ func (s *Socks5) Update() error {
 	return nil
 }
 
-func (s *Socks5) Start() error {
+func (s *Socks5Controller) Start() error {
 	if s.server == nil || s.listener == nil {
 		return errors.New("init failed")
 	}
@@ -101,7 +75,7 @@ func (s *Socks5) Start() error {
 	}
 }
 
-func (s *Socks5) Close() error {
+func (s *Socks5Controller) Close() error {
 	if s.listener != nil {
 		s.listener.Close()
 	}

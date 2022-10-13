@@ -152,7 +152,7 @@ func (mnet *networkImpl) keepalive() {
 			}
 
 			// mnet.node更新后，需要通知hub，更新相应的service依赖
-			mnet.hub.TriggerNetworkUpdate(mnet.Name)
+			mnet.hub.UpdateNetwork(mnet.Name)
 
 			// 等待node.Run返回，并根据执行时间判断停顿时长
 			start := time.Now()
