@@ -17,8 +17,8 @@ func main() {
 	defer releaseSysTray()
 
 	// 打印状态
-	syslog.Println(hub.GetAllNetworkString())
-	syslog.Println(hub.GetAllServiceStateString())
+	// syslog.Println(hub.GetAllNetworkString())
+	// syslog.Println(hub.GetAllServiceStateString())
 
 	hub.StartServices()
 	syslog.Println("main process exit.")

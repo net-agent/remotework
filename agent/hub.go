@@ -58,7 +58,7 @@ func (hub *Hub) MountConfig(cfg *Config) {
 func (hub *Hub) UpdateNetwork(network string) {
 	count := 0
 	for _, svc := range hub.svcs {
-		if svc.IsDepend(network) {
+		if svc.IsDepend(network) && (svc.State == "running") {
 			go svc.controller.Update()
 			count++
 		}
@@ -166,7 +166,7 @@ func (hub *Hub) GetAllServiceStateString() string {
 	return buf.String()
 }
 
-func (hub *Hub) ReportAllNetwork() ([]NetworkReport, error) {
+func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error) {
 	if len(hub.nets) <= 0 {
 		return nil, errors.New("NO NETWORKS")
 	}
@@ -178,8 +178,8 @@ func (hub *Hub) ReportAllNetwork() ([]NetworkReport, error) {
 	return reports, nil
 }
 
-func (hub *Hub) GetAllNetworkString() string {
-	reports, err := hub.ReportAllNetwork()
+func (hub *Hub) GetAllNetworkStateString() string {
+	reports, err := hub.GetAllNetworkState()
 	if err != nil {
 		return fmt.Sprintf("report network failed: %v\n", err)
 	}
@@ -217,7 +217,7 @@ func (hub *Hub) AddNetwork(mnet Network) error {
 	}
 	hub.nets[name] = mnet
 
-	hub.nl.Printf("agent registered. name='%v'\n", name)
+	hub.nl.Printf("network registered. name='%v'\n", name)
 	return nil
 }
 

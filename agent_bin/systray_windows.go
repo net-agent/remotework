@@ -26,7 +26,7 @@ func initSysTray(hub *agent.Hub) {
 		for {
 			select {
 			case <-btnNetworkReport.ClickedCh:
-				syslog.Println(hub.GetAllNetworkString())
+				syslog.Println(hub.GetAllNetworkStateString())
 			case <-btnServiceReport.ClickedCh:
 				syslog.Println(hub.GetAllServiceStateString())
 			case <-btnExit.ClickedCh:
