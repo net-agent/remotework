@@ -14,9 +14,10 @@ import (
 )
 
 type Hub struct {
-	nl   *utils.NamedLogger
-	nets map[string]Network
-	mut  sync.RWMutex
+	nl      *utils.NamedLogger
+	nets    map[string]Network
+	mut     sync.RWMutex
+	running bool
 
 	svcs     []*Service
 	svcNames map[string]*Service
@@ -29,6 +30,7 @@ func NewHub() *Hub {
 		nl:       utils.NewNamedLogger("hub", false),
 		nets:     make(map[string]Network),
 		svcNames: make(map[string]*Service),
+		running:  false,
 	}
 
 	hub.AddNetwork(newTcpNetwork("tcp"))
@@ -96,7 +98,16 @@ func (hub *Hub) FindService(name string) (*Service, error) {
 	return svc, nil
 }
 
-func (hub *Hub) StartServices() {
+func (hub *Hub) StartServices() error {
+	// todo: 解决running状态的并发安全
+	if hub.running {
+		return errors.New("service is running")
+	}
+	hub.running = true
+	defer func() {
+		hub.running = false
+	}()
+
 	hub.nl.Println("start services:")
 	var wg sync.WaitGroup
 	for _, svc := range hub.svcs {
@@ -121,7 +132,19 @@ func (hub *Hub) StartServices() {
 	}
 	wg.Wait()
 	hub.nl.Println("no service is running")
+	return nil
 }
+
+func (hub *Hub) StopServices() {
+	if !hub.running {
+		return
+	}
+	for _, svc := range hub.svcs {
+		svc.controller.Close()
+	}
+}
+
+func (hub *Hub) IsRunning() bool { return hub.running }
 
 func (hub *Hub) RangeAllService(fn func(svc *Service)) {
 	for _, svc := range hub.svcs {

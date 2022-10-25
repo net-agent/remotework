@@ -1,6 +1,9 @@
 package agent
 
-import "net"
+import (
+	"net"
+	"time"
+)
 
 // tcp network wrap
 type tcpnetwork struct {
@@ -8,12 +11,14 @@ type tcpnetwork struct {
 	Type    string
 	Listens int32
 	Dials   int32
+	start   time.Time
 }
 
 func newTcpNetwork(name string) *tcpnetwork {
 	return &tcpnetwork{
 		networkinfo: networkinfo{name: name},
 		Type:        name,
+		start:       time.Now(),
 	}
 }
 
@@ -27,6 +32,14 @@ func (tcp *tcpnetwork) Listen(network, addr string) (net.Listener, error) {
 }
 func (tcp *tcpnetwork) Report() NetworkReport {
 	return NetworkReport{
-		Name: tcp.Type,
+		Name:     tcp.Type,
+		Protocol: "-",
+		Address:  "-",
+		Domain:   "-",
+		Alive:    time.Since(tcp.start),
+		Listens:  tcp.listenCount,
+		Accepts:  0,
+		Dials:    tcp.dialCount,
+		State:    "online",
 	}
 }

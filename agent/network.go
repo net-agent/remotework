@@ -23,4 +23,6 @@ type NetworkReport struct {
 	Dials    int32
 	Sends    int64
 	Recvs    int64
+	State    string
+	LastErr  string
 }
