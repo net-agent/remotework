@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-
 	"github.com/getlantern/systray"
 	"github.com/net-agent/remotework/agent"
 )
@@ -30,8 +28,9 @@ func initSysTray(hub *agent.Hub) {
 			case <-btnServiceReport.ClickedCh:
 				syslog.Println(hub.GetAllServiceStateString())
 			case <-btnExit.ClickedCh:
+				syslog.Println("close with systray command")
 				systray.Quit()
-				os.Exit(-1)
+				hub.StopServices()
 			}
 		}
 	}, func() {

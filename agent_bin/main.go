@@ -13,12 +13,10 @@ func main() {
 	hub := agent.NewHub()
 	hub.MountConfig(config)
 
+	go waitCloseSignal(hub)
+
 	initSysTray(hub)
 	defer releaseSysTray()
-
-	// 打印状态
-	// syslog.Println(hub.GetAllNetworkString())
-	// syslog.Println(hub.GetAllServiceStateString())
 
 	hub.StartServices()
 	syslog.Println("main process exit.")
