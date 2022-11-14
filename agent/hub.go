@@ -319,18 +319,12 @@ func (hub *Hub) Listen(network, addr string) (net.Listener, error) {
 }
 
 func (hub *Hub) ListenURL(raw string) (net.Listener, error) {
-	return ListenURL(hub, raw)
-}
-
-func ListenURL(network interface {
-	Listen(network, addr string) (net.Listener, error)
-}, raw string) (net.Listener, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
 	}
 
-	l, err := network.Listen(u.Scheme, u.Host)
+	l, err := hub.Listen(u.Scheme, u.Host)
 	if err != nil {
 		return nil, err
 	}
