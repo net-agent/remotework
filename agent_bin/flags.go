@@ -1,14 +1,14 @@
-package agent
+package main
 
 import "flag"
 
-type AgentFlags struct {
+type ClientFlags struct {
 	HomePath       string
 	ConfigFileName string
 	IPCPath        string
 }
 
-func (f *AgentFlags) Parse() {
+func (f *ClientFlags) Parse() {
 	flag.StringVar(&f.HomePath,
 		"home", "", "home path for files")
 	flag.StringVar(&f.ConfigFileName,

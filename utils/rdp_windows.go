@@ -1,4 +1,4 @@
-package service
+package utils
 
 import (
 	"golang.org/x/sys/windows/registry"
@@ -6,7 +6,7 @@ import (
 
 const defaultRdpPortNumber = 3389
 
-func rdpPortNumber() uint16 {
+func GetRDPPort() uint16 {
 	// print rdp port
 	rkey, found, err := registry.CreateKey(registry.LOCAL_MACHINE,
 		"SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp",

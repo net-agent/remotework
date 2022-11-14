@@ -16,52 +16,43 @@ import (
 	"github.com/net-agent/remotework/utils"
 )
 
-type NodeReport struct {
-	Name     string
-	Protocol string
-	Address  string
-	Domain   string
-	Alive    time.Duration
-	Listens  int32
-	Accepts  int32
-	Dials    int32
-	Sends    int64
-	Recvs    int64
-}
-type NetNode struct {
-	hub        *NetHub
+type networkImpl struct {
+	networkinfo
+	hub        *Hub
 	nl         *utils.NamedLogger
 	node       *node.Node
 	onceInit   sync.Once
 	nodeWaiter chan *node.Node
+	state      string
+	lastErr    string
 
-	Name      string
-	Protocol  string
-	Address   string
-	URL       string
-	Domain    string
-	Password  string
-	MacStr    string
-	StartTime time.Time
-	Listens   int32
-	Accepts   int32
-	Dials     int32
-	Sends     int64
-	Recvs     int64
+	Name        string
+	Protocol    string
+	Address     string
+	URL         string
+	Domain      string
+	Password    string
+	MacStr      string
+	ConnectTime time.Time
+	Sends       int64
+	Recvs       int64
 }
 
-func NewNetwork(hub *NetHub, info AgentInfo) *NetNode {
-	n := &NetNode{
-		hub: hub,
-		nl:  utils.NewNamedLogger(info.Name, true),
+func NewNetwork(hub *Hub, info AgentInfo) *networkImpl {
+	n := &networkImpl{
+		networkinfo: networkinfo{name: info.Name},
+		hub:         hub,
+		nl:          utils.NewNamedLogger(info.Name, true),
+		state:       "offline",
+		lastErr:     "",
 
-		Name:      info.Name,
-		Protocol:  info.Protocol,
-		Domain:    info.Domain,
-		Address:   info.Address,
-		Password:  info.Password,
-		MacStr:    utils.GetMacAddressStr(),
-		StartTime: time.Now(),
+		Name:        info.Name,
+		Protocol:    info.Protocol,
+		Domain:      info.Domain,
+		Address:     info.Address,
+		Password:    info.Password,
+		MacStr:      utils.GetMacAddressStr(),
+		ConnectTime: time.Now(),
 	}
 
 	if info.WsEnable {
@@ -75,22 +66,28 @@ func NewNetwork(hub *NetHub, info AgentInfo) *NetNode {
 	return n
 }
 
-func (mnet *NetNode) Report() NodeReport {
-	return NodeReport{
+func (mnet *networkImpl) Report() NetworkReport {
+	alive := time.Since(mnet.ConnectTime)
+	if mnet.state != "online" {
+		alive = 0
+	}
+	return NetworkReport{
 		Name:     mnet.Name,
 		Protocol: mnet.Protocol,
 		Address:  mnet.Address,
 		Domain:   mnet.Domain,
-		Alive:    time.Since(mnet.StartTime),
-		Listens:  mnet.Listens,
-		Accepts:  mnet.Accepts,
-		Dials:    mnet.Dials,
+		Alive:    alive,
+		Listens:  mnet.listenCount,
+		Accepts:  0,
+		Dials:    mnet.dialCount,
 		Sends:    mnet.Sends,
 		Recvs:    mnet.Recvs,
+		State:    mnet.state,
+		LastErr:  mnet.lastErr,
 	}
 }
 
-func (mnet *NetNode) Dial(network, addr string) (net.Conn, error) {
+func (mnet *networkImpl) Dial(network, addr string) (net.Conn, error) {
 	node, err := mnet.getNode()
 	if err != nil {
 		return nil, err
@@ -98,10 +95,11 @@ func (mnet *NetNode) Dial(network, addr string) (net.Conn, error) {
 	if node == nil {
 		return nil, errors.New("dial with nil node")
 	}
+	mnet.addDialCount(1)
 	return node.Dial(addr)
 }
 
-func (mnet *NetNode) Listen(network, addr string) (net.Listener, error) {
+func (mnet *networkImpl) Listen(network, addr string) (net.Listener, error) {
 	hostname, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
@@ -121,10 +119,11 @@ func (mnet *NetNode) Listen(network, addr string) (net.Listener, error) {
 	if node == nil {
 		return nil, errors.New("listen with nil node")
 	}
+	mnet.addListenCount(1)
 	return node.Listen(uint16(port))
 }
 
-func (mnet *NetNode) getNode() (*node.Node, error) {
+func (mnet *networkImpl) getNode() (*node.Node, error) {
 	mnet.onceInit.Do(func() {
 		ch := make(chan *node.Node, 1)
 		mnet.nodeWaiter = ch
@@ -143,48 +142,51 @@ func (mnet *NetNode) getNode() (*node.Node, error) {
 // keepalive 创建连接，并保持连接在线。出现异常时会不断尝试重连，直至连接成功为止
 // 该方法在第一次尝试调用getNode时触发
 // 每一次调用Dial和Listen时，都会调用getNode
-func (mnet *NetNode) keepalive() {
-	cooldownTime := time.Second * 0
-	minCooldown := 3 * time.Second
-	maxCooldown := 1 * time.Minute
-	minRunDur := 30 * time.Second // 至少执行30秒
-	stepTime := 3 * time.Second
+func (mnet *networkImpl) keepalive() {
+	cd := utils.NewCooldown(3*time.Second, 1*time.Minute)
 
 	for {
+		mnet.state = "connecting"
 		node, err := mnet.connect()
+		cd.Tick() // 开始冷却计时
 
 		if err != nil {
-			cooldownTime += stepTime
-			mnet.nl.Printf("connect failed: %v\n", err)
+			mnet.state = "offline"
+			mnet.lastErr = err.Error()
+
+			mnet.nl.Printf("connect failed: %v, retry after %v\n", err, cd.WaitDuration())
+
+			cd.Wait()
+			cd.Increase(3 * time.Second) // 连接失败后等待时间增加3秒
 		} else {
+			mnet.ConnectTime = time.Now()
+			mnet.state = "online"
+			mnet.lastErr = ""
+
 			mnet.node = node
 			if mnet.nodeWaiter != nil {
 				mnet.nodeWaiter <- node
 			}
 
 			// mnet.node更新后，需要通知hub，更新相应的service依赖
-			mnet.hub.TriggerNetworkUpdate(mnet.Name)
+			mnet.hub.UpdateNetwork(mnet.Name)
 
-			// 等待node.Run返回，并根据执行时间判断停顿时长
-			start := time.Now()
+			// 连接成功后设置等待时间为30秒，至少30秒后才会开始重连
+			cd.Set(30 * time.Second)
 			node.Run() // 正常情况下这里会阻塞住
+			mnet.state = "offline"
 			mnet.node = nil
-			cooldownTime = minRunDur - time.Since(start)
+
+			mnet.nl.Printf("retry after %v\n", cd.WaitDuration())
+			cd.Wait()
+			cd.Reset() // 清零等待的叠加时间
 		}
 
-		if cooldownTime < minCooldown {
-			cooldownTime = minCooldown
-		} else if cooldownTime > maxCooldown {
-			cooldownTime = maxCooldown
-		}
-
-		mnet.nl.Printf("retry after %v\n", cooldownTime)
-		<-time.After(cooldownTime)
 	}
 }
 
 // connect 连接中转服务器，创建会话。每次断线后需要重新调用
-func (mnet *NetNode) connect() (*node.Node, error) {
+func (mnet *networkImpl) connect() (*node.Node, error) {
 	// step1: 尝试通过tcp或ws连接中转服务
 	var pc packet.Conn
 	var err error

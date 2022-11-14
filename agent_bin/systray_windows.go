@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-
 	"github.com/getlantern/systray"
 	"github.com/net-agent/remotework/agent"
 )
@@ -11,50 +9,30 @@ func releaseSysTray() {
 	systray.Quit()
 }
 
-func initSysTray(hub *agent.NetHub) {
+func initSysTray(hub *agent.Hub) {
 	syslog.Println("net hub is working, click systray to get more infos.")
-
-	addClickListener := func(btn *systray.MenuItem, fn func()) {
-		for range btn.ClickedCh {
-			fn()
-		}
-	}
 
 	go systray.Run(func() {
 		systray.SetIcon(icondata)
 		systray.SetTitle("init systray title")
 		systray.SetTooltip("Make remotework easy again!")
 
-		btnNetwork := systray.AddMenuItem("查看虚拟网络状态", "list all services")
-		go addClickListener(btnNetwork, func() {
-			hub.NetworkReportAscii(os.Stdout)
-		})
-
-		btnReport := systray.AddMenuItem("服务状态打印", "report hub states")
-		go addClickListener(btnReport, func() {
-			hub.ServiceReportAscii(os.Stdout)
-		})
-
-		btnServices := systray.AddMenuItem("服务列表明细", "list all services")
-		hub.ServicesRange(func(svc agent.Service) {
-			btn := btnServices.AddSubMenuItem(svc.Name(), "detail report")
-			go addClickListener(btn, func() {
-				report := svc.Report()
-				syslog.Printf(
-					"[systray] service detail. name='%v' state='%v' actives=%v dones=%v\n",
-					report.Name,
-					report.State,
-					report.Actives,
-					report.Dones,
-				)
-			})
-		})
-
+		btnNetworkReport := systray.AddMenuItem("查看网络状态(network)", "report network state")
+		btnServiceReport := systray.AddMenuItem("查看服务状态(service)", "report service state")
 		btnExit := systray.AddMenuItem("退出", "退出程序")
-		go addClickListener(btnExit, func() {
-			systray.Quit()
-			os.Exit(-1)
-		})
+
+		for {
+			select {
+			case <-btnNetworkReport.ClickedCh:
+				syslog.Println(hub.GetAllNetworkStateString())
+			case <-btnServiceReport.ClickedCh:
+				syslog.Println(hub.GetAllServiceStateString())
+			case <-btnExit.ClickedCh:
+				syslog.Println("close with systray command")
+				systray.Quit()
+				hub.StopServices()
+			}
+		}
 	}, func() {
 		syslog.Println("systray exit")
 	})

@@ -41,3 +41,13 @@ func FileExist(path string) bool {
 	log.Fatal("load file error: ", err)
 	return false
 }
+
+// FirstString 返回第一个长度大于0的字符串
+func FirstString(strs ...string) string {
+	for _, str := range strs {
+		if str != "" {
+			return str
+		}
+	}
+	return ""
+}
