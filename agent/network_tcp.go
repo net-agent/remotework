@@ -30,6 +30,9 @@ func (tcp *tcpnetwork) Listen(network, addr string) (net.Listener, error) {
 	tcp.addListenCount(1)
 	return net.Listen(network, addr)
 }
+func (tcp *tcpnetwork) Ping(domain string, timeout time.Duration) (time.Duration, error) {
+	return 0, nil
+}
 func (tcp *tcpnetwork) Report() NetworkReport {
 	return NetworkReport{
 		Name:     tcp.Type,

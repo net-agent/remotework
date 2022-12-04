@@ -99,6 +99,10 @@ func (mnet *networkImpl) Dial(network, addr string) (net.Conn, error) {
 	return node.Dial(addr)
 }
 
+func (mnet *networkImpl) Ping(domain string, timeout time.Duration) (time.Duration, error) {
+	return mnet.node.PingDomain(domain, timeout)
+}
+
 func (mnet *networkImpl) Listen(network, addr string) (net.Listener, error) {
 	hostname, portStr, err := net.SplitHostPort(addr)
 	if err != nil {

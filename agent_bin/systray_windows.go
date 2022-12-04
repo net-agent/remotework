@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/getlantern/systray"
 	"github.com/net-agent/remotework/agent"
 )
@@ -15,10 +18,11 @@ func initSysTray(hub *agent.Hub) {
 	go systray.Run(func() {
 		systray.SetIcon(icondata)
 		systray.SetTitle("init systray title")
-		systray.SetTooltip("Make remotework easy again!")
+		systray.SetTooltip(fmt.Sprintf("Make remotework easy again!\n%v", time.Now()))
 
 		btnNetworkReport := systray.AddMenuItem("查看网络状态(network)", "report network state")
 		btnServiceReport := systray.AddMenuItem("查看服务状态(service)", "report service state")
+		btnPingReport := systray.AddMenuItem("查看依赖连通状态(ping)", "report ping state")
 		btnExit := systray.AddMenuItem("退出", "退出程序")
 
 		for {
@@ -27,6 +31,8 @@ func initSysTray(hub *agent.Hub) {
 				syslog.Println(hub.GetAllNetworkStateString())
 			case <-btnServiceReport.ClickedCh:
 				syslog.Println(hub.GetAllServiceStateString())
+			case <-btnPingReport.ClickedCh:
+				syslog.Println(hub.GetPingStateString())
 			case <-btnExit.ClickedCh:
 				syslog.Println("close with systray command")
 				systray.Quit()

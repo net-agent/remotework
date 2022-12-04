@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -150,79 +149,6 @@ func (hub *Hub) RangeAllService(fn func(svc *Service)) {
 	for _, svc := range hub.svcs {
 		fn(svc)
 	}
-}
-
-func (hub *Hub) GetAllServiceState() ([]ServiceState, error) {
-	if len(hub.svcs) <= 0 {
-		return nil, errors.New("NO SERVICES")
-	}
-
-	var reports []ServiceState
-	for _, svc := range hub.svcs {
-		reports = append(reports, svc.ServiceState)
-	}
-	return reports, nil
-}
-func (hub *Hub) GetAllServiceStateString() string {
-	reports, err := hub.GetAllServiceState()
-	if err != nil {
-		return fmt.Sprintf("report service failed: %v\n", err)
-	}
-
-	buf := bytes.NewBufferString("report service:\n")
-	utils.RenderAsciiTable(buf, reports,
-		[]string{"index", "type", "name", "state", "listen", "target", "actives", "dones"},
-		func(d interface{}, index int) []string {
-			s := d.(ServiceState)
-			return []string{
-				fmt.Sprintf("%v", index),
-				s.Type,
-				s.Name,
-				s.State,
-				s.ListenURL,
-				s.TargetURL,
-				fmt.Sprintf("%v", s.Actives),
-				fmt.Sprintf("%v", s.Dones),
-			}
-		},
-	)
-	return buf.String()
-}
-
-func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error) {
-	if len(hub.nets) <= 0 {
-		return nil, errors.New("NO NETWORKS")
-	}
-
-	var reports []NetworkReport
-	for _, nt := range hub.nets {
-		reports = append(reports, nt.Report())
-	}
-	return reports, nil
-}
-
-func (hub *Hub) GetAllNetworkStateString() string {
-	reports, err := hub.GetAllNetworkState()
-	if err != nil {
-		return fmt.Sprintf("report network failed: %v\n", err)
-	}
-
-	buf := bytes.NewBufferString("report network:\n")
-	utils.RenderAsciiTable(buf, reports,
-		[]string{"index", "name", "addr", "domain", "lsn", "dial"},
-		func(d interface{}, index int) []string {
-			s := d.(NetworkReport)
-			return []string{
-				fmt.Sprintf("%v", index),
-				s.Name,
-				s.Address,
-				s.Domain,
-				fmt.Sprintf("%v", s.Listens),
-				fmt.Sprintf("%v", s.Dials),
-			}
-		},
-	)
-	return buf.String()
 }
 
 // AddNetwork 在hub中增加network
