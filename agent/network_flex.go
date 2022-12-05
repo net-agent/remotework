@@ -100,7 +100,11 @@ func (mnet *networkImpl) Dial(network, addr string) (net.Conn, error) {
 }
 
 func (mnet *networkImpl) Ping(domain string, timeout time.Duration) (time.Duration, error) {
-	return mnet.node.PingDomain(domain, timeout)
+	node, err := mnet.getNode()
+	if err != nil {
+		return 0, err
+	}
+	return node.PingDomain(domain, timeout)
 }
 
 func (mnet *networkImpl) Listen(network, addr string) (net.Listener, error) {

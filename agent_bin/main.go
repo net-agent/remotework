@@ -8,7 +8,16 @@ import (
 var syslog = utils.NewNamedLogger("sys", false)
 
 func main() {
-	config := loadConfig()
+	var flags ClientFlags
+	flags.Parse()
+
+	// 处理ping命令
+	if flags.PingDomain != "" {
+		handlePingDomain(flags.PingDomain, flags.PingClientName)
+		return
+	}
+
+	config := loadConfig(&flags)
 
 	hub := agent.NewHub()
 	hub.MountConfig(config)
