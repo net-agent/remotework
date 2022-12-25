@@ -23,6 +23,7 @@ func initSysTray(hub *agent.Hub) {
 		btnNetworkReport := systray.AddMenuItem("查看网络状态(network)", "report network state")
 		btnServiceReport := systray.AddMenuItem("查看服务状态(service)", "report service state")
 		btnPingReport := systray.AddMenuItem("查看依赖连通状态(ping)", "report ping state")
+		btnDataStreamReport := systray.AddMenuItem("查看活跃连接状态(stream)", "report actived data stream")
 		btnExit := systray.AddMenuItem("退出", "退出程序")
 
 		for {
@@ -33,6 +34,8 @@ func initSysTray(hub *agent.Hub) {
 				syslog.Println(hub.GetAllServiceStateString())
 			case <-btnPingReport.ClickedCh:
 				syslog.Println(hub.GetPingStateString())
+			case <-btnDataStreamReport.ClickedCh:
+				syslog.Println(hub.GetAllDataStreamStateString())
 			case <-btnExit.ClickedCh:
 				syslog.Println("close with systray command")
 				systray.Quit()

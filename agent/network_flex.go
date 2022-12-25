@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/net-agent/flex/v2/handshake"
 	"github.com/net-agent/flex/v2/node"
 	"github.com/net-agent/flex/v2/packet"
-	"github.com/net-agent/flex/v2/switcher"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -226,11 +226,14 @@ func (mnet *networkImpl) connect() (*node.Node, error) {
 
 	// step2: 通过upgrade对连接进行认证升级
 	mnet.nl.Printf("upgrade as '%v'\n", mnet.Domain)
-	node, err := switcher.UpgradeToNode(pc, mnet.Domain, mnet.MacStr, mnet.Password)
+	ip, err := handshake.UpgradeRequest(pc, mnet.Domain, mnet.MacStr, mnet.Password)
 	if err != nil {
 		pc.Close()
 		return nil, err
 	}
 
+	node := node.New(pc)
+	node.SetDomain(mnet.Domain)
+	node.SetIP(ip)
 	return node, nil
 }
