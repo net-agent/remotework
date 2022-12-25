@@ -7,10 +7,7 @@ import (
 	"github.com/net-agent/remotework/utils"
 )
 
-func loadConfig() *agent.Config {
-	var flags ClientFlags
-	flags.Parse()
-
+func loadConfig(flags *ClientFlags) *agent.Config {
 	// 读取配置
 	configName := flags.ConfigFileName
 	if !utils.FileExist(configName) {
