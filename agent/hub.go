@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -42,18 +43,45 @@ func NewHub() *Hub {
 func (hub *Hub) MountConfig(cfg *Config) {
 	cfg.PreProcess()
 
+	var err error
+
 	for _, info := range cfg.Agents {
-		hub.AddNetwork(NewNetwork(hub, info))
+		err = hub.AddNetwork(NewNetwork(hub, info))
+		if err != nil {
+			hub.nl.Printf("network register failed. err='%v'\n", err)
+		}
 	}
 	for _, info := range cfg.Portproxy {
-		hub.AddService(NewPortproxyService(hub, info))
+		err = hub.AddService(NewPortproxyService(hub, info))
+		if err != nil {
+			hub.nl.Printf("service register failed. err='%v'\n", err)
+		}
 	}
 	for _, info := range cfg.Socks5 {
-		hub.AddService(NewSocks5Service(hub, info))
+		err = hub.AddService(NewSocks5Service(hub, info))
+		if err != nil {
+			hub.nl.Printf("service register failed. err='%v'\n", err)
+		}
 	}
 	for _, info := range cfg.RDP {
-		hub.AddService(NewRDPService(hub, info))
+		err = hub.AddService(NewRDPService(hub, info))
+		if err != nil {
+			hub.nl.Printf("service register failed. err='%v'\n", err)
+		}
 	}
+
+	// load config summary
+	networkNames := []string{}
+	for name := range hub.nets {
+		networkNames = append(networkNames, name)
+	}
+	hub.nl.Printf("registered networks: %v\n", strings.Join(networkNames, ", "))
+
+	serviceNames := []string{}
+	for name := range hub.svcNames {
+		serviceNames = append(serviceNames, name)
+	}
+	hub.nl.Printf("registered services: %v\n", strings.Join(serviceNames, ", "))
 }
 
 func (hub *Hub) UpdateNetwork(network string) {
@@ -74,14 +102,14 @@ func (hub *Hub) AddService(svc *Service) error {
 	defer hub.svcMut.Unlock()
 
 	if _, found := hub.svcNames[svc.Name]; found {
-		hub.nl.Printf("service register failed. dump service name='%v'\n", svc.Name)
+		// hub.nl.Printf("service register failed. dump service name='%v'\n", svc.Name)
 		return errors.New("dump service name")
 	}
 
 	svc.State = "uninit"
 	hub.svcs = append(hub.svcs, svc)
 	hub.svcNames[svc.Name] = svc
-	hub.nl.Printf("service registered. name='%v'\n", svc.Name)
+	// hub.nl.Printf("service registered. name='%v'\n", svc.Name)
 
 	return nil
 }
@@ -166,7 +194,7 @@ func (hub *Hub) AddNetwork(mnet Network) error {
 	}
 	hub.nets[name] = mnet
 
-	hub.nl.Printf("network registered. name='%v'\n", name)
+	// hub.nl.Printf("network registered. name='%v'\n", name)
 	return nil
 }
 

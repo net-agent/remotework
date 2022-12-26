@@ -10,7 +10,7 @@ import (
 	"github.com/net-agent/remotework/agent"
 )
 
-func handlePingDomain(pingUrl, pingName string) {
+func handlePingDomain(pingUrl, pingName string, pingTimes int) {
 	u, err := url.Parse(pingUrl)
 	if err != nil {
 		syslog.Fatal(err)
@@ -49,13 +49,33 @@ func handlePingDomain(pingUrl, pingName string) {
 		syslog.Fatal(err)
 	}
 
-	for i := 0; i < 4; i++ {
+	if pingTimes <= 0 {
+		pingTimes = 8
+	}
+
+	var max = time.Second * 0
+	var min = time.Second * 9999
+	var sum = time.Second * 0
+	var total = int64(0)
+	for i := 0; i < pingTimes; i++ {
 		dur, err := mnet.Ping(domain, time.Second*3)
 		if err != nil {
 			syslog.Printf("ping '%v': %v\n", domain, err)
-			continue
+		} else {
+			sum += dur
+			total += 1
+			if dur > max {
+				max = dur
+			}
+			if dur < min {
+				min = dur
+			}
+			syslog.Printf("ping '%v': %v\n", domain, dur)
 		}
 
-		syslog.Printf("ping '%v': %v\n", domain, dur)
+		<-time.After(time.Millisecond * 100)
+	}
+	if total > 0 {
+		syslog.Printf("MAX: %v, MIN: %v, AVERAGE: %v\n", max, min, time.Duration(int64(sum)/total))
 	}
 }

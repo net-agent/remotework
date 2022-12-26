@@ -13,7 +13,7 @@ func releaseSysTray() {
 }
 
 func initSysTray(hub *agent.Hub) {
-	syslog.Println("net hub is working, click systray to get more infos.")
+	syslog.Println("remotework client is working, click the systray to know more.")
 
 	go systray.Run(func() {
 		systray.SetIcon(icondata)

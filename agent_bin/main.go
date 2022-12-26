@@ -13,20 +13,25 @@ func main() {
 
 	// 处理ping命令
 	if flags.PingDomain != "" {
-		handlePingDomain(flags.PingDomain, flags.PingClientName)
-		return
+		RunCLIMode(&flags)
+	} else {
+		RunServiceMode(&flags)
 	}
+}
 
-	config := loadConfig(&flags)
+func RunServiceMode(flags *ClientFlags) {
+	config := loadConfig(flags)
 
 	hub := agent.NewHub()
 	hub.MountConfig(config)
-
-	go waitCloseSignal(hub)
-
 	initSysTray(hub)
 	defer releaseSysTray()
 
+	go waitCloseSignal(hub)
 	hub.StartServices()
 	syslog.Println("main process exit.")
+}
+
+func RunCLIMode(flags *ClientFlags) {
+	handlePingDomain(flags.PingDomain, flags.PingClientName, 8)
 }
