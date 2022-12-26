@@ -139,8 +139,14 @@ func (hub *Hub) StopServices() {
 		return
 	}
 	for _, svc := range hub.svcs {
-		svc.controller.Close()
+		if svc.State == "running" {
+			svc.controller.Close()
+		}
 	}
+	for _, mnet := range hub.nets {
+		mnet.Stop()
+	}
+	hub.running = false
 }
 
 func (hub *Hub) IsRunning() bool { return hub.running }

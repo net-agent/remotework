@@ -101,7 +101,10 @@ func (p *PortproxyController) Start() error {
 }
 
 func (p *PortproxyController) Close() error {
-	return p.listener.Close()
+	if p.listener != nil {
+		return p.listener.Close()
+	}
+	return nil
 }
 
 func (p *PortproxyController) serve(c1 net.Conn) {

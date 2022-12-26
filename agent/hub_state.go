@@ -232,3 +232,11 @@ func getDataStreamStateByNetwork(mnet Network) []*stream.State {
 	}
 	return node.GetStreamStateList()
 }
+
+func (hub *Hub) GetDataStreamState(netname string) []*stream.State {
+	mnet, err := hub.FindNetwork(netname)
+	if err != nil {
+		return nil
+	}
+	return getDataStreamStateByNetwork(mnet)
+}

@@ -46,3 +46,4 @@ func (tcp *tcpnetwork) Report() NetworkReport {
 		State:    "online",
 	}
 }
+func (tcp *tcpnetwork) Stop() {}

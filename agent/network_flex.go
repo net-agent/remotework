@@ -16,6 +16,10 @@ import (
 	"github.com/net-agent/remotework/utils"
 )
 
+var (
+	ErrNodeClosed = errors.New("connect failed, node closed")
+)
+
 type networkImpl struct {
 	networkinfo
 	hub        *Hub
@@ -25,6 +29,7 @@ type networkImpl struct {
 	nodeWaiter chan *node.Node
 	state      string
 	lastErr    string
+	closed     bool
 
 	Name        string
 	Protocol    string
@@ -64,6 +69,13 @@ func NewNetwork(hub *Hub, info AgentInfo) *networkImpl {
 	n.URL = fmt.Sprintf("%v://%v%v", info.Protocol, info.Address, info.WsPath)
 
 	return n
+}
+
+func (mnet *networkImpl) Stop() {
+	mnet.closed = true
+	if mnet.node != nil {
+		mnet.node.Close()
+	}
 }
 
 func (mnet *networkImpl) Report() NetworkReport {
@@ -158,13 +170,22 @@ func (mnet *networkImpl) keepalive() {
 		node, err := mnet.connect()
 		cd.Tick() // 开始冷却计时
 
+		if err == ErrNodeClosed {
+			mnet.state = "closed"
+			if mnet.nodeWaiter != nil {
+				mnet.nodeWaiter <- nil
+			}
+			mnet.nl.Println("network closed")
+			return
+		}
+
 		if err != nil {
 			mnet.state = "offline"
 			mnet.lastErr = err.Error()
 
-			mnet.nl.Printf("connect failed: %v, retry after %v\n", err, cd.WaitDuration())
+			mnet.nl.Printf("connect '%v' failed: %v, retry after %v\n", mnet.name, err, cd.WaitDuration())
 
-			cd.Wait()
+			<-cd.Wait()
 			cd.Increase(3 * time.Second) // 连接失败后等待时间增加3秒
 		} else {
 			mnet.ConnectTime = time.Now()
@@ -185,8 +206,8 @@ func (mnet *networkImpl) keepalive() {
 			mnet.state = "offline"
 			mnet.node = nil
 
-			mnet.nl.Printf("retry after %v\n", cd.WaitDuration())
-			cd.Wait()
+			mnet.nl.Printf("reconnect '%v' after %v\n", mnet.name, cd.WaitDuration())
+			<-cd.Wait()
 			cd.Reset() // 清零等待的叠加时间
 		}
 
@@ -195,19 +216,22 @@ func (mnet *networkImpl) keepalive() {
 
 // connect 连接中转服务器，创建会话。每次断线后需要重新调用
 func (mnet *networkImpl) connect() (*node.Node, error) {
+	if mnet.closed {
+		return nil, ErrNodeClosed
+	}
 	// step1: 尝试通过tcp或ws连接中转服务
 	var pc packet.Conn
 	var err error
 
 	if strings.HasPrefix(mnet.URL, "ws") {
-		mnet.nl.Printf("connect to '%v'\n", mnet.URL)
+		mnet.nl.Printf("dial to '%v'\n", mnet.URL)
 		var c *websocket.Conn
 		c, _, err = websocket.DefaultDialer.Dial(mnet.URL, nil)
 		if err == nil && c != nil {
 			pc = packet.NewWithWs(c)
 		}
 	} else {
-		mnet.nl.Printf("connect to '%v'\n", mnet.Address)
+		mnet.nl.Printf("dial to '%v'\n", mnet.Address)
 		var c net.Conn
 		c, err = mnet.hub.Dial(mnet.Protocol, mnet.Address)
 		// c, err = net.Dial("tcp4", mnet.Address)
@@ -225,7 +249,7 @@ func (mnet *networkImpl) connect() (*node.Node, error) {
 	}
 
 	// step2: 通过upgrade对连接进行认证升级
-	mnet.nl.Printf("upgrade as '%v'\n", mnet.Domain)
+	mnet.nl.Printf("upgrade as '%v://%v'\n", mnet.name, mnet.Domain)
 	ip, err := handshake.UpgradeRequest(pc, mnet.Domain, mnet.MacStr, mnet.Password)
 	if err != nil {
 		pc.Close()
