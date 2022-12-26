@@ -226,8 +226,8 @@ func getDataStreamStateByNetwork(mnet Network) []*stream.State {
 		return nil
 	}
 
-	node, err := impl.getNode()
-	if err != nil {
+	node := impl.node
+	if node == nil {
 		return nil
 	}
 	return node.GetStreamStateList()
