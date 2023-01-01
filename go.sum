@@ -27,8 +27,8 @@ github.com/mattn/go-runewidth v0.0.9 h1:Lm995f3rfxdpd6TSmuVCHVb/QhupuXlYr8sCI/Qd
 github.com/mattn/go-runewidth v0.0.9/go.mod h1:H031xJmbD/WCDINGzjvQ9THkh0rPKHF+m2gUSrubnMI=
 github.com/net-agent/cipherconn v1.0.2 h1:kgWfN6rbpLvxQGPZbszyFr7KNedBO0SWAmUByj9mpUo=
 github.com/net-agent/cipherconn v1.0.2/go.mod h1:jQcNE08ocR+XJNwYzGso9ZsmW3Ng0KGTZZwX61zs90Y=
-github.com/net-agent/flex/v2 v2.2.1 h1:GeLzNE+78GtvOGUk2pT7/ViCoufyAe4Btp//avfLIUk=
-github.com/net-agent/flex/v2 v2.2.1/go.mod h1:j1afPFXiYYoeYC1y2IEV1ei13Wz3WHXvUZ5CD+tZ/0I=
+github.com/net-agent/flex/v2 v2.2.3 h1:5+sN/eSw09I/UqHWAbQHDcwTuaFD0mcdKPWWH0hyi0k=
+github.com/net-agent/flex/v2 v2.2.3/go.mod h1:j1afPFXiYYoeYC1y2IEV1ei13Wz3WHXvUZ5CD+tZ/0I=
 github.com/net-agent/mixlisten v1.0.2 h1:ScPaWHRaV51zVldCKu0gzJ/aHynDdF1A3yzeX2fva3g=
 github.com/net-agent/mixlisten v1.0.2/go.mod h1:QLmhQEm+XalWU0bR/91kTrzjta3T4uLMtIDSe2FHTec=
 github.com/net-agent/socks v1.0.7 h1:v30CsksBdGvQhrhLLq9hwJwmTql3bg+OvaMvwTTLqHs=

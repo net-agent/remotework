@@ -122,7 +122,7 @@ func (p *PortproxyController) serve(c1 net.Conn) {
 	}
 	defer c2.Close()
 
-	dialer := getDialer(c1)
+	dialer := getRemote(c1)
 	start := time.Now()
 	p.nl.Printf("pipe created, from='%v' to='%v'\n", dialer, p.state.TargetURL)
 	utils.LinkReadWriter(c1, c2)

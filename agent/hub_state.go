@@ -251,11 +251,9 @@ func (hub *Hub) GetDataStreamState(limits int, networks ...string) []*DataStream
 		}
 
 		actives, closeds := getDataStreamStateByNetwork(mnet)
-		if len(actives) > limits {
-			actives = actives[:limits]
-		}
-		if len(closeds) > limits {
-			closeds = closeds[:limits]
+		size := len(closeds)
+		if size > limits {
+			closeds = closeds[size-limits : size]
 		}
 		resp = append(resp, &DataStreamState{network, actives, closeds})
 	}

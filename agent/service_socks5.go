@@ -30,7 +30,7 @@ func NewSocks5Controller(hub *Hub, state *ServiceState) *Socks5Controller {
 func (s *Socks5Controller) Init() error {
 	s.server = socks.NewPswdServer(s.state.Username, s.state.Password)
 	s.server.SetConnLinker(func(a, b io.ReadWriteCloser) (a2b int64, b2a int64, err error) {
-		dialer := getDialer(a)
+		dialer := getRemote(a)
 		start := time.Now()
 		s.state.AddActiveCount(1)
 		defer func() {

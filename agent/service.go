@@ -87,7 +87,7 @@ func NewSocks5Service(hub *Hub, info Socks5Info) *Service {
 	return svc
 }
 
-func getDialer(c io.ReadWriteCloser) string {
+func getRemote(c io.ReadWriteCloser) string {
 	addr, ok := c.(net.Conn)
 	if !ok {
 		return "invalid"
@@ -100,15 +100,8 @@ func getDialer(c io.ReadWriteCloser) string {
 	if ok {
 		state := s.GetState()
 
-		networkName = state.RemoteAddr.NetworkName
-		if networkName == "" {
-			networkName = "mnet"
-		}
-
-		remoteAddr = fmt.Sprintf("%v:%v", state.RemoteDomain, state.RemoteAddr.Port)
-		if state.RemoteDomain == "" {
-			remoteAddr = fmt.Sprintf("%v:%v", state.RemoteAddr.IP, state.RemoteAddr.Port)
-		}
+		networkName = "mnet"
+		remoteAddr = state.Remote()
 	}
 	return fmt.Sprintf("%v://%v", networkName, remoteAddr)
 }
