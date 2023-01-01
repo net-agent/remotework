@@ -27,15 +27,12 @@ type ServerInfo struct {
 }
 
 type AgentInfo struct {
-	Enable   bool   `json:"enable" toml:"enable"`
 	Name     string `json:"name" toml:"name"` // 网络名称，不能为tcp、tcp4、tcp6
 	Protocol string `json:"protocol" toml:"protocol"`
 	Address  string `json:"address" toml:"address"`   // 服务端地址
 	Password string `json:"password" toml:"password"` // 连接服务的密码
 	Domain   string `json:"domain" toml:"domain"`     // 独立域名（不能重复）
 	URL      string `json:"url" toml:"url"`           // <Network>://<Domain>:<Password>@<Address>
-	WsEnable bool   `json:"wsEnable" toml:"wsEnable"` // 是否为Websocket服务
-	Wss      bool   `json:"wss" toml:"wss"`           // 是否为wss协议
 	WsPath   string `json:"wsPath" toml:"wsPath"`     // Websocket路径
 }
 

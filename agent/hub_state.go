@@ -194,7 +194,7 @@ func (hub *Hub) GetAllDataStreamStateString() string {
 	buf := bytes.NewBufferString("report actived stream:\n")
 
 	for networkName, mnet := range hub.nets {
-		states := getDataStreamStateByNetwork(mnet)
+		states, _ := getDataStreamStateByNetwork(mnet)
 		if len(states) > 0 {
 			utils.RenderAsciiTable(buf, states,
 				[]string{"index", "network", "local", "remote", "readed", "wrote", "alive"},
@@ -220,23 +220,45 @@ func (hub *Hub) GetAllDataStreamStateString() string {
 	return buf.String()
 }
 
-func getDataStreamStateByNetwork(mnet Network) []*stream.State {
+func getDataStreamStateByNetwork(mnet Network) (actives, closeds []*stream.State) {
 	impl, ok := mnet.(*networkImpl)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
 	node := impl.node
 	if node == nil {
-		return nil
+		return nil, nil
 	}
-	return node.GetStreamStateList()
+	actives = node.GetStreamStateList()
+	closeds = node.GetClosedStreamStateList(0)
+	return actives, closeds
 }
 
-func (hub *Hub) GetDataStreamState(netname string) []*stream.State {
-	mnet, err := hub.FindNetwork(netname)
-	if err != nil {
-		return nil
+type DataStreamState struct {
+	Network string
+	Actives []*stream.State
+	Closeds []*stream.State
+}
+
+func (hub *Hub) GetDataStreamState(limits int, networks ...string) []*DataStreamState {
+	resp := []*DataStreamState{}
+	for _, network := range networks {
+		mnet, err := hub.FindNetwork(network)
+		if err != nil {
+			resp = append(resp, nil)
+			continue
+		}
+
+		actives, closeds := getDataStreamStateByNetwork(mnet)
+		if len(actives) > limits {
+			actives = actives[:limits]
+		}
+		if len(closeds) > limits {
+			closeds = closeds[:limits]
+		}
+		resp = append(resp, &DataStreamState{network, actives, closeds})
 	}
-	return getDataStreamStateByNetwork(mnet)
+
+	return resp
 }

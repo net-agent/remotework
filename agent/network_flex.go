@@ -60,12 +60,6 @@ func NewNetwork(hub *Hub, info AgentInfo) *networkImpl {
 		ConnectTime: time.Now(),
 	}
 
-	if info.WsEnable {
-		info.Protocol = "ws"
-		if info.Wss {
-			info.Protocol = "wss"
-		}
-	}
 	n.URL = fmt.Sprintf("%v://%v%v", info.Protocol, info.Address, info.WsPath)
 
 	return n
