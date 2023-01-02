@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/net-agent/cipherconn"
 	"github.com/net-agent/remotework/utils"
@@ -267,4 +268,20 @@ func (hub *Hub) ListenURL(raw string) (net.Listener, error) {
 	}
 
 	return utils.NewSecretListener(l, secret), nil
+}
+
+func (hub *Hub) PingDomain(network, domain string) (time.Duration, error) {
+	mnet, err := hub.FindNetwork(network)
+	if err != nil {
+		return 0, err
+	}
+	impl, ok := mnet.(*networkImpl)
+	if !ok {
+		return 0, errors.New("convert impl failed")
+	}
+	n := impl.node
+	if n == nil {
+		return 0, errors.New("node is nil")
+	}
+	return n.PingDomain(domain, time.Second*3)
 }
