@@ -19,10 +19,11 @@ type Hub struct {
 	mut     sync.RWMutex
 	running bool
 
-	svcs     []*Service
-	svcNames map[string]*Service
-	svcMut   sync.RWMutex
-	svcID    int32
+	svcs      []*Service
+	svcNames  map[string]*Service
+	svcMut    sync.RWMutex
+	svcID     int32
+	svcWaiter sync.WaitGroup
 }
 
 func NewHub() *Hub {
@@ -109,30 +110,36 @@ func (hub *Hub) StartServices() error {
 	}()
 
 	hub.nl.Println("start services:")
-	var wg sync.WaitGroup
 	for _, svc := range hub.svcs {
-		wg.Add(1)
-		go func(svc *Service) {
-			defer wg.Done()
-			hub.nl.Printf("init service. name='%v'\n", svc.Name)
-
-			svc.State = "init"
-			if err := svc.controller.Init(); err != nil {
-				svc.State = "init failed"
-				hub.nl.Printf("init service failed. name='%v' err='%v'\n", svc.Name, err)
-				return
-			}
-
-			svc.State = "running"
-			err := svc.controller.Start()
-
-			svc.State = "stopped"
-			hub.nl.Printf("service stopped. name='%v' err='%v'\n", svc.Name, err)
-		}(svc)
+		go hub.StartService(svc)
 	}
-	wg.Wait()
+
+	hub.svcWaiter.Wait()
 	hub.nl.Println("no service is running")
 	return nil
+}
+
+func (hub *Hub) StartService(svc *Service) {
+	if svc.State == "init" || svc.State == "running" {
+		return
+	}
+	hub.svcWaiter.Add(1)
+	defer hub.svcWaiter.Done()
+
+	hub.nl.Printf("init service. name='%v'\n", svc.Name)
+
+	svc.State = "init"
+	if err := svc.controller.Init(); err != nil {
+		svc.State = "init failed"
+		hub.nl.Printf("init service failed. name='%v' err='%v'\n", svc.Name, err)
+		return
+	}
+
+	svc.State = "running"
+	err := svc.controller.Start()
+
+	svc.State = "stopped"
+	hub.nl.Printf("service stopped. name='%v' err='%v'\n", svc.Name, err)
 }
 
 func (hub *Hub) StopServices() {
