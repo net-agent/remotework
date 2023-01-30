@@ -111,7 +111,7 @@ func (hub *Hub) StartServices() error {
 
 	hub.nl.Println("start services:")
 	for _, svc := range hub.svcs {
-		go hub.StartService(svc)
+		hub.StartService(svc)
 	}
 
 	hub.svcWaiter.Wait()
@@ -123,9 +123,13 @@ func (hub *Hub) StartService(svc *Service) {
 	if svc.State == "init" || svc.State == "running" {
 		return
 	}
-	hub.svcWaiter.Add(1)
-	defer hub.svcWaiter.Done()
 
+	hub.svcWaiter.Add(1)
+	go hub.manageServiceState(svc, &hub.svcWaiter)
+}
+
+func (hub *Hub) manageServiceState(svc *Service, waiter *sync.WaitGroup) {
+	defer waiter.Done()
 	hub.nl.Printf("init service. name='%v'\n", svc.Name)
 
 	svc.State = "init"
@@ -137,8 +141,8 @@ func (hub *Hub) StartService(svc *Service) {
 
 	svc.State = "running"
 	err := svc.controller.Start()
-
 	svc.State = "stopped"
+
 	hub.nl.Printf("service stopped. name='%v' err='%v'\n", svc.Name, err)
 }
 
