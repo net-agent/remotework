@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"context"
+
 	"github.com/gorilla/websocket"
 	"github.com/net-agent/flex/v2/handshake"
 	"github.com/net-agent/flex/v2/node"
@@ -22,14 +24,15 @@ var (
 
 type networkImpl struct {
 	networkinfo
-	hub        *Hub
-	nl         *utils.NamedLogger
-	node       *node.Node
-	onceInit   sync.Once
-	nodeWaiter chan *node.Node
-	state      string
-	lastErr    string
-	closed     bool
+	hub               *Hub
+	nl                *utils.NamedLogger
+	node              *node.Node
+	onceInit          sync.Once
+	nodeWaiter        chan *node.Node
+	nodeWaiterTimeout time.Duration
+	state             string
+	lastErr           string
+	closed            bool
 
 	Name        string
 	Protocol    string
@@ -45,11 +48,13 @@ type networkImpl struct {
 
 func NewNetwork(hub *Hub, info AgentInfo) *networkImpl {
 	n := &networkImpl{
-		networkinfo: networkinfo{name: info.Name},
-		hub:         hub,
-		nl:          utils.NewNamedLogger(info.Name, true),
-		state:       "offline",
-		lastErr:     "",
+		networkinfo:       networkinfo{name: info.Name},
+		hub:               hub,
+		nl:                utils.NewNamedLogger(info.Name, true),
+		state:             "offline",
+		lastErr:           "",
+		nodeWaiter:        make(chan *node.Node),
+		nodeWaiterTimeout: time.Second * 8,
 
 		Name:        info.Name,
 		Protocol:    info.Protocol,
@@ -94,7 +99,7 @@ func (mnet *networkImpl) Report() NetworkReport {
 }
 
 func (mnet *networkImpl) Dial(network, addr string) (net.Conn, error) {
-	node, err := mnet.getNode()
+	node, err := mnet.getNodeInstance()
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +111,7 @@ func (mnet *networkImpl) Dial(network, addr string) (net.Conn, error) {
 }
 
 func (mnet *networkImpl) Ping(domain string, timeout time.Duration) (time.Duration, error) {
-	node, err := mnet.getNode()
+	node, err := mnet.getNodeInstance()
 	if err != nil {
 		return 0, err
 	}
@@ -126,7 +131,7 @@ func (mnet *networkImpl) Listen(network, addr string) (net.Listener, error) {
 		return nil, err
 	}
 
-	node, err := mnet.getNode()
+	node, err := mnet.getNodeInstance()
 	if err != nil {
 		return nil, err
 	}
@@ -137,20 +142,38 @@ func (mnet *networkImpl) Listen(network, addr string) (net.Listener, error) {
 	return node.Listen(uint16(port))
 }
 
-func (mnet *networkImpl) getNode() (*node.Node, error) {
+// func (mnet *networkImpl) getNode() (*node.Node, error) {
+// 	mnet.onceInit.Do(func() {
+// 		ch := make(chan *node.Node, 1)
+// 		mnet.nodeWaiter = ch
+// 		go mnet.keepalive()
+// 		<-mnet.nodeWaiter
+// 		mnet.nodeWaiter = nil
+// 		close(ch)
+// 	})
+
+// 	if mnet.node == nil {
+// 		return nil, errors.New("node instance is null")
+// 	}
+// 	return mnet.node, nil
+// }
+
+func (mnet *networkImpl) getNodeInstance() (*node.Node, error) {
+	// 第一步：初始化（只会执行一次）
 	mnet.onceInit.Do(func() {
-		ch := make(chan *node.Node, 1)
-		mnet.nodeWaiter = ch
 		go mnet.keepalive()
-		<-mnet.nodeWaiter
-		mnet.nodeWaiter = nil
-		close(ch)
 	})
 
-	if mnet.node == nil {
-		return nil, errors.New("node instance is null")
+	// 第二步：获取实例
+	select {
+	case node := <-mnet.nodeWaiter:
+		if node == nil {
+			return nil, errors.New("node is nil")
+		}
+		return node, nil
+	case <-time.After(mnet.nodeWaiterTimeout):
+		return nil, errors.New("wait node timeout")
 	}
-	return mnet.node, nil
 }
 
 // keepalive 创建连接，并保持连接在线。出现异常时会不断尝试重连，直至连接成功为止
@@ -166,9 +189,6 @@ func (mnet *networkImpl) keepalive() {
 
 		if err == ErrNodeClosed {
 			mnet.state = "closed"
-			if mnet.nodeWaiter != nil {
-				mnet.nodeWaiter <- nil
-			}
 			mnet.nl.Println("network closed")
 			return
 		}
@@ -187,9 +207,16 @@ func (mnet *networkImpl) keepalive() {
 			mnet.lastErr = ""
 
 			mnet.node = node
-			if mnet.nodeWaiter != nil {
-				mnet.nodeWaiter <- node
-			}
+			closeCtx, cancel := context.WithCancel(context.Background())
+			go func() {
+				for {
+					select {
+					case mnet.nodeWaiter <- node:
+					case <-closeCtx.Done():
+						return
+					}
+				}
+			}()
 
 			// mnet.node更新后，需要通知hub，更新相应的service依赖
 			mnet.hub.UpdateNetwork(mnet.Name)
@@ -197,6 +224,8 @@ func (mnet *networkImpl) keepalive() {
 			// 连接成功后设置等待时间为30秒，至少30秒后才会开始重连
 			cd.Set(30 * time.Second)
 			node.Run() // 正常情况下这里会阻塞住
+
+			cancel()
 			mnet.state = "offline"
 			mnet.node = nil
 
