@@ -9,7 +9,7 @@ import (
 )
 
 func waitCloseSignal(hub *agent.Hub) {
-	ch := make(chan os.Signal)
+	ch := make(chan os.Signal, 10)
 	signal.Notify(ch, syscall.SIGINT)
 	signal.Notify(ch, syscall.SIGTERM)
 

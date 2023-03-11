@@ -16,6 +16,6 @@ func ServeTCP(app *switcher.Server, info ServerInfo, listener net.Listener) {
 
 		pc := packet.NewWithConn(c)
 		syslog.Printf("tcp agent connected, remote=%v\n", c.RemoteAddr())
-		go app.ServeConn(pc)
+		go app.HandlePacketConn(pc)
 	}
 }

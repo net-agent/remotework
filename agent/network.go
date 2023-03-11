@@ -12,6 +12,7 @@ type Network interface {
 	Listen(network, addr string) (net.Listener, error)
 	Ping(domain string, timeout time.Duration) (time.Duration, error)
 	Report() NetworkReport
+	Stop()
 }
 type NetworkReport struct {
 	Name     string

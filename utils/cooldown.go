@@ -44,6 +44,6 @@ func (cd *Cooldown) WaitDuration() time.Duration {
 	}
 	return dur
 }
-func (cd *Cooldown) Wait() {
-	<-time.After(cd.WaitDuration())
+func (cd *Cooldown) Wait() <-chan time.Time {
+	return time.After(cd.WaitDuration())
 }

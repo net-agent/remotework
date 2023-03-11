@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/net-agent/flex/v2/stream"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -187,4 +188,75 @@ func parseURLDepend(raw string) (string, string, error) {
 		return "", "", err
 	}
 	return u.Scheme, u.Hostname(), nil
+}
+
+func (hub *Hub) GetAllDataStreamStateString() string {
+	buf := bytes.NewBufferString("report actived stream:\n")
+
+	for networkName, mnet := range hub.nets {
+		states, _ := getDataStreamStateByNetwork(mnet)
+		if len(states) > 0 {
+			utils.RenderAsciiTable(buf, states,
+				[]string{"index", "network", "local", "remote", "readed", "wrote", "alive"},
+				func(d interface{}, index int) []string {
+					st := d.(*stream.State)
+					alived := time.Since(st.Created)
+					if st.IsClosed {
+						alived = st.Closed.Sub(st.Created)
+					}
+					return []string{
+						fmt.Sprint(index),
+						networkName,
+						fmt.Sprintf("%v(%v)", st.LocalDomain, st.LocalAddr.String()),
+						fmt.Sprintf("%v(%v)", st.RemoteDomain, st.RemoteAddr.String()),
+						fmt.Sprint(st.ConnReadSize),
+						fmt.Sprint(st.ConnWriteSize),
+						fmt.Sprint(alived),
+					}
+				},
+			)
+		}
+	}
+	return buf.String()
+}
+
+func getDataStreamStateByNetwork(mnet Network) (actives, closeds []*stream.State) {
+	impl, ok := mnet.(*networkImpl)
+	if !ok {
+		return nil, nil
+	}
+
+	node := impl.node
+	if node == nil {
+		return nil, nil
+	}
+	actives = node.GetStreamStateList()
+	closeds = node.GetClosedStreamStateList(0)
+	return actives, closeds
+}
+
+type DataStreamState struct {
+	Network string
+	Actives []*stream.State
+	Closeds []*stream.State
+}
+
+func (hub *Hub) GetDataStreamState(limits int, networks ...string) []*DataStreamState {
+	resp := []*DataStreamState{}
+	for _, network := range networks {
+		mnet, err := hub.FindNetwork(network)
+		if err != nil {
+			resp = append(resp, nil)
+			continue
+		}
+
+		actives, closeds := getDataStreamStateByNetwork(mnet)
+		size := len(closeds)
+		if size > limits {
+			closeds = closeds[size-limits : size]
+		}
+		resp = append(resp, &DataStreamState{network, actives, closeds})
+	}
+
+	return resp
 }

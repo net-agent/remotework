@@ -2,9 +2,12 @@ package agent
 
 import (
 	"fmt"
+	"io"
+	"net"
 	"strings"
 	"sync/atomic"
 
+	"github.com/net-agent/flex/v2/stream"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -82,4 +85,23 @@ func NewSocks5Service(hub *Hub, info Socks5Info) *Service {
 	svc.controller = NewSocks5Controller(hub, &svc.ServiceState)
 
 	return svc
+}
+
+func getRemote(c io.ReadWriteCloser) string {
+	addr, ok := c.(net.Conn)
+	if !ok {
+		return "invalid"
+	}
+
+	networkName := "tcp"
+	remoteAddr := addr.RemoteAddr().String()
+
+	s, ok := c.(*stream.Stream)
+	if ok {
+		state := s.GetState()
+
+		networkName = "mnet"
+		remoteAddr = state.Remote()
+	}
+	return fmt.Sprintf("%v://%v", networkName, remoteAddr)
 }

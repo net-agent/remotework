@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/net-agent/remotework/utils"
 )
@@ -101,7 +102,10 @@ func (p *PortproxyController) Start() error {
 }
 
 func (p *PortproxyController) Close() error {
-	return p.listener.Close()
+	if p.listener != nil {
+		return p.listener.Close()
+	}
+	return nil
 }
 
 func (p *PortproxyController) serve(c1 net.Conn) {
@@ -111,19 +115,16 @@ func (p *PortproxyController) serve(c1 net.Conn) {
 		p.state.AddDoneCount(1)
 	}()
 
-	var dialer string
-	if s, ok := c1.(interface{ Dialer() string }); ok {
-		dialer = "mnet://" + s.Dialer()
-	} else {
-		dialer = "tcp://" + c1.RemoteAddr().String()
-	}
-
 	c2, err := p.dialer()
 	if err != nil {
 		p.nl.Printf("dial error. target=%v, err=%v\n", p.state.TargetURL, err)
 		return
 	}
+	defer c2.Close()
 
-	p.nl.Printf("linked. %v > %v > %v\n", dialer, p.state.ListenURL, p.state.TargetURL)
+	dialer := getRemote(c1)
+	start := time.Now()
+	p.nl.Printf("pipe created, from='%v' to='%v'\n", dialer, p.state.TargetURL)
 	utils.LinkReadWriter(c1, c2)
+	p.nl.Printf("pipe stopped, from='%v' to='%v', alive=%v\n", dialer, p.state.TargetURL, time.Since(start).Round(time.Second))
 }

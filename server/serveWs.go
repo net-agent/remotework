@@ -30,6 +30,6 @@ func GetWsHandler(app *switcher.Server) http.HandlerFunc {
 
 		pc := packet.NewWithWs(c)
 		syslog.Printf("ws  agent connected, remote=%v\n", c.RemoteAddr())
-		go app.ServeConn(pc)
+		go app.HandlePacketConn(pc)
 	}
 }
