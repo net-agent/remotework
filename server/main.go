@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"path"
@@ -11,12 +11,7 @@ import (
 
 var syslog = utils.NewNamedLogger("sys", false)
 
-func main() {
-	var flags ServerFlags
-	flags.Parse()
-
-	// 读取配置
-	configName := flags.ConfigFileName
+func RunServer(configName string) {
 	if !utils.FileExist(configName) {
 		// try `config.json` or `config.toml`
 		dir := path.Dir(configName)

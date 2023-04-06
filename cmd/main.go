@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/net-agent/remotework/agent"
+	"github.com/net-agent/remotework/server"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -11,11 +12,15 @@ func main() {
 	var flags ClientFlags
 	flags.Parse()
 
-	// 处理ping命令
-	if flags.PingDomain != "" {
-		RunCLIMode(&flags)
-	} else {
+	switch flags.RunMode {
+	case "agent":
 		RunServiceMode(&flags)
+	case "server":
+		server.RunServer(flags.ConfigFileName)
+	case "cli":
+		RunCLIMode(&flags)
+	default:
+		syslog.Fatal("invalid run-mode:", flags.RunMode)
 	}
 }
 

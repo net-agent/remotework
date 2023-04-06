@@ -1,67 +1,30 @@
-@echo off
+﻿@echo off
+rem 该脚本用于实现golang程序的跨平台编译，支持windows、linux、mac
+rem 使用方法：在终端执行 build.bat，脚本会自动编译为windows、linux、mac三种不同平台的程序，生成的二进制文件在build目录下
 
-SET version=%1
+rem 设置交叉编译参数
+set CGO_ENABLED=0
+set GOOS=windows linux darwin
+set GOARCH=amd64
+set app=remote
+set date=%date:~0,4%%date:~5,2%%date:~8,2%
+set srcPath=./cmd
+set distPath=./dist
 
-if "%version%" == "" (
-
-  echo invalid version info
-
-) else (
-
-  echo version=%version%
-
-  if not exist "dist" mkdir dist
-  if not exist "dist\%version%" mkdir "dist\%version%"
-
-
-  echo start build linux(amd64) 
-  set CGO_ENABLE=0
-  set GOOS=linux
-  set GOARCH=amd64
-
-  echo build agent
-  cd agent_bin
-  go build -o "..\dist\%version%\agent_linux_%version%_bin"
-
-  echo build server
-  cd ..\server
-  go build -o "..\dist\%version%\server_linux_%version%_bin"
-
-  cd ..
-  echo linux(amd64) finished
-
-
-
-  echo start build linux(darwin)
-  set CGO_ENABLE=0
-  set GOOS=darwin
-  set GOARCH=amd64
-
-  echo build agent
-  cd agent_bin
-  go build -o "..\dist\%version%\agent_darwin_%version%_bin"
-
-  echo build server
-  cd ..\server
-  go build -o "..\dist\%version%\server_darwin_%version%_bin"
-
-  cd ..
-  echo linux(darwin) finished
-
-
-  echo start build windows
-  set CGO_ENABLE=0
-  set GOOS=windows
-  set GOARCH=amd64
-
-  echo build agent
-  cd agent_bin
-  go build -o "..\dist\%version%\agent_windows_%version%.exe"
-
-  echo build server
-  cd ..\server
-  go build -o "..\dist\%version%\server_windows_%version%.exe"
-
-  cd ..
-  echo windows finished
+rem 编译程序
+for %%i in (%GOOS%) do (
+  for %%j in (%GOARCH%) do (
+    echo 编译%%j-%%i程序...
+    if "%%i"=="windows" (
+      set ext=.exe
+    ) else (
+      set ext=_bin
+    )
+    set bin_name=%app%_%date%_%%i%ext%
+    set GOOS=%%i
+    set GOARCH=%%j
+    go build -o %distPath%\%bin_name% %srcPath%
+  )
 )
+
+echo 编译完成！
