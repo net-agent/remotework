@@ -12,14 +12,10 @@ Remotework只是流量的搬运工，实际的远程控制工具依赖RDP client
 ### 被控制端的配置（以3389端口为例）
 ```jsonc
 {
-    "agents": [{
-        "enable": true,
-        "address": "<server ip>:<server port>",
-        "password": "<server password>",
-
-        "network": "vtcp",
-        "domain": "test_agent",
-    }],
+    "agent": {
+        "vtcp": "tcp://<domain_1>:<password>@<server_host>:<server_port>",
+        "vws": "ws://<domain_2>:<password>@<server_host>:<server_port><server_path>"
+    },
 
     "portproxy": [
         { "listen": "vtcp://0:1000", "target": "tcp://localhot:3389" }
@@ -31,17 +27,12 @@ Remotework只是流量的搬运工，实际的远程控制工具依赖RDP client
 ### 控制端的配置
 ```jsonc
 {
-    "agents": [{
-        "enable": true,
-        "address": "<server ip>:<server port>",
-        "password": "<server password>",
-
-        "network": "vtcp",
-        "domain": "controller",
-    }],
+    "agents": {
+        "vtcp": "tcp://<domain_3>:<password>@<server_host>:<server_port>"
+    },
 
     "portproxy": [
-        { "listen": "tcp://localhost:1000", "target": "vtcp://test_agent:1000" }
+        { "listen": "tcp://localhost:1000", "target": "vtcp://<domain_1>:1000" }
     ]
 }
 ```
@@ -70,65 +61,5 @@ agent默认不会对转发的流量进行加密，网络中的数据包是以明
         "listen": "vtcp://test_agent:1000?secret=password123456",
         "target": "tcp://localhost:3389"
     }]
-}
-```
-
-## agent完整配置示例与说明
-```jsonc
-{
-  "agents": [{
-    "enable": true,
-
-    // 通过url简化配置，url = <network>://<domain>:<password>@<address>
-    "url": "txy://test:pswd-gogo@localhost:2000",
-    "wsEnable": true,
-    "wss": false,
-    "wsPath": "/wsconn",
-    
-    // trust信任列表，在信任列表中的domain，可以直接进行任意端口转发
-    // 配合对端的visit服务发挥作用
-    "trust": {
-      "enable": true,
-      "whiteList": {
-        "test": "1234", // domain: password
-        "cmsoffice_sgz": "abcde"
-      }
-    }
-  }, {
-    "enable": true,
-    "url": "local://test2:pswd-gogo@localhost:2000"
-  }],
-
-  // portproxy 端口转发示例
-  "portproxy": [
-    { "log": "portp-1",
-      "listen": "tcp://localhost:1070",      "target": "txy://test:1070?secret=12345" },
-    
-    { "log": "portp-2",
-      "listen": "txy://0:1070?secret=12345", "target": "local://test2:1070" }
-  ],
-
-  // visit 配合agent.trust开放指定任意端口
-  "visit": [
-    { "log": "visit-1", 
-      "listen": "tcp://localhost:1000", "target": "txy://office_pc:pswd@localhost:3389" },
-
-    { "log": "visit-2", 
-      "listen": "tcp://localhost:1001", "target": "txy://office_pc:pswd@localhost:1001" },
-
-    { "log": "visit-3", 
-      "listen": "tcp://localhost:1002", "target": "txy://office_pc:pswd@localhost:1002" }
-  ],
-
-  // 将本机的rdp端口代理出去。windows上会读取注册表，获取rdp端口。
-  "rdp": [
-    { "log": "rdp-1", "listen": "txy://0:3389" },
-    { "log": "rdp-2", "listen": "local://0:3389" }
-  ],
-
-  // 将本机作为socks5服务器进行网络开放
-  "socks5": [
-    { "log": "socks-1", "listen": "local://0:1070", "username": "", "password": "" }
-  ]
 }
 ```
