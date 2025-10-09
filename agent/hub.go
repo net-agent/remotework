@@ -158,7 +158,7 @@ func (hub *Hub) StartService(svc *Service) {
 
 func (hub *Hub) manageServiceState(svc *Service, waiter *sync.WaitGroup) {
 	defer waiter.Done()
-	hub.nl.Printf("init service. name='%v'\n", svc.Name)
+	hub.nl.Printf("init service. type='%v' name='%v' \n", svc.Type, svc.Name)
 
 	svc.State = "init"
 	if err := svc.controller.Init(); err != nil {
@@ -234,6 +234,21 @@ func (hub *Hub) FindNetwork(network string) (Network, error) {
 	return mnet, nil
 }
 
+func (hub *Hub) IsPrivateNetwork(network string) bool {
+	if network == "" {
+		return false
+	}
+	if network == "tcp" || network == "tcp4" || network == "tcp6" {
+		return false
+	}
+
+	hub.mut.RLock()
+	defer hub.mut.RUnlock()
+
+	_, found := hub.nets[network]
+	return found
+}
+
 // Dial 创建连接
 func (hub *Hub) Dial(network, addr string) (net.Conn, error) {
 	mnet, err := hub.FindNetwork(network)
@@ -305,6 +320,10 @@ func (hub *Hub) ListenURL(raw string) (net.Listener, error) {
 	}
 
 	secret := u.Query().Get("secret")
+	if hub.IsPrivateNetwork(u.Scheme) && secret == "" {
+		return nil, errors.New("to listen private protocols, please set the encryption password in the secret parameter")
+	}
+
 	if secret == "" {
 		return l, nil
 	}

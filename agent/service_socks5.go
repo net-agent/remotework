@@ -30,17 +30,17 @@ func NewSocks5Controller(hub *Hub, state *ServiceState) *Socks5Controller {
 func (s *Socks5Controller) Init() error {
 	s.server = socks.NewPswdServer(s.state.Username, s.state.Password)
 	s.server.SetConnLinker(func(a, b io.ReadWriteCloser) (a2b int64, b2a int64, err error) {
-		dialer := getRemote(a)
+		dialer := getRemoteInfo(a)
 		start := time.Now()
 		s.state.AddActiveCount(1)
 		defer func() {
 			s.state.AddDoneCount(1)
 			a.Close()
 			b.Close()
-			s.nl.Printf("socks5 stopped, from='%v', alive=%v\n", dialer, time.Since(start).Round(time.Second))
+			s.nl.Printf("link stopped, from='%v', alive=%v\n", dialer, time.Since(start).Round(time.Second))
 		}()
-		s.nl.Printf("socks5 created, from='%v'\n", dialer)
-		return utils.LinkReadWriter(a, b)
+		s.nl.Printf("link created, from='%v'\n", dialer)
+		return utils.LinkReadWriteCloser(a, b)
 	})
 
 	if err := s.Update(); err != nil {

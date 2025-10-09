@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -108,23 +109,29 @@ func (p *PortproxyController) Close() error {
 	return nil
 }
 
-func (p *PortproxyController) serve(c1 net.Conn) {
+func (p *PortproxyController) serve(dialConn net.Conn) {
 	p.state.AddActiveCount(1)
 	defer func() {
-		c1.Close()
+		dialConn.Close()
 		p.state.AddDoneCount(1)
 	}()
 
-	c2, err := p.dialer()
+	targetConn, err := p.dialer() // quick dial target
 	if err != nil {
 		p.nl.Printf("dial error. target=%v, err=%v\n", p.state.TargetURL, err)
 		return
 	}
-	defer c2.Close()
+	defer targetConn.Close()
 
-	dialer := getRemote(c1)
+	dialer := getRemoteInfo(dialConn)
 	start := time.Now()
+
 	p.nl.Printf("pipe created, from='%v' to='%v'\n", dialer, p.state.TargetURL)
-	utils.LinkReadWriter(c1, c2)
-	p.nl.Printf("pipe stopped, from='%v' to='%v', alive=%v\n", dialer, p.state.TargetURL, time.Since(start).Round(time.Second))
+	dialRecv, dialSent, _ := utils.LinkReadWriteCloser(dialConn, targetConn)
+
+	humanize.IBytes(uint64(dialSent))
+	lifetimeInfo := fmt.Sprintf("sent=%v, recv=%v, lifetime=%v",
+		humanize.IBytes(uint64(dialSent)), humanize.IBytes(uint64(dialRecv)), time.Since(start).Round(time.Second))
+
+	p.nl.Printf("pipe stopped, from='%v' to='%v', %v\n", dialer, p.state.TargetURL, lifetimeInfo)
 }

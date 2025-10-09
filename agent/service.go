@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -87,21 +86,15 @@ func NewSocks5Service(hub *Hub, info Socks5Info) *Service {
 	return svc
 }
 
-func getRemote(c io.ReadWriteCloser) string {
-	addr, ok := c.(net.Conn)
-	if !ok {
-		return "invalid"
+func getRemoteInfo(c interface{}) string {
+	if streamConn, ok := c.(*stream.Stream); ok {
+		state := streamConn.GetState()
+		return fmt.Sprintf("mnet://%v", state.Remote())
 	}
 
-	networkName := "tcp"
-	remoteAddr := addr.RemoteAddr().String()
-
-	s, ok := c.(*stream.Stream)
-	if ok {
-		state := s.GetState()
-
-		networkName = "mnet"
-		remoteAddr = state.Remote()
+	if netConn, ok := c.(net.Conn); ok {
+		return fmt.Sprintf("tcp://%v", netConn.RemoteAddr().String())
 	}
-	return fmt.Sprintf("%v://%v", networkName, remoteAddr)
+
+	return "invalid_conn"
 }
