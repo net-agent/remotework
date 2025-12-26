@@ -18,6 +18,12 @@ type Config struct {
 	Portproxy []PortproxyInfo `json:"portproxy" toml:"portproxy"`
 	Socks5    []Socks5Info    `json:"socks5" toml:"socks5"`
 	RDP       []RDPInfo       `json:"rdp" toml:"rdp"`
+	Pprof     PprofInfo       `json:"pprof" toml:"pprof"`
+}
+
+type PprofInfo struct {
+	Enable bool   `json:"enable" toml:"enable"`
+	Listen string `json:"listen" toml:"listen"`
 }
 type ServerInfo struct {
 	Listen   string `json:"listen" toml:"listen"`     // 监听的地址

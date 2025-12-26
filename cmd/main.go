@@ -27,6 +27,14 @@ func main() {
 func RunServiceMode(flags *ClientFlags) {
 	config := loadConfig(flags)
 
+	// 启动 pprof 服务器
+	var pprofServer *utils.PprofServer
+	if config.Pprof.Enable {
+		pprofServer = utils.NewPprofServer(syslog)
+		pprofServer.Start(config.Pprof.Listen)
+		defer pprofServer.Stop()
+	}
+
 	hub := agent.NewHub()
 	hub.MountConfig(config)
 	initSysTray(hub)
