@@ -32,7 +32,11 @@ func NewSecretListener(l net.Listener, secret string) net.Listener {
 			wg.Add(1)
 			go func(c net.Conn) {
 				defer wg.Done()
+				// set deadline for handshake
+				_ = c.SetDeadline(time.Now().Add(time.Second * 10))
 				cc, err := cipherconn.New(c, secret)
+				_ = c.SetDeadline(time.Time{}) // clear deadline
+
 				if err != nil {
 					c.Close()
 					return
@@ -40,6 +44,7 @@ func NewSecretListener(l net.Listener, secret string) net.Listener {
 				select {
 				case ch <- cc:
 				case <-time.After(time.Second * 20):
+					cc.Close()
 				}
 			}(conn)
 		}
