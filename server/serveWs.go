@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -30,6 +31,14 @@ func GetWsHandler(app *switcher.Server) http.HandlerFunc {
 
 		pc := packet.NewWithWs(c)
 		syslog.Printf("ws  agent connected, remote=%v\n", c.RemoteAddr())
-		go app.HandlePacketConn(pc)
+		// Define callbacks for logging
+		onStart := func(ctx *switcher.Context) {
+			syslog.Printf("ws  agent connected: domain='%v' ip='%v'\n", ctx.Domain, ctx.IP)
+		}
+		onStop := func(ctx *switcher.Context, duration time.Duration) {
+			syslog.Printf("ws  agent disconnected: domain='%v' ip='%v' duration='%v'\n", ctx.Domain, ctx.IP, duration)
+		}
+
+		go app.HandlePacketConn(pc, onStart, onStop)
 	}
 }
