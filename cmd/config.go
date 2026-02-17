@@ -1,28 +1,14 @@
 package main
 
 import (
-	"path"
-
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/remotework/utils"
 )
 
 func loadConfig(flags *ClientFlags) *agent.Config {
-	// 读取配置
-	configName := flags.ConfigFileName
-	if !utils.FileExist(configName) {
-		syslog.Printf("load '%v' failed, try config.json/config.toml\n", configName)
-		// try `config.json` or `config.toml`
-		dir := path.Dir(configName)
-		configJson := path.Join(dir, "config.json")
-		configToml := path.Join(dir, "config.toml")
-		if utils.FileExist(configJson) {
-			configName = configJson
-		} else if utils.FileExist(configToml) {
-			configName = configToml
-		} else {
-			syslog.Fatal("load config failed: config file not exist!")
-		}
+	configName, err := utils.ResolveConfigFile(flags.ConfigFileName)
+	if err != nil {
+		syslog.Fatal("load config failed: ", err)
 	}
 	syslog.Printf("read config from '%v'\n", configName)
 	config, err := agent.NewConfig(configName)

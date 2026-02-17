@@ -52,7 +52,7 @@ type Socks5Info struct {
 	ListenURL string `json:"listen" toml:"listen"`
 	Username  string `json:"username" toml:"username"`
 	Password  string `json:"password" toml:"password"`
-	LogName   string `json:"log" toml:"password"`
+	LogName   string `json:"log" toml:"log"`
 }
 
 type RDPInfo struct {
@@ -71,8 +71,11 @@ func NewConfig(configFileName string) (*Config, error) {
 	default:
 		err = fmt.Errorf("config file [%s] not support, must be json or toml", configFileName)
 	}
+	if err != nil {
+		return nil, err
+	}
 	cfg.PreProcess()
-	return cfg, err
+	return cfg, nil
 }
 
 func (config *Config) PreProcess() {

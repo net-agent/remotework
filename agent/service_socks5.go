@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/net-agent/remotework/utils"
@@ -15,6 +16,7 @@ type Socks5Controller struct {
 	nl    *utils.NamedLogger
 	hub   *Hub
 
+	mut      sync.Mutex
 	listener net.Listener
 	server   socks.Server
 }
@@ -51,6 +53,9 @@ func (s *Socks5Controller) Init() error {
 }
 
 func (s *Socks5Controller) Update() error {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
 	l, err := s.hub.ListenURL(s.state.ListenURL)
 	if err != nil {
 		return err
@@ -63,18 +68,25 @@ func (s *Socks5Controller) Update() error {
 	return nil
 }
 
+func (s *Socks5Controller) getListener() net.Listener {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	return s.listener
+}
+
 func (s *Socks5Controller) Start() error {
-	if s.server == nil || s.listener == nil {
+	if s.server == nil || s.getListener() == nil {
 		return errors.New("init failed")
 	}
 
-	l := s.listener
+	l := s.getListener()
 	for {
 		err := s.server.Run(l)
 
-		if l != s.listener && s.listener != nil {
+		newListener := s.getListener()
+		if newListener != nil && l != newListener {
 			s.nl.Println("listener updated")
-			l = s.listener
+			l = newListener
 			continue
 		}
 
@@ -83,6 +95,9 @@ func (s *Socks5Controller) Start() error {
 }
 
 func (s *Socks5Controller) Close() error {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
 	if s.listener != nil {
 		s.listener.Close()
 	}

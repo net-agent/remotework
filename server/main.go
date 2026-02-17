@@ -1,7 +1,6 @@
 package server
 
 import (
-	"path"
 	"sync"
 
 	"github.com/net-agent/flex/v2/switcher"
@@ -12,21 +11,12 @@ import (
 var syslog = utils.NewNamedLogger("sys", false)
 
 func RunServer(configName string) {
-	if !utils.FileExist(configName) {
-		// try `config.json` or `config.toml`
-		dir := path.Dir(configName)
-		configJson := path.Join(dir, "config.json")
-		configToml := path.Join(dir, "config.toml")
-		if utils.FileExist(configJson) {
-			configName = configJson
-		} else if utils.FileExist(configToml) {
-			configName = configToml
-		} else {
-			syslog.Fatal("load config failed: config file not exist!")
-		}
+	resolved, err := utils.ResolveConfigFile(configName)
+	if err != nil {
+		syslog.Fatal("load config failed: ", err)
 	}
-	syslog.Printf("read config from '%v'\n", configName)
-	config, err := NewConfig(configName)
+	syslog.Printf("read config from '%v'\n", resolved)
+	config, err := NewConfig(resolved)
 	if err != nil {
 		syslog.Fatal("load config failed: ", err)
 	}

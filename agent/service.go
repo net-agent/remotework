@@ -10,6 +10,34 @@ import (
 	"github.com/net-agent/remotework/utils"
 )
 
+// ServiceStatus 服务状态枚举
+type ServiceStatus int32
+
+const (
+	StatusUninit  ServiceStatus = iota
+	StatusInit                  // 初始化中
+	StatusRunning               // 运行中
+	StatusStopped               // 已停止
+	StatusFailed                // 初始化失败
+)
+
+func (s ServiceStatus) String() string {
+	switch s {
+	case StatusUninit:
+		return "uninit"
+	case StatusInit:
+		return "init"
+	case StatusRunning:
+		return "running"
+	case StatusStopped:
+		return "stopped"
+	case StatusFailed:
+		return "init failed"
+	default:
+		return "unknown"
+	}
+}
+
 type Service struct {
 	ServiceState
 	controller ServiceController
@@ -30,19 +58,23 @@ type ServiceState struct {
 	Username  string
 	Password  string
 
-	State   string
+	status  int32 // 使用 atomic 操作，存储 ServiceStatus
 	ID      int32
 	Actives int32
 	Dones   int32
 }
 
-func (s *ServiceState) AddActiveCount(n int32) { atomic.AddInt32(&s.Actives, 1) }
+func (s *ServiceState) SetStatus(st ServiceStatus) { atomic.StoreInt32(&s.status, int32(st)) }
+func (s *ServiceState) GetStatus() ServiceStatus    { return ServiceStatus(atomic.LoadInt32(&s.status)) }
+func (s *ServiceState) StatusString() string         { return s.GetStatus().String() }
+
+func (s *ServiceState) AddActiveCount(n int32) { atomic.AddInt32(&s.Actives, n) }
 func (s *ServiceState) AddDoneCount(n int32) {
 	atomic.AddInt32(&s.Actives, -1)
 	atomic.AddInt32(&s.Dones, 1)
 }
-func (s *ServiceState) GetActiveCount() int32  { return s.Actives }
-func (s *ServiceState) GetDoneCount() int32    { return s.Dones }
+func (s *ServiceState) GetActiveCount() int32  { return atomic.LoadInt32(&s.Actives) }
+func (s *ServiceState) GetDoneCount() int32    { return atomic.LoadInt32(&s.Dones) }
 func (s *ServiceState) IsDepend(n string) bool { return strings.HasPrefix(s.ListenURL, n) }
 
 //

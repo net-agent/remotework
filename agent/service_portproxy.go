@@ -129,7 +129,6 @@ func (p *PortproxyController) serve(dialConn net.Conn) {
 	p.nl.Printf("pipe created, from='%v' to='%v'\n", dialer, p.state.TargetURL)
 	dialRecv, dialSent, _ := utils.LinkReadWriteCloser(dialConn, targetConn)
 
-	humanize.IBytes(uint64(dialSent))
 	lifetimeInfo := fmt.Sprintf("sent=%v, recv=%v, lifetime=%v",
 		humanize.IBytes(uint64(dialSent)), humanize.IBytes(uint64(dialRecv)), time.Since(start).Round(time.Second))
 

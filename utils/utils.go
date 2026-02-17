@@ -2,9 +2,10 @@ package utils
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"fmt"
 	"log"
 	"os"
+	"path"
 	"regexp"
 
 	"github.com/BurntSushi/toml"
@@ -12,7 +13,7 @@ import (
 
 // LoadJSONFile 加载json文件到对象里
 func LoadJSONFile(pathname string, v interface{}) error {
-	buf, err := ioutil.ReadFile(pathname)
+	buf, err := os.ReadFile(pathname)
 	if err != nil {
 		return err
 	}
@@ -50,4 +51,21 @@ func FirstString(strs ...string) string {
 		}
 	}
 	return ""
+}
+
+// ResolveConfigFile 解析配置文件路径，支持 fallback 到 config.json / config.toml
+func ResolveConfigFile(configName string) (string, error) {
+	if FileExist(configName) {
+		return configName, nil
+	}
+	dir := path.Dir(configName)
+	configJson := path.Join(dir, "config.json")
+	configToml := path.Join(dir, "config.toml")
+	if FileExist(configJson) {
+		return configJson, nil
+	}
+	if FileExist(configToml) {
+		return configToml, nil
+	}
+	return "", fmt.Errorf("config file not found: tried '%v', '%v', '%v'", configName, configJson, configToml)
 }

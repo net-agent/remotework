@@ -13,6 +13,9 @@ import (
 )
 
 func (hub *Hub) GetAllServiceState() ([]ServiceState, error) {
+	hub.svcMut.RLock()
+	defer hub.svcMut.RUnlock()
+
 	if len(hub.svcs) <= 0 {
 		return nil, errors.New("NO SERVICES")
 	}
@@ -39,11 +42,11 @@ func (hub *Hub) GetAllServiceStateString() string {
 				fmt.Sprintf("%v", index),
 				s.Type,
 				s.Name,
-				s.State,
+				s.StatusString(),
 				s.ListenURL,
 				s.TargetURL,
-				fmt.Sprintf("%v", s.Actives),
-				fmt.Sprintf("%v", s.Dones),
+				fmt.Sprintf("%v", s.GetActiveCount()),
+				fmt.Sprintf("%v", s.GetDoneCount()),
 			}
 		},
 	)
@@ -51,6 +54,9 @@ func (hub *Hub) GetAllServiceStateString() string {
 }
 
 func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error) {
+	hub.mut.RLock()
+	defer hub.mut.RUnlock()
+
 	if len(hub.nets) <= 0 {
 		return nil, errors.New("NO NETWORKS")
 	}
@@ -110,13 +116,17 @@ func (hub *Hub) GetPingStateString() string {
 }
 
 func (hub *Hub) GetPingState() ([]*PingReport, error) {
-	// 从service里解析依赖的节点
-	if len(hub.svcs) <= 0 {
+	hub.svcMut.RLock()
+	svcs := make([]*Service, len(hub.svcs))
+	copy(svcs, hub.svcs)
+	hub.svcMut.RUnlock()
+
+	if len(svcs) <= 0 {
 		return nil, errors.New("NO SERVICES")
 	}
 
 	m := make(map[string]*PingReport)
-	for _, svc := range hub.svcs {
+	for _, svc := range svcs {
 		parseDependAndSaveToMap(m, svc)
 	}
 
@@ -193,7 +203,14 @@ func parseURLDepend(raw string) (string, string, error) {
 func (hub *Hub) GetAllDataStreamStateString() string {
 	buf := bytes.NewBufferString("report actived stream:\n")
 
-	for networkName, mnet := range hub.nets {
+	hub.mut.RLock()
+	nets := make(map[string]Network, len(hub.nets))
+	for k, v := range hub.nets {
+		nets[k] = v
+	}
+	hub.mut.RUnlock()
+
+	for networkName, mnet := range nets {
 		states, _ := getDataStreamStateByNetwork(mnet)
 		if len(states) > 0 {
 			utils.RenderAsciiTable(buf, states,
@@ -226,7 +243,7 @@ func getDataStreamStateByNetwork(mnet Network) (actives, closeds []*stream.State
 		return nil, nil
 	}
 
-	node := impl.node
+	node := impl.getNode()
 	if node == nil {
 		return nil, nil
 	}

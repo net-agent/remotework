@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 )
 
 var logOutputDist = os.Stdout
@@ -14,6 +15,7 @@ type NamedLogger struct {
 	name        string
 	asyncOutput bool
 	msgChan     chan string
+	closeOnce   sync.Once
 }
 
 func NewNamedLogger(name string, asyncOutput bool) *NamedLogger {
@@ -31,7 +33,7 @@ func NewNamedLogger(name string, asyncOutput bool) *NamedLogger {
 	}
 
 	if asyncOutput {
-		nl.msgChan = make(chan string, 1000) // Buffered channel
+		nl.msgChan = make(chan string, 1000)
 		go nl.startAsyncWorker()
 	}
 
@@ -41,6 +43,15 @@ func NewNamedLogger(name string, asyncOutput bool) *NamedLogger {
 func (nl *NamedLogger) startAsyncWorker() {
 	for msg := range nl.msgChan {
 		nl.logger.Output(2, msg)
+	}
+}
+
+// Close 关闭异步 logger，等待所有消息写入完成
+func (nl *NamedLogger) Close() {
+	if nl.asyncOutput && nl.msgChan != nil {
+		nl.closeOnce.Do(func() {
+			close(nl.msgChan)
+		})
 	}
 }
 
@@ -55,13 +66,8 @@ func (nl *NamedLogger) Printf(format string, v ...interface{}) {
 
 	msg := fmt.Sprintf(format, v...)
 	if nl.asyncOutput {
-		select {
-		case nl.msgChan <- msg:
-		default:
-			// Let's try to write to channel, if full, write synchronously to avoid data loss but accept latency penalty?
-			// Or just simple send for now.
-			nl.msgChan <- msg
-		}
+		// 直接发送到 channel，满时阻塞等待
+		nl.msgChan <- msg
 	} else {
 		nl.logger.Output(2, msg)
 	}

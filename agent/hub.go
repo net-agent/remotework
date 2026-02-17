@@ -18,7 +18,7 @@ type Hub struct {
 	nl      *utils.NamedLogger
 	nets    map[string]Network
 	mut     sync.RWMutex
-	running bool
+	running int32 // atomic: 0=stopped, 1=running
 
 	svcs      []*Service
 	svcNames  map[string]*Service
@@ -32,7 +32,6 @@ func NewHub() *Hub {
 		nl:       utils.NewNamedLogger("hub", false),
 		nets:     make(map[string]Network),
 		svcNames: make(map[string]*Service),
-		running:  false,
 	}
 
 	hub.AddNetwork(newTcpNetwork("tcp"))
@@ -43,8 +42,6 @@ func NewHub() *Hub {
 }
 
 func (hub *Hub) MountConfig(cfg *Config) {
-	cfg.PreProcess()
-
 	var err error
 
 	for _, info := range cfg.Agents {
@@ -88,8 +85,13 @@ func (hub *Hub) MountConfig(cfg *Config) {
 
 func (hub *Hub) UpdateNetwork(network string) {
 	count := 0
-	for _, svc := range hub.svcs {
-		if svc.IsDepend(network) && (svc.State == "running") {
+	hub.svcMut.RLock()
+	svcs := make([]*Service, len(hub.svcs))
+	copy(svcs, hub.svcs)
+	hub.svcMut.RUnlock()
+
+	for _, svc := range svcs {
+		if svc.IsDepend(network) && svc.GetStatus() == StatusRunning {
 			go svc.controller.Update()
 			count++
 		}
@@ -104,14 +106,12 @@ func (hub *Hub) AddService(svc *Service) error {
 	defer hub.svcMut.Unlock()
 
 	if _, found := hub.svcNames[svc.Name]; found {
-		// hub.nl.Printf("service register failed. dump service name='%v'\n", svc.Name)
-		return errors.New("dump service name")
+		return errors.New("duplicate service name")
 	}
 
-	svc.State = "uninit"
+	svc.SetStatus(StatusUninit)
 	hub.svcs = append(hub.svcs, svc)
 	hub.svcNames[svc.Name] = svc
-	// hub.nl.Printf("service registered. name='%v'\n", svc.Name)
 
 	return nil
 }
@@ -128,14 +128,10 @@ func (hub *Hub) FindService(name string) (*Service, error) {
 }
 
 func (hub *Hub) StartServices() error {
-	// todo: 解决running状态的并发安全
-	if hub.running {
+	if !atomic.CompareAndSwapInt32(&hub.running, 0, 1) {
 		return errors.New("service is running")
 	}
-	hub.running = true
-	defer func() {
-		hub.running = false
-	}()
+	defer atomic.StoreInt32(&hub.running, 0)
 
 	hub.nl.Println("start services:")
 	for _, svc := range hub.svcs {
@@ -148,7 +144,8 @@ func (hub *Hub) StartServices() error {
 }
 
 func (hub *Hub) StartService(svc *Service) {
-	if svc.State == "init" || svc.State == "running" {
+	st := svc.GetStatus()
+	if st == StatusInit || st == StatusRunning {
 		return
 	}
 
@@ -160,30 +157,35 @@ func (hub *Hub) manageServiceState(svc *Service, waiter *sync.WaitGroup) {
 	defer waiter.Done()
 	hub.nl.Printf("init service. type='%v' name='%v' \n", svc.Type, svc.Name)
 
-	svc.State = "init"
+	svc.SetStatus(StatusInit)
 	if err := svc.controller.Init(); err != nil {
-		svc.State = "init failed"
+		svc.SetStatus(StatusFailed)
 		hub.nl.Printf("init service failed. name='%v' err='%v'\n", svc.Name, err)
 		return
 	}
 
-	svc.State = "running"
+	svc.SetStatus(StatusRunning)
 	err := svc.controller.Start()
-	svc.State = "stopped"
+	svc.SetStatus(StatusStopped)
 
 	hub.nl.Printf("service stopped. name='%v' err='%v'\n", svc.Name, err)
 }
 
 func (hub *Hub) StopServices() {
-	if !hub.running {
+	if atomic.LoadInt32(&hub.running) == 0 {
 		return
 	}
-	for _, svc := range hub.svcs {
-		if svc.State == "running" {
+
+	hub.svcMut.RLock()
+	svcs := make([]*Service, len(hub.svcs))
+	copy(svcs, hub.svcs)
+	hub.svcMut.RUnlock()
+
+	for _, svc := range svcs {
+		if svc.GetStatus() == StatusRunning {
 			svc.controller.Close()
 		}
 	}
-	hub.running = false
 }
 
 func (hub *Hub) StopNetworks() {
@@ -192,7 +194,7 @@ func (hub *Hub) StopNetworks() {
 	}
 }
 
-func (hub *Hub) IsRunning() bool { return hub.running }
+func (hub *Hub) IsRunning() bool { return atomic.LoadInt32(&hub.running) == 1 }
 
 func (hub *Hub) RangeAllService(fn func(svc *Service)) {
 	for _, svc := range hub.svcs {
@@ -215,7 +217,6 @@ func (hub *Hub) AddNetwork(mnet Network) error {
 	}
 	hub.nets[name] = mnet
 
-	// hub.nl.Printf("network registered. name='%v'\n", name)
 	return nil
 }
 
@@ -336,13 +337,5 @@ func (hub *Hub) PingDomain(network, domain string) (time.Duration, error) {
 	if err != nil {
 		return 0, err
 	}
-	impl, ok := mnet.(*networkImpl)
-	if !ok {
-		return 0, errors.New("convert impl failed")
-	}
-	n := impl.node
-	if n == nil {
-		return 0, errors.New("node is nil")
-	}
-	return n.PingDomain(domain, time.Second*3)
+	return mnet.Ping(domain, time.Second*3)
 }

@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"io/ioutil"
 	"net/http"
 )
 
 func ReadJSON(r *http.Request, v interface{}) error {
 	defer r.Body.Close()
-	body, err := ioutil.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return err
 	}
@@ -50,7 +49,7 @@ func ParseRespJSON(r io.Reader, v interface{}) error {
 	}
 	resp.Data = v
 
-	buf, err := ioutil.ReadAll(r)
+	buf, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}

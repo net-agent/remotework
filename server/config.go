@@ -1,13 +1,15 @@
 package server
 
 import (
+	"fmt"
+	"path"
+	"strings"
+
 	"github.com/net-agent/remotework/utils"
 )
 
 type Config struct {
 	Server ServerInfo `json:"server" toml:"server"`
-	// Agent    AgentInfo     `json:"agent"`
-	// Services []ServiceInfo `json:"services"`
 }
 
 type ServerInfo struct {
@@ -17,13 +19,19 @@ type ServerInfo struct {
 	WsPath   string `json:"wsPath" toml:"wsPath"`     // Websocket路径
 }
 
-func NewConfig(jsonfile string) (*Config, error) {
+func NewConfig(configFile string) (*Config, error) {
 	cfg := &Config{}
-
-	err := utils.LoadJSONFile(jsonfile, cfg)
+	var err error
+	switch strings.ToLower(path.Ext(configFile)) {
+	case ".json":
+		err = utils.LoadJSONFile(configFile, cfg)
+	case ".toml":
+		err = utils.LoadTomlFile(configFile, cfg)
+	default:
+		err = fmt.Errorf("config file [%s] not supported, must be json or toml", configFile)
+	}
 	if err != nil {
 		return nil, err
 	}
-
 	return cfg, nil
 }

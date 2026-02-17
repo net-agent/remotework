@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -8,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"context"
 
 	"github.com/gorilla/websocket"
 	"github.com/net-agent/flex/v2/handshake"
@@ -26,13 +25,15 @@ type networkImpl struct {
 	networkinfo
 	hub               *Hub
 	nl                *utils.NamedLogger
-	node              *node.Node
 	onceInit          sync.Once
 	nodeWaiter        chan *node.Node
 	nodeWaiterTimeout time.Duration
-	state             string
-	lastErr           string
-	closed            bool
+
+	mu      sync.RWMutex // 保护 node, state, lastErr, closed, ConnectTime
+	node    *node.Node
+	state   string
+	lastErr string
+	closed  bool
 
 	Name        string
 	Protocol    string
@@ -71,15 +72,55 @@ func NewNetwork(hub *Hub, info AgentInfo) *networkImpl {
 }
 
 func (mnet *networkImpl) Stop() {
+	mnet.mu.Lock()
 	mnet.closed = true
-	if mnet.node != nil {
-		mnet.node.Close()
+	n := mnet.node
+	mnet.mu.Unlock()
+	if n != nil {
+		n.Close()
 	}
 }
 
+func (mnet *networkImpl) isClosed() bool {
+	mnet.mu.RLock()
+	defer mnet.mu.RUnlock()
+	return mnet.closed
+}
+
+func (mnet *networkImpl) setState(state, lastErr string) {
+	mnet.mu.Lock()
+	defer mnet.mu.Unlock()
+	mnet.state = state
+	if lastErr != "" {
+		mnet.lastErr = lastErr
+	}
+}
+
+func (mnet *networkImpl) setOnline(n *node.Node) {
+	mnet.mu.Lock()
+	defer mnet.mu.Unlock()
+	mnet.node = n
+	mnet.state = "online"
+	mnet.lastErr = ""
+	mnet.ConnectTime = time.Now()
+}
+
+func (mnet *networkImpl) clearNode() {
+	mnet.mu.Lock()
+	defer mnet.mu.Unlock()
+	mnet.node = nil
+	mnet.state = "offline"
+}
+
 func (mnet *networkImpl) Report() NetworkReport {
-	alive := time.Since(mnet.ConnectTime)
-	if mnet.state != "online" {
+	mnet.mu.RLock()
+	state := mnet.state
+	lastErr := mnet.lastErr
+	connectTime := mnet.ConnectTime
+	mnet.mu.RUnlock()
+
+	alive := time.Since(connectTime)
+	if state != "online" {
 		alive = 0
 	}
 	return NetworkReport{
@@ -93,9 +134,15 @@ func (mnet *networkImpl) Report() NetworkReport {
 		Dials:    mnet.dialCount,
 		Sends:    mnet.Sends,
 		Recvs:    mnet.Recvs,
-		State:    mnet.state,
-		LastErr:  mnet.lastErr,
+		State:    state,
+		LastErr:  lastErr,
 	}
+}
+
+func (mnet *networkImpl) getNode() *node.Node {
+	mnet.mu.RLock()
+	defer mnet.mu.RUnlock()
+	return mnet.node
 }
 
 func (mnet *networkImpl) Dial(network, addr string) (net.Conn, error) {
@@ -142,22 +189,6 @@ func (mnet *networkImpl) Listen(network, addr string) (net.Listener, error) {
 	return node.Listen(uint16(port))
 }
 
-// func (mnet *networkImpl) getNode() (*node.Node, error) {
-// 	mnet.onceInit.Do(func() {
-// 		ch := make(chan *node.Node, 1)
-// 		mnet.nodeWaiter = ch
-// 		go mnet.keepalive()
-// 		<-mnet.nodeWaiter
-// 		mnet.nodeWaiter = nil
-// 		close(ch)
-// 	})
-
-// 	if mnet.node == nil {
-// 		return nil, errors.New("node instance is null")
-// 	}
-// 	return mnet.node, nil
-// }
-
 func (mnet *networkImpl) getNodeInstance() (*node.Node, error) {
 	// 第一步：初始化（只会执行一次）
 	mnet.onceInit.Do(func() {
@@ -177,41 +208,37 @@ func (mnet *networkImpl) getNodeInstance() (*node.Node, error) {
 }
 
 // keepalive 创建连接，并保持连接在线。出现异常时会不断尝试重连，直至连接成功为止
-// 该方法在第一次尝试调用getNode时触发
-// 每一次调用Dial和Listen时，都会调用getNode
+// 该方法在第一次尝试调用getNodeInstance时触发
+// 每一次调用Dial和Listen时，都会调用getNodeInstance
 func (mnet *networkImpl) keepalive() {
 	cd := utils.NewCooldown(3*time.Second, 1*time.Minute)
 
 	for {
-		mnet.state = "connecting"
-		node, err := mnet.connect()
+		mnet.setState("connecting", "")
+		n, err := mnet.connect()
 		cd.Tick() // 开始冷却计时
 
 		if err == ErrNodeClosed {
-			mnet.state = "closed"
+			mnet.setState("closed", "")
 			mnet.nl.Println("network closed")
 			return
 		}
 
 		if err != nil {
-			mnet.state = "offline"
-			mnet.lastErr = err.Error()
+			mnet.setState("offline", err.Error())
 
 			mnet.nl.Printf("connect '%v' failed: %v, retry after %v\n", mnet.name, err, cd.WaitDuration())
 
 			<-cd.Wait()
 			cd.Increase(3 * time.Second) // 连接失败后等待时间增加3秒
 		} else {
-			mnet.ConnectTime = time.Now()
-			mnet.state = "online"
-			mnet.lastErr = ""
+			mnet.setOnline(n)
 
-			mnet.node = node
 			closeCtx, cancel := context.WithCancel(context.Background())
 			go func() {
 				for {
 					select {
-					case mnet.nodeWaiter <- node:
+					case mnet.nodeWaiter <- n:
 					case <-closeCtx.Done():
 						return
 					}
@@ -223,23 +250,21 @@ func (mnet *networkImpl) keepalive() {
 
 			// 连接成功后设置等待时间为30秒，至少30秒后才会开始重连
 			cd.Set(30 * time.Second)
-			node.Run() // 正常情况下这里会阻塞住
+			n.Run() // 正常情况下这里会阻塞住
 
 			cancel()
-			mnet.state = "offline"
-			mnet.node = nil
+			mnet.clearNode()
 
 			mnet.nl.Printf("reconnect '%v' after %v\n", mnet.name, cd.WaitDuration())
 			<-cd.Wait()
 			cd.Reset() // 清零等待的叠加时间
 		}
-
 	}
 }
 
 // connect 连接中转服务器，创建会话。每次断线后需要重新调用
 func (mnet *networkImpl) connect() (*node.Node, error) {
-	if mnet.closed {
+	if mnet.isClosed() {
 		return nil, ErrNodeClosed
 	}
 	// step1: 尝试通过tcp或ws连接中转服务
@@ -257,7 +282,6 @@ func (mnet *networkImpl) connect() (*node.Node, error) {
 		mnet.nl.Printf("dial to '%v'\n", mnet.Address)
 		var c net.Conn
 		c, err = mnet.hub.Dial(mnet.Protocol, mnet.Address)
-		// c, err = net.Dial("tcp4", mnet.Address)
 		if err == nil && c != nil {
 			pc = packet.NewWithConn(c)
 		}
@@ -279,8 +303,8 @@ func (mnet *networkImpl) connect() (*node.Node, error) {
 		return nil, err
 	}
 
-	node := node.New(pc)
-	node.SetDomain(mnet.Domain)
-	node.SetIP(ip)
-	return node, nil
+	n := node.New(pc)
+	n.SetDomain(mnet.Domain)
+	n.SetIP(ip)
+	return n, nil
 }
