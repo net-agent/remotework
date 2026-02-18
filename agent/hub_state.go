@@ -182,7 +182,7 @@ func (nr *NetworkRegistry) GetDataStreamState(limits int, networks ...string) []
 
 func (hub *Hub) GetPingState() ([]*PingReport, error) {
 	var svcs []*Service
-	hub.Services.Range(func(svc *Service) {
+	hub.services.Range(func(svc *Service) {
 		svcs = append(svcs, svc)
 	})
 
@@ -199,7 +199,7 @@ func (hub *Hub) GetPingState() ([]*PingReport, error) {
 	for _, report := range m {
 		reports = append(reports, report)
 
-		mnet, err := hub.Networks.Find(report.Network)
+		mnet, err := hub.networks.Find(report.Network)
 		if err != nil {
 			report.PingResult = err.Error()
 			continue
@@ -243,16 +243,16 @@ func (hub *Hub) GetPingStateString() string {
 // Hub 委托方法（保持外部 API 兼容）
 //
 
-func (hub *Hub) GetAllServiceState() ([]ServiceState, error)  { return hub.Services.GetAllState() }
-func (hub *Hub) GetAllServiceStateString() string              { return hub.Services.GetAllStateString() }
-func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error)  { return hub.Networks.GetAllState() }
-func (hub *Hub) GetAllNetworkStateString() string              { return hub.Networks.GetAllStateString() }
-func (hub *Hub) GetAllDataStreamStateString() string           { return hub.Networks.GetAllDataStreamStateString() }
+func (hub *Hub) GetAllServiceState() ([]ServiceState, error)  { return hub.services.GetAllState() }
+func (hub *Hub) GetAllServiceStateString() string              { return hub.services.GetAllStateString() }
+func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error)  { return hub.networks.GetAllState() }
+func (hub *Hub) GetAllNetworkStateString() string              { return hub.networks.GetAllStateString() }
+func (hub *Hub) GetAllDataStreamStateString() string           { return hub.networks.GetAllDataStreamStateString() }
 func (hub *Hub) GetDataStreamState(limits int, networks ...string) []*DataStreamState {
-	return hub.Networks.GetDataStreamState(limits, networks...)
+	return hub.networks.GetDataStreamState(limits, networks...)
 }
 func (hub *Hub) PingDomain(network, domain string) (time.Duration, error) {
-	return hub.Networks.PingDomain(network, domain)
+	return hub.networks.PingDomain(network, domain)
 }
 
 //

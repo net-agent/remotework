@@ -22,7 +22,7 @@ type Socks5Controller struct {
 func NewSocks5Controller(lf ListenerFactory, state *ServiceState) *Socks5Controller {
 	return &Socks5Controller{
 		state: state,
-		nl:    utils.NewNamedLogger(state.Name, true),
+		nl:    utils.NewNamedLogger("svc."+state.Name, true),
 		lf:    lf,
 	}
 }

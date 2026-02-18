@@ -51,7 +51,7 @@ func NewNetwork(rd RawDialer, notifier NetworkUpdateNotifier, info AgentInfo) *n
 		networkinfo:       networkinfo{name: info.Name},
 		rawDialer:         rd,
 		notifier:          notifier,
-		nl:                utils.NewNamedLogger(info.Name, true),
+		nl:                utils.NewNamedLogger("net."+info.Name, true),
 		state:             "offline",
 		lastErr:           "",
 		nodeWaiter:        make(chan *node.Node),

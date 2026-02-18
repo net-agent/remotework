@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -238,4 +239,68 @@ func TestServiceManager_Names(t *testing.T) {
 	if !nameSet["alpha"] || !nameSet["beta"] {
 		t.Errorf("Names() = %v, want [alpha, beta]", names)
 	}
+}
+
+func TestServiceManager_StartAll_AllInitFailed(t *testing.T) {
+	sm := NewServiceManager()
+	svc1, ctrl1 := newTestService("fail1", "portproxy", "", "")
+	svc2, ctrl2 := newTestService("fail2", "socks5", "", "")
+	ctrl1.initErr = errors.New("boom1")
+	ctrl2.initErr = errors.New("boom2")
+	sm.Add(svc1)
+	sm.Add(svc2)
+
+	err := sm.StartAll()
+	if err == nil {
+		t.Fatal("StartAll() should return error when all services fail init")
+	}
+	if !strings.Contains(err.Error(), "2/2") {
+		t.Errorf("error = %q, want contains '2/2'", err.Error())
+	}
+}
+
+func TestServiceManager_StartAll_PartialInitFailed(t *testing.T) {
+	sm := NewServiceManager()
+	svc1, ctrl1 := newTestService("ok-svc", "portproxy", "", "")
+	svc2, ctrl2 := newTestService("fail-svc", "socks5", "", "")
+	ctrl1.startBlock = make(chan struct{})
+	ctrl2.initErr = errors.New("boom")
+	sm.Add(svc1)
+	sm.Add(svc2)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- sm.StartAll()
+	}()
+
+	// 等待 ok-svc 进入 Running
+	deadline := time.After(2 * time.Second)
+	for {
+		if svc1.GetStatus() == StatusRunning {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timeout waiting for ok-svc to reach Running")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	// 解除 ok-svc 的 Start 阻塞
+	close(ctrl1.startBlock)
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("StartAll() should return error when some services fail init")
+		}
+		if !strings.Contains(err.Error(), "1/2") {
+			t.Errorf("error = %q, want contains '1/2'", err.Error())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("StartAll() did not return")
+	}
+
+	_ = ctrl2 // used for initErr setup
 }

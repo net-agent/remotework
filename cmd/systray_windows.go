@@ -39,7 +39,7 @@ func initSysTray(hub *agent.Hub) {
 			case <-btnExit.ClickedCh:
 				syslog.Println("close with systray command")
 				systray.Quit()
-				hub.StopServices()
+				hub.Stop()
 			}
 		}
 	}, func() {

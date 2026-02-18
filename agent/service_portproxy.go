@@ -23,7 +23,7 @@ type PortproxyController struct {
 func NewPortproxyController(lf ListenerFactory, df DialerFactory, state *ServiceState) *PortproxyController {
 	return &PortproxyController{
 		state: state,
-		nl:    utils.NewNamedLogger(state.Name, true),
+		nl:    utils.NewNamedLogger("svc."+state.Name, true),
 		lf:    lf,
 		df:    df,
 	}

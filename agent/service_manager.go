@@ -2,6 +2,7 @@ package agent
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -21,7 +22,7 @@ type ServiceManager struct {
 
 func NewServiceManager() *ServiceManager {
 	return &ServiceManager{
-		nl:    utils.NewNamedLogger("hub", false),
+		nl:    utils.NewNamedLogger("hub.svc", false),
 		names: make(map[string]*Service),
 	}
 }
@@ -78,6 +79,17 @@ func (sm *ServiceManager) StartAll() error {
 
 	sm.waiter.Wait()
 	sm.nl.Println("no service is running")
+
+	// 统计 Init 失败的服务
+	var failed int
+	for _, svc := range sm.svcs {
+		if svc.GetStatus() == StatusFailed {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d/%d services failed to init", failed, len(sm.svcs))
+	}
 	return nil
 }
 

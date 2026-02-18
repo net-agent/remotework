@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -9,16 +10,16 @@ import (
 
 func TestNewHub(t *testing.T) {
 	hub := NewHub()
-	if hub.Networks == nil {
-		t.Fatal("Networks is nil")
+	if hub.networks == nil {
+		t.Fatal("networks is nil")
 	}
-	if hub.Services == nil {
-		t.Fatal("Services is nil")
+	if hub.services == nil {
+		t.Fatal("services is nil")
 	}
 
 	// NewHub 应该包含 tcp 网络
 	for _, name := range []string{"tcp", "tcp4", "tcp6"} {
-		if _, err := hub.Networks.Find(name); err != nil {
+		if _, err := hub.FindNetwork(name); err != nil {
 			t.Errorf("NewHub missing network %q: %v", name, err)
 		}
 	}
@@ -159,5 +160,75 @@ func TestHub_StopServices_StopNetworks(t *testing.T) {
 	hub.StopNetworks()
 	if !mn.isStopped() {
 		t.Error("StopNetworks should stop added networks")
+	}
+}
+
+func TestHub_Stop_Idempotent(t *testing.T) {
+	hub := NewHub()
+	// 多次调用 Stop 不应 panic
+	hub.Stop()
+	hub.Stop()
+	hub.Stop()
+}
+
+func TestHub_NewAgentNetwork(t *testing.T) {
+	hub := NewHub()
+	info := AgentInfo{
+		Name:     "testnet",
+		Protocol: "tcp",
+		Address:  "127.0.0.1:0",
+		Domain:   "test",
+	}
+	err := hub.NewAgentNetwork(info)
+	if err != nil {
+		t.Fatalf("NewAgentNetwork() error: %v", err)
+	}
+
+	_, err = hub.FindNetwork("testnet")
+	if err != nil {
+		t.Fatalf("FindNetwork() after NewAgentNetwork error: %v", err)
+	}
+}
+
+func TestHub_MountConfig_ReturnsError(t *testing.T) {
+	hub := NewHub()
+
+	// 注册两个同名 agent，第二个应该失败
+	cfg := &Config{
+		Agents: []AgentInfo{
+			{Name: "dup", Protocol: "tcp", Address: "127.0.0.1:0", Domain: "a"},
+			{Name: "dup", Protocol: "tcp", Address: "127.0.0.1:0", Domain: "b"},
+		},
+	}
+	err := hub.MountConfig(cfg)
+	if err == nil {
+		t.Fatal("MountConfig should return error for duplicate network names")
+	}
+}
+
+func TestHub_Start_StopsNetworks(t *testing.T) {
+	hub := NewHub()
+	mn := newMockNetwork("vnet")
+	hub.AddNetwork(mn)
+
+	// 没有服务，Start 应该立即返回并清理网络
+	err := hub.Start()
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	if !mn.isStopped() {
+		t.Error("Start() should stop networks after services exit")
+	}
+}
+
+func TestHub_Start_ReportsFailedServices(t *testing.T) {
+	hub := NewHub()
+	svc, ctrl := newTestService("fail-svc", "portproxy", "", "")
+	ctrl.initErr = errors.New("init boom")
+	hub.AddService(svc)
+
+	err := hub.Start()
+	if err == nil {
+		t.Fatal("Start() should return error when services fail")
 	}
 }

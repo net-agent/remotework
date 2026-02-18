@@ -22,7 +22,7 @@ type NetworkRegistry struct {
 // newNetworkRegistryBare 创建空的 NetworkRegistry，不注册任何网络（供测试使用）
 func newNetworkRegistryBare() *NetworkRegistry {
 	return &NetworkRegistry{
-		nl:   utils.NewNamedLogger("hub", false),
+		nl:   utils.NewNamedLogger("hub.net", false),
 		nets: make(map[string]Network),
 	}
 }

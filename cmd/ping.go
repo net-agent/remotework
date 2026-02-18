@@ -31,14 +31,14 @@ func handlePingDomain(pingUrl, pingName string, pingTimes int) {
 	}
 
 	hub := agent.NewHub()
-	err = hub.AddNetwork(agent.NewNetwork(hub, hub, agent.AgentInfo{
+	err = hub.NewAgentNetwork(agent.AgentInfo{
 		Name:     "flex",
 		Protocol: u.Scheme,
 		Address:  u.Host,
 		Password: pswd,
 		Domain:   pingName,
 		WsPath:   wspath,
-	}))
+	})
 	if err != nil {
 		syslog.Fatal(err)
 	}

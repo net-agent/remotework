@@ -8,7 +8,7 @@ import (
 	"github.com/net-agent/remotework/utils"
 )
 
-var syslog = utils.NewNamedLogger("sys", false)
+var syslog = utils.NewNamedLogger("server", false)
 
 func RunServer(configName string) {
 	resolved, err := utils.ResolveConfigFile(configName)

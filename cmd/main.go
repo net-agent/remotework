@@ -36,12 +36,14 @@ func RunServiceMode(flags *ClientFlags) {
 	}
 
 	hub := agent.NewHub()
-	hub.MountConfig(config)
+	if err := hub.MountConfig(config); err != nil {
+		syslog.Printf("mount config warning: %v\n", err)
+	}
 	initSysTray(hub)
 	defer releaseSysTray()
 
 	go waitCloseSignal(hub)
-	hub.StartServices()
+	hub.Start()
 	syslog.Println("main process exit.")
 }
 

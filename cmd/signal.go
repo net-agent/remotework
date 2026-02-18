@@ -16,5 +16,5 @@ func waitCloseSignal(hub *agent.Hub) {
 	sig := <-ch
 	syslog.Printf("close with signal=%v\n", sig)
 	releaseSysTray()
-	hub.StopServices()
+	hub.Stop()
 }
