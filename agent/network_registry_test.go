@@ -7,7 +7,7 @@ import (
 )
 
 func TestNetworkRegistry_AddAndFind(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	mn := newMockNetwork("test-net")
 
 	if err := nr.Add(mn); err != nil {
@@ -24,7 +24,7 @@ func TestNetworkRegistry_AddAndFind(t *testing.T) {
 }
 
 func TestNetworkRegistry_AddDuplicate(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	nr.Add(newMockNetwork("dup"))
 
 	err := nr.Add(newMockNetwork("dup"))
@@ -37,7 +37,7 @@ func TestNetworkRegistry_AddDuplicate(t *testing.T) {
 }
 
 func TestNetworkRegistry_AddEmptyName(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	err := nr.Add(newMockNetwork(""))
 	if err == nil {
 		t.Fatal("expected error for empty name")
@@ -45,7 +45,7 @@ func TestNetworkRegistry_AddEmptyName(t *testing.T) {
 }
 
 func TestNetworkRegistry_FindNotExist(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	_, err := nr.Find("nope")
 	if err == nil {
 		t.Fatal("expected error for non-existent network")
@@ -53,7 +53,7 @@ func TestNetworkRegistry_FindNotExist(t *testing.T) {
 }
 
 func TestNetworkRegistry_FindEmptyName(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	_, err := nr.Find("")
 	if err == nil {
 		t.Fatal("expected error for empty name")
@@ -61,7 +61,7 @@ func TestNetworkRegistry_FindEmptyName(t *testing.T) {
 }
 
 func TestNetworkRegistry_IsPrivateNetwork(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	nr.Add(newMockNetwork("vnet"))
 
 	tests := []struct {
@@ -83,7 +83,7 @@ func TestNetworkRegistry_IsPrivateNetwork(t *testing.T) {
 }
 
 func TestNetworkRegistry_Dial(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	mn := newMockNetwork("mynet")
 	c1, c2 := net.Pipe()
 	defer c1.Close()
@@ -103,7 +103,7 @@ func TestNetworkRegistry_Dial(t *testing.T) {
 }
 
 func TestNetworkRegistry_Dial_NotFound(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	_, err := nr.Dial("nope", "host:80")
 	if err == nil {
 		t.Fatal("expected error for unknown network")
@@ -111,7 +111,7 @@ func TestNetworkRegistry_Dial_NotFound(t *testing.T) {
 }
 
 func TestNetworkRegistry_Listen(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	mn := newMockNetwork("mynet")
 	ml := newMockListener("mock:1234")
 	mn.listenFn = func(network, addr string) (net.Listener, error) {
@@ -129,7 +129,7 @@ func TestNetworkRegistry_Listen(t *testing.T) {
 }
 
 func TestNetworkRegistry_ListenURL_TCP(t *testing.T) {
-	nr := NewNetworkRegistry() // 包含 tcp
+	nr := NewNetworkRegistry(nil) // 包含 tcp
 
 	l, err := nr.ListenURL("tcp://127.0.0.1:0")
 	if err != nil {
@@ -139,7 +139,7 @@ func TestNetworkRegistry_ListenURL_TCP(t *testing.T) {
 }
 
 func TestNetworkRegistry_ListenURL_PrivateNoSecret(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	mn := newMockNetwork("vnet")
 	mn.listenFn = func(network, addr string) (net.Listener, error) {
 		return newMockListener("mock:0"), nil
@@ -156,7 +156,7 @@ func TestNetworkRegistry_ListenURL_PrivateNoSecret(t *testing.T) {
 }
 
 func TestNetworkRegistry_URLDialer(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	mn := newMockNetwork("mynet")
 	c1, c2 := net.Pipe()
 	defer c1.Close()
@@ -184,7 +184,7 @@ func TestNetworkRegistry_URLDialer(t *testing.T) {
 }
 
 func TestNetworkRegistry_StopAll(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	m1 := newMockNetwork("a")
 	m2 := newMockNetwork("b")
 	nr.Add(m1)
@@ -201,7 +201,7 @@ func TestNetworkRegistry_StopAll(t *testing.T) {
 }
 
 func TestNetworkRegistry_Names(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	nr.Add(newMockNetwork("alpha"))
 	nr.Add(newMockNetwork("beta"))
 
@@ -220,10 +220,10 @@ func TestNetworkRegistry_Names(t *testing.T) {
 }
 
 func TestNewNetworkRegistry_ContainsTCP(t *testing.T) {
-	nr := NewNetworkRegistry()
+	nr := NewNetworkRegistry(nil)
 	for _, name := range []string{"tcp", "tcp4", "tcp6"} {
 		if _, err := nr.Find(name); err != nil {
-			t.Errorf("NewNetworkRegistry() missing %q: %v", name, err)
+			t.Errorf("NewNetworkRegistry(nil) missing %q: %v", name, err)
 		}
 	}
 }

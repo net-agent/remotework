@@ -30,13 +30,13 @@ func GetWsHandler(app *switcher.Server) http.HandlerFunc {
 		}
 
 		pc := packet.NewWithWs(c)
-		syslog.Printf("ws  agent connected, remote=%v\n", c.RemoteAddr())
+		syslog.Info("ws agent connected", "remote", c.RemoteAddr())
 		// Define callbacks for logging
 		onStart := func(ctx *switcher.Context) {
-			syslog.Printf("ws  agent connected: domain='%v' ip='%v'\n", ctx.Domain, ctx.IP)
+			syslog.Info("ws agent connected", "domain", ctx.Domain, "ip", ctx.IP)
 		}
 		onStop := func(ctx *switcher.Context, duration time.Duration) {
-			syslog.Printf("ws  agent disconnected: domain='%v' ip='%v' duration='%v'\n", ctx.Domain, ctx.IP, duration)
+			syslog.Info("ws agent disconnected", "domain", ctx.Domain, "ip", ctx.IP, "duration", duration)
 		}
 
 		go app.HandlePacketConn(pc, onStart, onStop)

@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"sync"
@@ -14,21 +15,24 @@ import (
 
 // NetworkRegistry 管理所有网络的注册、查找和连接工厂
 type NetworkRegistry struct {
-	nl   *utils.NamedLogger
+	log  *slog.Logger
 	nets map[string]Network
 	mut  sync.RWMutex
 }
 
 // newNetworkRegistryBare 创建空的 NetworkRegistry，不注册任何网络（供测试使用）
-func newNetworkRegistryBare() *NetworkRegistry {
+func newNetworkRegistryBare(log *slog.Logger) *NetworkRegistry {
+	if log == nil {
+		log = utils.NewModuleLogger("hub.net")
+	}
 	return &NetworkRegistry{
-		nl:   utils.NewNamedLogger("hub.net", false),
+		log:  log,
 		nets: make(map[string]Network),
 	}
 }
 
-func NewNetworkRegistry() *NetworkRegistry {
-	nr := newNetworkRegistryBare()
+func NewNetworkRegistry(log *slog.Logger) *NetworkRegistry {
+	nr := newNetworkRegistryBare(log)
 	nr.Add(newTcpNetwork("tcp"))
 	nr.Add(newTcpNetwork("tcp4"))
 	nr.Add(newTcpNetwork("tcp6"))

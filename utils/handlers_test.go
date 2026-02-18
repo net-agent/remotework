@@ -189,10 +189,7 @@ func TestSetLevel(t *testing.T) {
 	fanout := NewFanoutHandler()
 	fanout.Add("test", h)
 
-	logger := &Logger{
-		sl:   slog.New(fanout).With("module", "lvl"),
-		name: "lvl",
-	}
+	logger := slog.New(fanout).With("module", "lvl")
 
 	// 默认 Info 级别
 	SetLevel(slog.LevelInfo)
@@ -224,10 +221,7 @@ func TestNamedLogger_Compat(t *testing.T) {
 	fanout := NewFanoutHandler()
 	fanout.Add("test", h)
 
-	nl := &NamedLogger{Logger: &Logger{
-		sl:   slog.New(fanout).With("module", "compat"),
-		name: "compat",
-	}}
+	nl := &NamedLogger{Log: slog.New(fanout).With("module", "compat")}
 
 	nl.Printf("hello %s", "world")
 	nl.Println("goodbye")

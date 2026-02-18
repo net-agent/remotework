@@ -6,7 +6,7 @@ import (
 	"github.com/net-agent/remotework/utils"
 )
 
-var syslog = utils.NewNamedLogger("sys", false)
+var syslog = utils.NewModuleLogger("sys")
 
 func main() {
 	var flags ClientFlags
@@ -20,7 +20,7 @@ func main() {
 	case "cli":
 		RunCLIMode(&flags)
 	default:
-		syslog.Fatal("invalid run-mode:", flags.RunMode)
+		utils.Fatal(syslog, "invalid run-mode: ", flags.RunMode)
 	}
 }
 
@@ -30,21 +30,21 @@ func RunServiceMode(flags *ClientFlags) {
 	// 启动 pprof 服务器
 	var pprofServer *utils.PprofServer
 	if config.Pprof.Enable {
-		pprofServer = utils.NewPprofServer(syslog)
+		pprofServer = utils.NewPprofServer(syslog.With("module", "pprof"))
 		pprofServer.Start(config.Pprof.Listen)
 		defer pprofServer.Stop()
 	}
 
-	hub := agent.NewHub()
+	hub := agent.NewHub(nil)
 	if err := hub.MountConfig(config); err != nil {
-		syslog.Printf("mount config warning: %v\n", err)
+		syslog.Warn("mount config warning", "err", err)
 	}
 	initSysTray(hub)
 	defer releaseSysTray()
 
 	go waitCloseSignal(hub)
 	hub.Start()
-	syslog.Println("main process exit.")
+	syslog.Info("main process exit")
 }
 
 func RunCLIMode(flags *ClientFlags) {

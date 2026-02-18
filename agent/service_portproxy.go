@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 
 type PortproxyController struct {
 	state *ServiceState
-	nl    *utils.NamedLogger
+	log   *slog.Logger
 	lf    ListenerFactory
 	df    DialerFactory
 
@@ -23,7 +24,7 @@ type PortproxyController struct {
 func NewPortproxyController(lf ListenerFactory, df DialerFactory, state *ServiceState) *PortproxyController {
 	return &PortproxyController{
 		state: state,
-		nl:    utils.NewNamedLogger("svc."+state.Name, true),
+		log:   utils.NewModuleLogger("svc." + state.Name),
 		lf:    lf,
 		df:    df,
 	}
@@ -76,7 +77,7 @@ func (p *PortproxyController) Start() error {
 			// 更新listener成功，继续恢复accept循环
 			l = newListener
 
-			p.nl.Println("listener updated")
+			p.log.Info("listener updated")
 
 			continue
 		}
@@ -102,7 +103,7 @@ func (p *PortproxyController) serve(dialConn net.Conn) {
 
 	targetConn, err := p.dialer() // quick dial target
 	if err != nil {
-		p.nl.Printf("dial error. target=%v, err=%v\n", p.state.TargetURL, err)
+		p.log.Error("dial error", "target", p.state.TargetURL, "err", err)
 		return
 	}
 	defer targetConn.Close()
@@ -110,11 +111,11 @@ func (p *PortproxyController) serve(dialConn net.Conn) {
 	dialer := getRemoteInfo(dialConn)
 	start := time.Now()
 
-	p.nl.Printf("pipe created, from='%v' to='%v'\n", dialer, p.state.TargetURL)
+	p.log.Info("pipe created", "from", dialer, "to", p.state.TargetURL)
 	dialRecv, dialSent, _ := utils.LinkReadWriteCloser(dialConn, targetConn)
 
 	lifetimeInfo := fmt.Sprintf("sent=%v, recv=%v, lifetime=%v",
 		humanize.IBytes(uint64(dialSent)), humanize.IBytes(uint64(dialRecv)), time.Since(start).Round(time.Second))
 
-	p.nl.Printf("pipe stopped, from='%v' to='%v', %v\n", dialer, p.state.TargetURL, lifetimeInfo)
+	p.log.Info("pipe stopped", "from", dialer, "to", p.state.TargetURL, "stats", lifetimeInfo)
 }

@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewHub(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	if hub.networks == nil {
 		t.Fatal("networks is nil")
 	}
@@ -26,7 +26,7 @@ func TestNewHub(t *testing.T) {
 }
 
 func TestHub_AddAndFindNetwork(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	mn := newMockNetwork("vnet")
 
 	if err := hub.AddNetwork(mn); err != nil {
@@ -43,7 +43,7 @@ func TestHub_AddAndFindNetwork(t *testing.T) {
 }
 
 func TestHub_AddAndFindService(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	svc, _ := newTestService("svc1", "portproxy", "tcp://0:80", "tcp://0:81")
 
 	if err := hub.AddService(svc); err != nil {
@@ -60,7 +60,7 @@ func TestHub_AddAndFindService(t *testing.T) {
 }
 
 func TestHub_UpdateNetwork(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	svc, ctrl := newTestService("pp", "portproxy", "vtcp://host:80", "tcp://0:81")
 	hub.AddService(svc)
 	svc.SetStatus(StatusRunning)
@@ -76,7 +76,7 @@ func TestHub_UpdateNetwork(t *testing.T) {
 }
 
 func TestHub_Dial(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	mn := newMockNetwork("mynet")
 	c1, c2 := net.Pipe()
 	defer c1.Close()
@@ -96,7 +96,7 @@ func TestHub_Dial(t *testing.T) {
 }
 
 func TestHub_ListenURL(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	l, err := hub.ListenURL("tcp://127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("ListenURL() error: %v", err)
@@ -105,7 +105,7 @@ func TestHub_ListenURL(t *testing.T) {
 }
 
 func TestHub_URLDialer(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	mn := newMockNetwork("mynet")
 	c1, c2 := net.Pipe()
 	defer c1.Close()
@@ -129,14 +129,14 @@ func TestHub_URLDialer(t *testing.T) {
 }
 
 func TestHub_IsRunning(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	if hub.IsRunning() {
 		t.Error("new Hub should not be running")
 	}
 }
 
 func TestHub_RangeAllService(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	svc1, _ := newTestService("a", "portproxy", "", "")
 	svc2, _ := newTestService("b", "socks5", "", "")
 	hub.AddService(svc1)
@@ -152,7 +152,7 @@ func TestHub_RangeAllService(t *testing.T) {
 }
 
 func TestHub_StopServices_StopNetworks(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	mn := newMockNetwork("vnet")
 	hub.AddNetwork(mn)
 
@@ -164,7 +164,7 @@ func TestHub_StopServices_StopNetworks(t *testing.T) {
 }
 
 func TestHub_Stop_Idempotent(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	// 多次调用 Stop 不应 panic
 	hub.Stop()
 	hub.Stop()
@@ -172,7 +172,7 @@ func TestHub_Stop_Idempotent(t *testing.T) {
 }
 
 func TestHub_NewAgentNetwork(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	info := AgentInfo{
 		Name:     "testnet",
 		Protocol: "tcp",
@@ -191,7 +191,7 @@ func TestHub_NewAgentNetwork(t *testing.T) {
 }
 
 func TestHub_MountConfig_ReturnsError(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 
 	// 注册两个同名 agent，第二个应该失败
 	cfg := &Config{
@@ -207,7 +207,7 @@ func TestHub_MountConfig_ReturnsError(t *testing.T) {
 }
 
 func TestHub_Start_StopsNetworks(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	mn := newMockNetwork("vnet")
 	hub.AddNetwork(mn)
 
@@ -222,7 +222,7 @@ func TestHub_Start_StopsNetworks(t *testing.T) {
 }
 
 func TestHub_Start_ReportsFailedServices(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	svc, ctrl := newTestService("fail-svc", "portproxy", "", "")
 	ctrl.initErr = errors.New("init boom")
 	hub.AddService(svc)

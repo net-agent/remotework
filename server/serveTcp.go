@@ -16,13 +16,13 @@ func ServeTCP(app *switcher.Server, info ServerInfo, listener net.Listener) {
 		}
 
 		pc := packet.NewWithConn(c)
-		syslog.Printf("tcp agent connected, remote=%v\n", c.RemoteAddr())
+		syslog.Info("tcp agent connected", "remote", c.RemoteAddr())
 		// Define callbacks for logging
 		onStart := func(ctx *switcher.Context) {
-			syslog.Printf("tcp agent connected: domain='%v' ip='%v'\n", ctx.Domain, ctx.IP)
+			syslog.Info("tcp agent connected", "domain", ctx.Domain, "ip", ctx.IP)
 		}
 		onStop := func(ctx *switcher.Context, duration time.Duration) {
-			syslog.Printf("tcp agent disconnected: domain='%v' ip='%v' duration='%v'\n", ctx.Domain, ctx.IP, duration)
+			syslog.Info("tcp agent disconnected", "domain", ctx.Domain, "ip", ctx.IP, "duration", duration)
 		}
 
 		go app.HandlePacketConn(pc, onStart, onStop)

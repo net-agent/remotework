@@ -5,6 +5,6 @@ import (
 )
 
 func initSysTray(hub *agent.Hub) {
-	syslog.Println("systray not support")
+	syslog.Info("systray not support")
 }
 func releaseSysTray() {}

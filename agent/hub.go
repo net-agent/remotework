@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
@@ -10,17 +11,20 @@ import (
 )
 
 type Hub struct {
-	nl       *utils.NamedLogger
+	log      *slog.Logger
 	networks *NetworkRegistry
 	services *ServiceManager
 	stopOnce sync.Once
 }
 
-func NewHub() *Hub {
+func NewHub(log *slog.Logger) *Hub {
+	if log == nil {
+		log = utils.NewModuleLogger("hub")
+	}
 	return &Hub{
-		nl:       utils.NewNamedLogger("hub", false),
-		networks: NewNetworkRegistry(),
-		services: NewServiceManager(),
+		log:      log,
+		networks: NewNetworkRegistry(log.With("module", "hub.net")),
+		services: NewServiceManager(log.With("module", "hub.svc")),
 	}
 }
 
@@ -28,33 +32,33 @@ func (hub *Hub) MountConfig(cfg *Config) error {
 	var errs []string
 
 	for _, info := range cfg.Agents {
-		if err := hub.networks.Add(NewNetwork(hub, hub, info)); err != nil {
-			hub.nl.Printf("network register failed. err='%v'\n", err)
+		if err := hub.networks.Add(NewNetwork(hub, hub, info, hub.log)); err != nil {
+			hub.log.Warn("network register failed", "err", err)
 			errs = append(errs, fmt.Sprintf("network: %v", err))
 		}
 	}
 	for _, info := range cfg.Portproxy {
 		if err := hub.services.Add(NewPortproxyService(hub.networks, hub.networks, info)); err != nil {
-			hub.nl.Printf("service register failed. err='%v'\n", err)
+			hub.log.Warn("service register failed", "err", err)
 			errs = append(errs, fmt.Sprintf("portproxy: %v", err))
 		}
 	}
 	for _, info := range cfg.Socks5 {
 		if err := hub.services.Add(NewSocks5Service(hub.networks, info)); err != nil {
-			hub.nl.Printf("service register failed. err='%v'\n", err)
+			hub.log.Warn("service register failed", "err", err)
 			errs = append(errs, fmt.Sprintf("socks5: %v", err))
 		}
 	}
 	for _, info := range cfg.RDP {
 		if err := hub.services.Add(NewRDPService(hub.networks, hub.networks, info)); err != nil {
-			hub.nl.Printf("service register failed. err='%v'\n", err)
+			hub.log.Warn("service register failed", "err", err)
 			errs = append(errs, fmt.Sprintf("rdp: %v", err))
 		}
 	}
 
 	// load config summary
-	hub.nl.Printf("registered networks: %v\n", strings.Join(hub.networks.Names(), ", "))
-	hub.nl.Printf("registered services: %v\n", strings.Join(hub.services.Names(), ", "))
+	hub.log.Info("registered networks", "names", strings.Join(hub.networks.Names(), ", "))
+	hub.log.Info("registered services", "names", strings.Join(hub.services.Names(), ", "))
 
 	if len(errs) > 0 {
 		return fmt.Errorf("mount config had %d error(s): %s", len(errs), strings.Join(errs, "; "))
@@ -72,14 +76,14 @@ func (hub *Hub) Start() error {
 // Stop 幂等优雅关闭，触发所有服务退出
 func (hub *Hub) Stop() {
 	hub.stopOnce.Do(func() {
-		hub.nl.Println("stopping hub...")
+		hub.log.Info("stopping hub...")
 		hub.services.StopAll()
 	})
 }
 
 // NewAgentNetwork 创建并注册一个 agent 网络，消除外部对 NewNetwork 的直接依赖
 func (hub *Hub) NewAgentNetwork(info AgentInfo) error {
-	return hub.networks.Add(NewNetwork(hub, hub, info))
+	return hub.networks.Add(NewNetwork(hub, hub, info, hub.log))
 }
 
 // UpdateNetwork 实现 NetworkUpdateNotifier 接口，桥接 Networks 和 Services

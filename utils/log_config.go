@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 )
@@ -36,4 +37,21 @@ func SetFormat(format string) {
 	default:
 		globalFanout.Add("console", NewConsoleHandler(os.Stderr, &globalLevel))
 	}
+}
+
+// NewModuleLogger 创建带模块名的 *slog.Logger（使用全局 Handler）
+func NewModuleLogger(module string) *slog.Logger {
+	return slog.New(GlobalHandler()).With("module", module)
+}
+
+// Fatal 输出 Error 日志后退出程序
+func Fatal(log *slog.Logger, v ...any) {
+	log.Error(fmt.Sprint(v...))
+	os.Exit(1)
+}
+
+// Fatalf 格式化版本的 Fatal
+func Fatalf(log *slog.Logger, format string, v ...any) {
+	log.Error(fmt.Sprintf(format, v...))
+	os.Exit(1)
 }

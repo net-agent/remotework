@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 
 type Socks5Controller struct {
 	state *ServiceState
-	nl    *utils.NamedLogger
+	log   *slog.Logger
 	lf    ListenerFactory
 
 	hsl    *HotSwapListener
@@ -22,7 +23,7 @@ type Socks5Controller struct {
 func NewSocks5Controller(lf ListenerFactory, state *ServiceState) *Socks5Controller {
 	return &Socks5Controller{
 		state: state,
-		nl:    utils.NewNamedLogger("svc."+state.Name, true),
+		log:   utils.NewModuleLogger("svc." + state.Name),
 		lf:    lf,
 	}
 }
@@ -37,9 +38,9 @@ func (s *Socks5Controller) Init() error {
 			s.state.AddDoneCount(1)
 			a.Close()
 			b.Close()
-			s.nl.Printf("link stopped, from='%v', alive=%v\n", dialer, time.Since(start).Round(time.Second))
+			s.log.Info("link stopped", "from", dialer, "alive", time.Since(start).Round(time.Second))
 		}()
-		s.nl.Printf("link created, from='%v'\n", dialer)
+		s.log.Info("link created", "from", dialer)
 		return utils.LinkReadWriteCloser(a, b)
 	})
 
@@ -70,7 +71,7 @@ func (s *Socks5Controller) Start() error {
 		time.Sleep(100 * time.Millisecond) // 等待Update()有机会替换listener
 		newListener := s.hsl.Get()
 		if newListener != nil && l != newListener {
-			s.nl.Println("listener updated")
+			s.log.Info("listener updated")
 			l = newListener
 			continue
 		}

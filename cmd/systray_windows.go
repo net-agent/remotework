@@ -13,7 +13,7 @@ func releaseSysTray() {
 }
 
 func initSysTray(hub *agent.Hub) {
-	syslog.Println("remotework client is working, click the systray to know more.")
+	syslog.Info("remotework client is working, click the systray to know more.")
 
 	go systray.Run(func() {
 		systray.SetIcon(icondata)
@@ -29,21 +29,21 @@ func initSysTray(hub *agent.Hub) {
 		for {
 			select {
 			case <-btnNetworkReport.ClickedCh:
-				syslog.Println(hub.GetAllNetworkStateString())
+				syslog.Info(hub.GetAllNetworkStateString())
 			case <-btnServiceReport.ClickedCh:
-				syslog.Println(hub.GetAllServiceStateString())
+				syslog.Info(hub.GetAllServiceStateString())
 			case <-btnPingReport.ClickedCh:
-				syslog.Println(hub.GetPingStateString())
+				syslog.Info(hub.GetPingStateString())
 			case <-btnDataStreamReport.ClickedCh:
-				syslog.Println(hub.GetAllDataStreamStateString())
+				syslog.Info(hub.GetAllDataStreamStateString())
 			case <-btnExit.ClickedCh:
-				syslog.Println("close with systray command")
+				syslog.Info("close with systray command")
 				systray.Quit()
 				hub.Stop()
 			}
 		}
 	}, func() {
-		syslog.Println("systray exit")
+		syslog.Info("systray exit")
 	})
 }
 

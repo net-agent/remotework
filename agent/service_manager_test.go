@@ -9,7 +9,7 @@ import (
 )
 
 func TestServiceManager_AddAndFind(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc, _ := newTestService("svc1", "portproxy", "tcp://0:80", "tcp://0:81")
 
 	if err := sm.Add(svc); err != nil {
@@ -29,7 +29,7 @@ func TestServiceManager_AddAndFind(t *testing.T) {
 }
 
 func TestServiceManager_AddDuplicate(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc1, _ := newTestService("dup", "portproxy", "", "")
 	svc2, _ := newTestService("dup", "socks5", "", "")
 
@@ -44,7 +44,7 @@ func TestServiceManager_AddDuplicate(t *testing.T) {
 }
 
 func TestServiceManager_FindNotExist(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	_, err := sm.Find("nope")
 	if err == nil {
 		t.Fatal("expected error for non-existent service")
@@ -52,7 +52,7 @@ func TestServiceManager_FindNotExist(t *testing.T) {
 }
 
 func TestServiceManager_Range(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc1, _ := newTestService("a", "portproxy", "", "")
 	svc2, _ := newTestService("b", "socks5", "", "")
 	sm.Add(svc1)
@@ -68,7 +68,7 @@ func TestServiceManager_Range(t *testing.T) {
 }
 
 func TestServiceManager_StartAll(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc, ctrl := newTestService("svc1", "portproxy", "", "")
 	ctrl.startBlock = make(chan struct{})
 	sm.Add(svc)
@@ -117,7 +117,7 @@ func TestServiceManager_StartAll(t *testing.T) {
 }
 
 func TestServiceManager_StartAll_RejectDouble(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc, ctrl := newTestService("svc1", "portproxy", "", "")
 	ctrl.startBlock = make(chan struct{})
 	sm.Add(svc)
@@ -147,7 +147,7 @@ func TestServiceManager_StartAll_RejectDouble(t *testing.T) {
 }
 
 func TestServiceManager_StopAll(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc1, ctrl1 := newTestService("running-svc", "portproxy", "", "")
 	svc2, ctrl2 := newTestService("stopped-svc", "portproxy", "", "")
 
@@ -172,7 +172,7 @@ func TestServiceManager_StopAll(t *testing.T) {
 }
 
 func TestServiceManager_StopAll_NotRunning(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc, ctrl := newTestService("svc", "portproxy", "", "")
 	svc.SetStatus(StatusRunning)
 	sm.Add(svc)
@@ -185,14 +185,14 @@ func TestServiceManager_StopAll_NotRunning(t *testing.T) {
 }
 
 func TestServiceManager_IsRunning(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	if sm.IsRunning() {
 		t.Error("new ServiceManager should not be running")
 	}
 }
 
 func TestServiceManager_UpdateByNetwork(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc1, ctrl1 := newTestService("match", "portproxy", "vtcp://host:80", "")
 	svc2, ctrl2 := newTestService("nomatch", "portproxy", "tcp://0:80", "")
 	svc3, ctrl3 := newTestService("match-stopped", "portproxy", "vtcp://host:81", "")
@@ -222,7 +222,7 @@ func TestServiceManager_UpdateByNetwork(t *testing.T) {
 }
 
 func TestServiceManager_Names(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc1, _ := newTestService("alpha", "portproxy", "", "")
 	svc2, _ := newTestService("beta", "socks5", "", "")
 	sm.Add(svc1)
@@ -242,7 +242,7 @@ func TestServiceManager_Names(t *testing.T) {
 }
 
 func TestServiceManager_StartAll_AllInitFailed(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc1, ctrl1 := newTestService("fail1", "portproxy", "", "")
 	svc2, ctrl2 := newTestService("fail2", "socks5", "", "")
 	ctrl1.initErr = errors.New("boom1")
@@ -260,7 +260,7 @@ func TestServiceManager_StartAll_AllInitFailed(t *testing.T) {
 }
 
 func TestServiceManager_StartAll_PartialInitFailed(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc1, ctrl1 := newTestService("ok-svc", "portproxy", "", "")
 	svc2, ctrl2 := newTestService("fail-svc", "socks5", "", "")
 	ctrl1.startBlock = make(chan struct{})

@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -11,7 +12,7 @@ import (
 
 // ServiceManager 管理所有服务的注册、生命周期和状态
 type ServiceManager struct {
-	nl      *utils.NamedLogger
+	log     *slog.Logger
 	svcs    []*Service
 	names   map[string]*Service
 	mut     sync.RWMutex
@@ -20,9 +21,12 @@ type ServiceManager struct {
 	running int32 // atomic: 0=stopped, 1=running
 }
 
-func NewServiceManager() *ServiceManager {
+func NewServiceManager(log *slog.Logger) *ServiceManager {
+	if log == nil {
+		log = utils.NewModuleLogger("hub.svc")
+	}
 	return &ServiceManager{
-		nl:    utils.NewNamedLogger("hub.svc", false),
+		log:   log,
 		names: make(map[string]*Service),
 	}
 }
@@ -72,13 +76,13 @@ func (sm *ServiceManager) StartAll() error {
 	}
 	defer atomic.StoreInt32(&sm.running, 0)
 
-	sm.nl.Println("start services:")
+	sm.log.Info("start services")
 	for _, svc := range sm.svcs {
 		sm.Start(svc)
 	}
 
 	sm.waiter.Wait()
-	sm.nl.Println("no service is running")
+	sm.log.Info("no service is running")
 
 	// 统计 Init 失败的服务
 	var failed int
@@ -105,12 +109,12 @@ func (sm *ServiceManager) Start(svc *Service) {
 
 func (sm *ServiceManager) manageState(svc *Service, waiter *sync.WaitGroup) {
 	defer waiter.Done()
-	sm.nl.Printf("init service. type='%v' name='%v' \n", svc.Type, svc.Name)
+	sm.log.Info("init service", "type", svc.Type, "name", svc.Name)
 
 	svc.SetStatus(StatusInit)
 	if err := svc.controller.Init(); err != nil {
 		svc.SetStatus(StatusFailed)
-		sm.nl.Printf("init service failed. name='%v' err='%v'\n", svc.Name, err)
+		sm.log.Error("init service failed", "name", svc.Name, "err", err)
 		return
 	}
 
@@ -118,7 +122,7 @@ func (sm *ServiceManager) manageState(svc *Service, waiter *sync.WaitGroup) {
 	err := svc.controller.Start()
 	svc.SetStatus(StatusStopped)
 
-	sm.nl.Printf("service stopped. name='%v' err='%v'\n", svc.Name, err)
+	sm.log.Info("service stopped", "name", svc.Name, "err", err)
 }
 
 func (sm *ServiceManager) StopAll() {
@@ -156,7 +160,7 @@ func (sm *ServiceManager) UpdateByNetwork(network string) {
 			count++
 		}
 	}
-	sm.nl.Printf("update network='%v', %v service updated\n", network, count)
+	sm.log.Info("update network", "network", network, "updated", count)
 }
 
 // Names 返回所有已注册的服务名称

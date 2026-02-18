@@ -14,7 +14,7 @@ func waitCloseSignal(hub *agent.Hub) {
 	signal.Notify(ch, syscall.SIGTERM)
 
 	sig := <-ch
-	syslog.Printf("close with signal=%v\n", sig)
+	syslog.Info("close with signal", "signal", sig)
 	releaseSysTray()
 	hub.Stop()
 }

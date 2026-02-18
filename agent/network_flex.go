@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -26,7 +27,7 @@ type networkImpl struct {
 	networkinfo
 	rawDialer  RawDialer
 	notifier   NetworkUpdateNotifier
-	nl                *utils.NamedLogger
+	log               *slog.Logger
 	onceInit          sync.Once
 	nodeWaiter        chan *node.Node
 	nodeWaiterTimeout time.Duration
@@ -46,12 +47,17 @@ type networkImpl struct {
 	ConnectTime time.Time
 }
 
-func NewNetwork(rd RawDialer, notifier NetworkUpdateNotifier, info AgentInfo) *networkImpl {
+func NewNetwork(rd RawDialer, notifier NetworkUpdateNotifier, info AgentInfo, log *slog.Logger) *networkImpl {
+	if log == nil {
+		log = utils.NewModuleLogger("net." + info.Name)
+	} else {
+		log = log.With("module", "net."+info.Name)
+	}
 	n := &networkImpl{
 		networkinfo:       networkinfo{name: info.Name},
 		rawDialer:         rd,
 		notifier:          notifier,
-		nl:                utils.NewNamedLogger("net."+info.Name, true),
+		log:               log,
 		state:             "offline",
 		lastErr:           "",
 		nodeWaiter:        make(chan *node.Node),
@@ -231,14 +237,14 @@ func (mnet *networkImpl) keepalive() {
 
 		if err == ErrNodeClosed {
 			mnet.setState("closed", "")
-			mnet.nl.Println("network closed")
+			mnet.log.Info("network closed")
 			return
 		}
 
 		if err != nil {
 			mnet.setState("offline", err.Error())
 
-			mnet.nl.Printf("connect '%v' failed: %v, retry after %v\n", mnet.name, err, cd.WaitDuration())
+			mnet.log.Warn("connect failed", "name", mnet.name, "err", err, "retry_after", cd.WaitDuration())
 
 			<-cd.Wait()
 			cd.Increase(3 * time.Second) // 连接失败后等待时间增加3秒
@@ -266,7 +272,7 @@ func (mnet *networkImpl) keepalive() {
 			cancel()
 			mnet.clearNode()
 
-			mnet.nl.Printf("reconnect '%v' after %v\n", mnet.name, cd.WaitDuration())
+			mnet.log.Info("reconnecting", "name", mnet.name, "retry_after", cd.WaitDuration())
 			<-cd.Wait()
 			cd.Reset() // 清零等待的叠加时间
 		}
@@ -283,14 +289,14 @@ func (mnet *networkImpl) connect() (*node.Node, error) {
 	var err error
 
 	if strings.HasPrefix(mnet.URL, "ws") {
-		mnet.nl.Printf("dial to '%v'\n", mnet.URL)
+		mnet.log.Info("dialing", "url", mnet.URL)
 		var c *websocket.Conn
 		c, _, err = websocket.DefaultDialer.Dial(mnet.URL, nil)
 		if err == nil && c != nil {
 			pc = packet.NewWithWs(c)
 		}
 	} else {
-		mnet.nl.Printf("dial to '%v'\n", mnet.Address)
+		mnet.log.Info("dialing", "addr", mnet.Address)
 		var c net.Conn
 		c, err = mnet.rawDialer.Dial(mnet.Protocol, mnet.Address)
 		if err == nil && c != nil {
@@ -307,7 +313,7 @@ func (mnet *networkImpl) connect() (*node.Node, error) {
 	}
 
 	// step2: 通过upgrade对连接进行认证升级
-	mnet.nl.Printf("upgrade as '%v://%v'\n", mnet.name, mnet.Domain)
+	mnet.log.Info("upgrading", "name", mnet.name, "domain", mnet.Domain)
 	ip, err := handshake.UpgradeRequest(pc, mnet.Domain, mnet.MacStr, mnet.Password)
 	if err != nil {
 		pc.Close()

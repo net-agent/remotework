@@ -6,7 +6,7 @@ import (
 )
 
 func TestServiceManager_GetAllState_Empty(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	_, err := sm.GetAllState()
 	if err == nil {
 		t.Fatal("expected error for empty service manager")
@@ -14,7 +14,7 @@ func TestServiceManager_GetAllState_Empty(t *testing.T) {
 }
 
 func TestServiceManager_GetAllState(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc1, _ := newTestService("svc1", "portproxy", "tcp://0:80", "tcp://0:81")
 	svc2, _ := newTestService("svc2", "socks5", "vtcp://0:1080", "")
 	sm.Add(svc1)
@@ -36,7 +36,7 @@ func TestServiceManager_GetAllState(t *testing.T) {
 }
 
 func TestServiceManager_GetAllStateString(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	svc, _ := newTestService("svc1", "portproxy", "tcp://0:80", "tcp://0:81")
 	sm.Add(svc)
 
@@ -50,7 +50,7 @@ func TestServiceManager_GetAllStateString(t *testing.T) {
 }
 
 func TestServiceManager_GetAllStateString_Empty(t *testing.T) {
-	sm := NewServiceManager()
+	sm := NewServiceManager(nil)
 	s := sm.GetAllStateString()
 	if !strings.Contains(s, "NO SERVICES") {
 		t.Errorf("expected NO SERVICES message, got: %q", s)
@@ -58,7 +58,7 @@ func TestServiceManager_GetAllStateString_Empty(t *testing.T) {
 }
 
 func TestNetworkRegistry_GetAllState_Empty(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	_, err := nr.GetAllState()
 	if err == nil {
 		t.Fatal("expected error for empty registry")
@@ -66,7 +66,7 @@ func TestNetworkRegistry_GetAllState_Empty(t *testing.T) {
 }
 
 func TestNetworkRegistry_GetAllState(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	mn := newMockNetwork("vnet")
 	mn.report = NetworkReport{Name: "vnet", State: "online"}
 	nr.Add(mn)
@@ -84,7 +84,7 @@ func TestNetworkRegistry_GetAllState(t *testing.T) {
 }
 
 func TestNetworkRegistry_GetAllStateString(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	mn := newMockNetwork("vnet")
 	mn.report = NetworkReport{Name: "vnet", Address: "1.2.3.4:80", Domain: "test"}
 	nr.Add(mn)
@@ -99,7 +99,7 @@ func TestNetworkRegistry_GetAllStateString(t *testing.T) {
 }
 
 func TestNetworkRegistry_GetAllStateString_Empty(t *testing.T) {
-	nr := newNetworkRegistryBare()
+	nr := newNetworkRegistryBare(nil)
 	s := nr.GetAllStateString()
 	if !strings.Contains(s, "NO NETWORKS") {
 		t.Errorf("expected NO NETWORKS message, got: %q", s)
@@ -107,7 +107,7 @@ func TestNetworkRegistry_GetAllStateString_Empty(t *testing.T) {
 }
 
 func TestHub_GetPingState_NoServices(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	_, err := hub.GetPingState()
 	if err == nil {
 		t.Fatal("expected error for no services")
@@ -115,7 +115,7 @@ func TestHub_GetPingState_NoServices(t *testing.T) {
 }
 
 func TestHub_GetPingState(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	hub.AddNetwork(newMockNetwork("vnet"))
 
 	svc1, _ := newTestService("pp1", "portproxy", "vnet://remote:80", "tcp://0:81")
@@ -144,7 +144,7 @@ func TestHub_GetPingState(t *testing.T) {
 }
 
 func TestHub_GetPingStateString(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(nil)
 	// 无服务时
 	s := hub.GetPingStateString()
 	if !strings.Contains(s, "NO SERVICES") {

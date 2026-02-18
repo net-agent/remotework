@@ -8,12 +8,12 @@ import (
 func loadConfig(flags *ClientFlags) *agent.Config {
 	configName, err := utils.ResolveConfigFile(flags.ConfigFileName)
 	if err != nil {
-		syslog.Fatal("load config failed: ", err)
+		utils.Fatal(syslog, "load config failed: ", err)
 	}
-	syslog.Printf("read config from '%v'\n", configName)
+	syslog.Info("read config", "path", configName)
 	config, err := agent.NewConfig(configName)
 	if err != nil {
-		syslog.Fatal("load config failed: ", err)
+		utils.Fatal(syslog, "load config failed: ", err)
 	}
 
 	return config

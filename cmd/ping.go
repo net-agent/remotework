@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/net-agent/remotework/agent"
+	"github.com/net-agent/remotework/utils"
 )
 
 func handlePingDomain(pingUrl, pingName string, pingTimes int) {
 	u, err := url.Parse(pingUrl)
 	if err != nil {
-		syslog.Fatal(err)
+		utils.Fatal(syslog, err)
 	}
 	pswd, _ := u.User.Password()
 	wspath := ""
@@ -27,10 +28,10 @@ func handlePingDomain(pingUrl, pingName string, pingTimes int) {
 	domain := u.User.Username()
 
 	if u.Scheme == "" || u.Host == "" || pswd == "" || domain == "" {
-		syslog.Fatal(fmt.Sprintf("invalid ping target: '%v'", pingUrl))
+		utils.Fatal(syslog, fmt.Sprintf("invalid ping target: '%v'", pingUrl))
 	}
 
-	hub := agent.NewHub()
+	hub := agent.NewHub(nil)
 	err = hub.NewAgentNetwork(agent.AgentInfo{
 		Name:     "flex",
 		Protocol: u.Scheme,
@@ -40,12 +41,12 @@ func handlePingDomain(pingUrl, pingName string, pingTimes int) {
 		WsPath:   wspath,
 	})
 	if err != nil {
-		syslog.Fatal(err)
+		utils.Fatal(syslog, err)
 	}
 
 	mnet, err := hub.FindNetwork("flex")
 	if err != nil {
-		syslog.Fatal(err)
+		utils.Fatal(syslog, err)
 	}
 
 	if pingTimes <= 0 {
@@ -59,7 +60,7 @@ func handlePingDomain(pingUrl, pingName string, pingTimes int) {
 	for i := 0; i < pingTimes; i++ {
 		dur, err := mnet.Ping(domain, time.Second*3)
 		if err != nil {
-			syslog.Printf("ping '%v': %v\n", domain, err)
+			syslog.Info("ping result", "domain", domain, "err", err)
 		} else {
 			sum += dur
 			total += 1
@@ -69,12 +70,12 @@ func handlePingDomain(pingUrl, pingName string, pingTimes int) {
 			if dur < min {
 				min = dur
 			}
-			syslog.Printf("ping '%v': %v\n", domain, dur)
+			syslog.Info("ping result", "domain", domain, "duration", dur)
 		}
 
 		<-time.After(time.Millisecond * 100)
 	}
 	if total > 0 {
-		syslog.Printf("MAX: %v, MIN: %v, AVERAGE: %v\n", max, min, time.Duration(int64(sum)/total))
+		syslog.Info("ping summary", "max", max, "min", min, "average", time.Duration(int64(sum)/total))
 	}
 }
