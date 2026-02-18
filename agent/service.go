@@ -81,31 +81,31 @@ func (s *ServiceState) IsListenDepend(n string) bool { return strings.HasPrefix(
 // service constructors
 //
 
-func NewPortproxyService(hub *Hub, info PortproxyInfo) *Service {
+func NewPortproxyService(lf ListenerFactory, df DialerFactory, info PortproxyInfo) *Service {
 	svc := &Service{}
 
 	svc.Type = "portproxy"
 	svc.Name = utils.FirstString(info.LogName, "portproxy")
 	svc.ListenURL = info.ListenURL
 	svc.TargetURL = info.TargetURL
-	svc.controller = NewPortproxyController(hub, hub, &svc.ServiceState)
+	svc.controller = NewPortproxyController(lf, df, &svc.ServiceState)
 
 	return svc
 }
 
-func NewRDPService(hub *Hub, info RDPInfo) *Service {
+func NewRDPService(lf ListenerFactory, df DialerFactory, info RDPInfo) *Service {
 	svc := &Service{}
 
 	svc.Type = "rdpserver"
 	svc.Name = utils.FirstString(info.LogName, "rdp")
 	svc.ListenURL = info.ListenURL
 	svc.TargetURL = fmt.Sprintf("tcp://localhost:%v", utils.GetRDPPort())
-	svc.controller = NewPortproxyController(hub, hub, &svc.ServiceState)
+	svc.controller = NewPortproxyController(lf, df, &svc.ServiceState)
 
 	return svc
 }
 
-func NewSocks5Service(hub *Hub, info Socks5Info) *Service {
+func NewSocks5Service(lf ListenerFactory, info Socks5Info) *Service {
 	svc := &Service{}
 
 	svc.Type = "socks5"
@@ -113,7 +113,7 @@ func NewSocks5Service(hub *Hub, info Socks5Info) *Service {
 	svc.ListenURL = info.ListenURL
 	svc.Username = info.Username
 	svc.Password = info.Password
-	svc.controller = NewSocks5Controller(hub, &svc.ServiceState)
+	svc.controller = NewSocks5Controller(lf, &svc.ServiceState)
 
 	return svc
 }

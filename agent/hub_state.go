@@ -12,23 +12,27 @@ import (
 	"github.com/net-agent/remotework/utils"
 )
 
-func (hub *Hub) GetAllServiceState() ([]ServiceState, error) {
-	hub.svcMut.RLock()
-	defer hub.svcMut.RUnlock()
+//
+// ServiceManager 状态报告方法
+//
 
-	if len(hub.svcs) <= 0 {
+func (sm *ServiceManager) GetAllState() ([]ServiceState, error) {
+	sm.mut.RLock()
+	defer sm.mut.RUnlock()
+
+	if len(sm.svcs) <= 0 {
 		return nil, errors.New("NO SERVICES")
 	}
 
 	var reports []ServiceState
-	for _, svc := range hub.svcs {
+	for _, svc := range sm.svcs {
 		reports = append(reports, svc.ServiceState)
 	}
 	return reports, nil
 }
 
-func (hub *Hub) GetAllServiceStateString() string {
-	reports, err := hub.GetAllServiceState()
+func (sm *ServiceManager) GetAllStateString() string {
+	reports, err := sm.GetAllState()
 	if err != nil {
 		return fmt.Sprintf("report service failed: %v\n", err)
 	}
@@ -53,23 +57,27 @@ func (hub *Hub) GetAllServiceStateString() string {
 	return buf.String()
 }
 
-func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error) {
-	hub.mut.RLock()
-	defer hub.mut.RUnlock()
+//
+// NetworkRegistry 状态报告方法
+//
 
-	if len(hub.nets) <= 0 {
+func (nr *NetworkRegistry) GetAllState() ([]NetworkReport, error) {
+	nr.mut.RLock()
+	defer nr.mut.RUnlock()
+
+	if len(nr.nets) <= 0 {
 		return nil, errors.New("NO NETWORKS")
 	}
 
 	var reports []NetworkReport
-	for _, nt := range hub.nets {
+	for _, nt := range nr.nets {
 		reports = append(reports, nt.Report())
 	}
 	return reports, nil
 }
 
-func (hub *Hub) GetAllNetworkStateString() string {
-	reports, err := hub.GetAllNetworkState()
+func (nr *NetworkRegistry) GetAllStateString() string {
+	reports, err := nr.GetAllState()
 	if err != nil {
 		return fmt.Sprintf("report network failed: %v\n", err)
 	}
@@ -90,6 +98,123 @@ func (hub *Hub) GetAllNetworkStateString() string {
 		},
 	)
 	return buf.String()
+}
+
+// streamStateProvider 用于获取数据流状态的可选接口
+type streamStateProvider interface {
+	GetStreamStates() (actives, closeds []*stream.State)
+}
+
+func getDataStreamStateByNetwork(mnet Network) (actives, closeds []*stream.State) {
+	provider, ok := mnet.(streamStateProvider)
+	if !ok {
+		return nil, nil
+	}
+	return provider.GetStreamStates()
+}
+
+type DataStreamState struct {
+	Network string
+	Actives []*stream.State
+	Closeds []*stream.State
+}
+
+func (nr *NetworkRegistry) GetAllDataStreamStateString() string {
+	buf := bytes.NewBufferString("report actived stream:\n")
+
+	nr.mut.RLock()
+	nets := make(map[string]Network, len(nr.nets))
+	for k, v := range nr.nets {
+		nets[k] = v
+	}
+	nr.mut.RUnlock()
+
+	for networkName, mnet := range nets {
+		states, _ := getDataStreamStateByNetwork(mnet)
+		if len(states) > 0 {
+			utils.RenderAsciiTable(buf, states,
+				[]string{"index", "network", "local", "remote", "readed", "wrote", "alive"},
+				func(d interface{}, index int) []string {
+					st := d.(*stream.State)
+					alived := time.Since(st.Created)
+					if st.IsClosed {
+						alived = st.Closed.Sub(st.Created)
+					}
+					return []string{
+						fmt.Sprint(index),
+						networkName,
+						fmt.Sprintf("%v(%v)", st.LocalDomain, st.LocalAddr.String()),
+						fmt.Sprintf("%v(%v)", st.RemoteDomain, st.RemoteAddr.String()),
+						fmt.Sprint(st.ConnReadSize),
+						fmt.Sprint(st.ConnWriteSize),
+						fmt.Sprint(alived),
+					}
+				},
+			)
+		}
+	}
+	return buf.String()
+}
+
+func (nr *NetworkRegistry) GetDataStreamState(limits int, networks ...string) []*DataStreamState {
+	resp := []*DataStreamState{}
+	for _, network := range networks {
+		mnet, err := nr.Find(network)
+		if err != nil {
+			resp = append(resp, nil)
+			continue
+		}
+
+		actives, closeds := getDataStreamStateByNetwork(mnet)
+		size := len(closeds)
+		if size > limits {
+			closeds = closeds[size-limits : size]
+		}
+		resp = append(resp, &DataStreamState{network, actives, closeds})
+	}
+
+	return resp
+}
+
+//
+// Hub 跨域状态报告方法（需要同时访问 Networks 和 Services）
+//
+
+func (hub *Hub) GetPingState() ([]*PingReport, error) {
+	sm := hub.Services
+	sm.mut.RLock()
+	svcs := make([]*Service, len(sm.svcs))
+	copy(svcs, sm.svcs)
+	sm.mut.RUnlock()
+
+	if len(svcs) <= 0 {
+		return nil, errors.New("NO SERVICES")
+	}
+
+	m := make(map[string]*PingReport)
+	for _, svc := range svcs {
+		parseDependAndSaveToMap(m, svc)
+	}
+
+	reports := []*PingReport{}
+	for _, report := range m {
+		reports = append(reports, report)
+
+		mnet, err := hub.Networks.Find(report.Network)
+		if err != nil {
+			report.PingResult = err.Error()
+			continue
+		}
+		dur, err := mnet.Ping(report.Domain, time.Second*3)
+		if err != nil {
+			report.PingResult = err.Error()
+			continue
+		}
+
+		report.PingResult = fmt.Sprintf("%v", dur)
+	}
+
+	return reports, nil
 }
 
 func (hub *Hub) GetPingStateString() string {
@@ -115,42 +240,25 @@ func (hub *Hub) GetPingStateString() string {
 	return buf.String()
 }
 
-func (hub *Hub) GetPingState() ([]*PingReport, error) {
-	hub.svcMut.RLock()
-	svcs := make([]*Service, len(hub.svcs))
-	copy(svcs, hub.svcs)
-	hub.svcMut.RUnlock()
+//
+// Hub 委托方法（保持外部 API 兼容）
+//
 
-	if len(svcs) <= 0 {
-		return nil, errors.New("NO SERVICES")
-	}
-
-	m := make(map[string]*PingReport)
-	for _, svc := range svcs {
-		parseDependAndSaveToMap(m, svc)
-	}
-
-	// 按map里的顺序依次ping
-	reports := []*PingReport{}
-	for _, report := range m {
-		reports = append(reports, report)
-
-		mnet, err := hub.FindNetwork(report.Network)
-		if err != nil {
-			report.PingResult = err.Error()
-			continue
-		}
-		dur, err := mnet.Ping(report.Domain, time.Second*3)
-		if err != nil {
-			report.PingResult = err.Error()
-			continue
-		}
-
-		report.PingResult = fmt.Sprintf("%v", dur)
-	}
-
-	return reports, nil
+func (hub *Hub) GetAllServiceState() ([]ServiceState, error)  { return hub.Services.GetAllState() }
+func (hub *Hub) GetAllServiceStateString() string              { return hub.Services.GetAllStateString() }
+func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error)  { return hub.Networks.GetAllState() }
+func (hub *Hub) GetAllNetworkStateString() string              { return hub.Networks.GetAllStateString() }
+func (hub *Hub) GetAllDataStreamStateString() string           { return hub.Networks.GetAllDataStreamStateString() }
+func (hub *Hub) GetDataStreamState(limits int, networks ...string) []*DataStreamState {
+	return hub.Networks.GetDataStreamState(limits, networks...)
 }
+func (hub *Hub) PingDomain(network, domain string) (time.Duration, error) {
+	return hub.Networks.PingDomain(network, domain)
+}
+
+//
+// 保留的包级辅助函数（不变）
+//
 
 func parseDependAndSaveToMap(m map[string]*PingReport, svc *Service) {
 	urls := [][]string{
@@ -198,80 +306,4 @@ func parseURLDepend(raw string) (string, string, error) {
 		return "", "", err
 	}
 	return u.Scheme, u.Hostname(), nil
-}
-
-func (hub *Hub) GetAllDataStreamStateString() string {
-	buf := bytes.NewBufferString("report actived stream:\n")
-
-	hub.mut.RLock()
-	nets := make(map[string]Network, len(hub.nets))
-	for k, v := range hub.nets {
-		nets[k] = v
-	}
-	hub.mut.RUnlock()
-
-	for networkName, mnet := range nets {
-		states, _ := getDataStreamStateByNetwork(mnet)
-		if len(states) > 0 {
-			utils.RenderAsciiTable(buf, states,
-				[]string{"index", "network", "local", "remote", "readed", "wrote", "alive"},
-				func(d interface{}, index int) []string {
-					st := d.(*stream.State)
-					alived := time.Since(st.Created)
-					if st.IsClosed {
-						alived = st.Closed.Sub(st.Created)
-					}
-					return []string{
-						fmt.Sprint(index),
-						networkName,
-						fmt.Sprintf("%v(%v)", st.LocalDomain, st.LocalAddr.String()),
-						fmt.Sprintf("%v(%v)", st.RemoteDomain, st.RemoteAddr.String()),
-						fmt.Sprint(st.ConnReadSize),
-						fmt.Sprint(st.ConnWriteSize),
-						fmt.Sprint(alived),
-					}
-				},
-			)
-		}
-	}
-	return buf.String()
-}
-
-// streamStateProvider 用于获取数据流状态的可选接口
-type streamStateProvider interface {
-	GetStreamStates() (actives, closeds []*stream.State)
-}
-
-func getDataStreamStateByNetwork(mnet Network) (actives, closeds []*stream.State) {
-	provider, ok := mnet.(streamStateProvider)
-	if !ok {
-		return nil, nil
-	}
-	return provider.GetStreamStates()
-}
-
-type DataStreamState struct {
-	Network string
-	Actives []*stream.State
-	Closeds []*stream.State
-}
-
-func (hub *Hub) GetDataStreamState(limits int, networks ...string) []*DataStreamState {
-	resp := []*DataStreamState{}
-	for _, network := range networks {
-		mnet, err := hub.FindNetwork(network)
-		if err != nil {
-			resp = append(resp, nil)
-			continue
-		}
-
-		actives, closeds := getDataStreamStateByNetwork(mnet)
-		size := len(closeds)
-		if size > limits {
-			closeds = closeds[size-limits : size]
-		}
-		resp = append(resp, &DataStreamState{network, actives, closeds})
-	}
-
-	return resp
 }
