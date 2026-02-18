@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/net-agent/remotework/agent"
+	"github.com/net-agent/remotework/api"
 	"github.com/net-agent/remotework/server"
 	"github.com/net-agent/remotework/utils"
 )
@@ -39,6 +40,15 @@ func RunServiceMode(flags *ClientFlags) {
 	if err := hub.MountConfig(config); err != nil {
 		syslog.Warn("mount config warning", "err", err)
 	}
+
+	// 启动 API 服务器
+	var apiServer *api.Server
+	if config.API.Enable {
+		apiServer = api.New(hub, config.API, syslog.With("module", "api"))
+		apiServer.Start()
+		defer apiServer.Stop()
+	}
+
 	initSysTray(hub)
 	defer releaseSysTray()
 

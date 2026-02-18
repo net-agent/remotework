@@ -12,13 +12,14 @@ import (
 
 // ServiceManager 管理所有服务的注册、生命周期和状态
 type ServiceManager struct {
-	log     *slog.Logger
-	svcs    []*Service
-	names   map[string]*Service
-	mut     sync.RWMutex
-	id      int32
-	waiter  sync.WaitGroup
-	running int32 // atomic: 0=stopped, 1=running
+	log            *slog.Logger
+	svcs           []*Service
+	names          map[string]*Service
+	mut            sync.RWMutex
+	id             int32
+	waiter         sync.WaitGroup
+	running        int32 // atomic: 0=stopped, 1=running
+	onStatusChange func(name string, oldStatus, newStatus ServiceStatus) // 可选回调
 }
 
 func NewServiceManager(log *slog.Logger) *ServiceManager {
@@ -111,18 +112,32 @@ func (sm *ServiceManager) manageState(svc *Service, waiter *sync.WaitGroup) {
 	defer waiter.Done()
 	sm.log.Info("init service", "type", svc.Type, "name", svc.Name)
 
+	oldStatus := svc.GetStatus()
 	svc.SetStatus(StatusInit)
+	sm.fireStatusChange(svc.Name, oldStatus, StatusInit)
+
 	if err := svc.controller.Init(); err != nil {
 		svc.SetStatus(StatusFailed)
+		sm.fireStatusChange(svc.Name, StatusInit, StatusFailed)
 		sm.log.Error("init service failed", "name", svc.Name, "err", err)
 		return
 	}
 
 	svc.SetStatus(StatusRunning)
+	sm.fireStatusChange(svc.Name, StatusInit, StatusRunning)
+
 	err := svc.controller.Start()
+
 	svc.SetStatus(StatusStopped)
+	sm.fireStatusChange(svc.Name, StatusRunning, StatusStopped)
 
 	sm.log.Info("service stopped", "name", svc.Name, "err", err)
+}
+
+func (sm *ServiceManager) fireStatusChange(name string, oldStatus, newStatus ServiceStatus) {
+	if sm.onStatusChange != nil {
+		sm.onStatusChange(name, oldStatus, newStatus)
+	}
 }
 
 func (sm *ServiceManager) StopAll() {

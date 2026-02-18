@@ -94,27 +94,48 @@ func (mnet *networkImpl) isClosed() bool {
 
 func (mnet *networkImpl) setState(state, lastErr string) {
 	mnet.mu.Lock()
-	defer mnet.mu.Unlock()
+	oldState := mnet.state
 	mnet.state = state
 	if lastErr != "" {
 		mnet.lastErr = lastErr
+	}
+	mnet.mu.Unlock()
+
+	if oldState != state {
+		if n, ok := mnet.notifier.(NetworkStateNotifier); ok {
+			n.NotifyNetworkStateChange(mnet.name, oldState, state)
+		}
 	}
 }
 
 func (mnet *networkImpl) setOnline(n *node.Node) {
 	mnet.mu.Lock()
-	defer mnet.mu.Unlock()
+	oldState := mnet.state
 	mnet.node = n
 	mnet.state = "online"
 	mnet.lastErr = ""
 	mnet.ConnectTime = time.Now()
+	mnet.mu.Unlock()
+
+	if oldState != "online" {
+		if notifier, ok := mnet.notifier.(NetworkStateNotifier); ok {
+			notifier.NotifyNetworkStateChange(mnet.name, oldState, "online")
+		}
+	}
 }
 
 func (mnet *networkImpl) clearNode() {
 	mnet.mu.Lock()
-	defer mnet.mu.Unlock()
+	oldState := mnet.state
 	mnet.node = nil
 	mnet.state = "offline"
+	mnet.mu.Unlock()
+
+	if oldState != "offline" {
+		if notifier, ok := mnet.notifier.(NetworkStateNotifier); ok {
+			notifier.NotifyNetworkStateChange(mnet.name, oldState, "offline")
+		}
+	}
 }
 
 func (mnet *networkImpl) Report() NetworkReport {

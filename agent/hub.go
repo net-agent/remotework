@@ -15,17 +15,24 @@ type Hub struct {
 	networks *NetworkRegistry
 	services *ServiceManager
 	stopOnce sync.Once
+
+	listenerMu sync.RWMutex
+	listeners  []HubEventListener
 }
 
 func NewHub(log *slog.Logger) *Hub {
 	if log == nil {
 		log = utils.NewModuleLogger("hub")
 	}
-	return &Hub{
+	hub := &Hub{
 		log:      log,
 		networks: NewNetworkRegistry(log.With("module", "hub.net")),
 		services: NewServiceManager(log.With("module", "hub.svc")),
 	}
+	hub.services.onStatusChange = func(name string, oldStatus, newStatus ServiceStatus) {
+		hub.notifyServiceStatusChange(name, oldStatus, newStatus)
+	}
+	return hub
 }
 
 func (hub *Hub) MountConfig(cfg *Config) error {
@@ -129,3 +136,53 @@ func (hub *Hub) StopServices() { hub.Stop() }
 
 // Deprecated: Stop() 已包含网络清理
 func (hub *Hub) StopNetworks() { hub.networks.StopAll() }
+
+//
+// 事件监听器管理
+//
+
+func (hub *Hub) AddEventListener(l HubEventListener) {
+	hub.listenerMu.Lock()
+	defer hub.listenerMu.Unlock()
+	hub.listeners = append(hub.listeners, l)
+}
+
+func (hub *Hub) RemoveEventListener(l HubEventListener) {
+	hub.listenerMu.Lock()
+	defer hub.listenerMu.Unlock()
+	for i, li := range hub.listeners {
+		if li == l {
+			hub.listeners = append(hub.listeners[:i], hub.listeners[i+1:]...)
+			return
+		}
+	}
+}
+
+// NotifyNetworkStateChange 实现 NetworkStateNotifier 接口
+func (hub *Hub) NotifyNetworkStateChange(name, oldState, newState string) {
+	hub.notifyNetworkStateChange(name, oldState, newState)
+}
+
+func (hub *Hub) notifyNetworkStateChange(name, oldState, newState string) {
+	hub.listenerMu.RLock()
+	snapshot := make([]HubEventListener, len(hub.listeners))
+	copy(snapshot, hub.listeners)
+	hub.listenerMu.RUnlock()
+
+	for _, l := range snapshot {
+		l := l
+		go l.OnNetworkStateChange(name, oldState, newState)
+	}
+}
+
+func (hub *Hub) notifyServiceStatusChange(name string, oldStatus, newStatus ServiceStatus) {
+	hub.listenerMu.RLock()
+	snapshot := make([]HubEventListener, len(hub.listeners))
+	copy(snapshot, hub.listeners)
+	hub.listenerMu.RUnlock()
+
+	for _, l := range snapshot {
+		l := l
+		go l.OnServiceStatusChange(name, oldStatus, newStatus)
+	}
+}

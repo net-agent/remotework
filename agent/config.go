@@ -19,11 +19,18 @@ type Config struct {
 	Socks5    []Socks5Info    `json:"socks5" toml:"socks5"`
 	RDP       []RDPInfo       `json:"rdp" toml:"rdp"`
 	Pprof     PprofInfo       `json:"pprof" toml:"pprof"`
+	API       APIInfo         `json:"api" toml:"api"`
 }
 
 type PprofInfo struct {
 	Enable bool   `json:"enable" toml:"enable"`
 	Listen string `json:"listen" toml:"listen"`
+}
+
+type APIInfo struct {
+	Enable       bool   `json:"enable" toml:"enable"`
+	Listen       string `json:"listen" toml:"listen"`             // 默认 "127.0.0.1:8080"
+	PollInterval int    `json:"pollInterval" toml:"pollInterval"` // 秒，默认 5
 }
 
 type AgentInfo struct {
