@@ -25,12 +25,6 @@ type PprofInfo struct {
 	Enable bool   `json:"enable" toml:"enable"`
 	Listen string `json:"listen" toml:"listen"`
 }
-type ServerInfo struct {
-	Listen   string `json:"listen" toml:"listen"`     // 监听的地址
-	Password string `json:"password" toml:"password"` // 校验连接的密码
-	WsEnable bool   `json:"wsEnable" toml:"wsEnable"` // 是否启用Websocket
-	WsPath   string `json:"wsPath" toml:"wsPath"`     // Websocket路径
-}
 
 type AgentInfo struct {
 	Name     string `json:"name" toml:"name"` // 网络名称，不能为tcp、tcp4、tcp6
@@ -74,11 +68,13 @@ func NewConfig(configFileName string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg.PreProcess()
+	if err = cfg.PreProcess(); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 
-func (config *Config) PreProcess() {
+func (config *Config) PreProcess() error {
 	// parse agents url
 	for i := 0; i < len(config.Agents); i++ {
 		if config.Agents[i].URL != "" {
@@ -100,7 +96,11 @@ func (config *Config) PreProcess() {
 	// parse agent name map
 	// 与agents数组的url类似，但是url里的scheme含义发生了变化
 	agentMap := make(map[string]string)
-	json.Unmarshal(config.AgentMap, &agentMap)
+	if len(config.AgentMap) > 0 {
+		if err := json.Unmarshal(config.AgentMap, &agentMap); err != nil {
+			return fmt.Errorf("parse agent map failed: %w", err)
+		}
+	}
 	for k, v := range agentMap {
 		u, err := url.Parse(v)
 		if err == nil {
@@ -124,20 +124,30 @@ func (config *Config) PreProcess() {
 	// parse pipe map
 	// 是portproxy的别名，简化书写
 	pipeMap := make(map[string]PortproxyInfo)
-	json.Unmarshal(config.PipeMap, &pipeMap)
+	if len(config.PipeMap) > 0 {
+		if err := json.Unmarshal(config.PipeMap, &pipeMap); err != nil {
+			return fmt.Errorf("parse pipe map failed: %w", err)
+		}
+	}
 	for k, v := range pipeMap {
 		v.LogName = k
 		config.Portproxy = append(config.Portproxy, v)
 	}
 	config.PipeMap = nil
 
-	// porse sox
+	// parse sox
 	// 是socks5的别名，简化书写
 	socksMap := make(map[string]Socks5Info)
-	json.Unmarshal(config.SocksMap, &socksMap)
+	if len(config.SocksMap) > 0 {
+		if err := json.Unmarshal(config.SocksMap, &socksMap); err != nil {
+			return fmt.Errorf("parse socks map failed: %w", err)
+		}
+	}
 	for k, v := range socksMap {
 		v.LogName = k
 		config.Socks5 = append(config.Socks5, v)
 	}
 	config.SocksMap = nil
+
+	return nil
 }

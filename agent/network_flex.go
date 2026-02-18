@@ -14,6 +14,7 @@ import (
 	"github.com/net-agent/flex/v2/handshake"
 	"github.com/net-agent/flex/v2/node"
 	"github.com/net-agent/flex/v2/packet"
+	"github.com/net-agent/flex/v2/stream"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -23,7 +24,8 @@ var (
 
 type networkImpl struct {
 	networkinfo
-	hub               *Hub
+	rawDialer  RawDialer
+	notifier   NetworkUpdateNotifier
 	nl                *utils.NamedLogger
 	onceInit          sync.Once
 	nodeWaiter        chan *node.Node
@@ -35,7 +37,6 @@ type networkImpl struct {
 	lastErr string
 	closed  bool
 
-	Name        string
 	Protocol    string
 	Address     string
 	URL         string
@@ -43,21 +44,19 @@ type networkImpl struct {
 	Password    string
 	MacStr      string
 	ConnectTime time.Time
-	Sends       int64
-	Recvs       int64
 }
 
-func NewNetwork(hub *Hub, info AgentInfo) *networkImpl {
+func NewNetwork(rd RawDialer, notifier NetworkUpdateNotifier, info AgentInfo) *networkImpl {
 	n := &networkImpl{
 		networkinfo:       networkinfo{name: info.Name},
-		hub:               hub,
+		rawDialer:         rd,
+		notifier:          notifier,
 		nl:                utils.NewNamedLogger(info.Name, true),
 		state:             "offline",
 		lastErr:           "",
 		nodeWaiter:        make(chan *node.Node),
 		nodeWaiterTimeout: time.Second * 8,
 
-		Name:        info.Name,
 		Protocol:    info.Protocol,
 		Domain:      info.Domain,
 		Address:     info.Address,
@@ -124,16 +123,14 @@ func (mnet *networkImpl) Report() NetworkReport {
 		alive = 0
 	}
 	return NetworkReport{
-		Name:     mnet.Name,
+		Name:     mnet.name,
 		Protocol: mnet.Protocol,
 		Address:  mnet.Address,
 		Domain:   mnet.Domain,
 		Alive:    alive,
-		Listens:  mnet.listenCount,
+		Listens:  mnet.getListenCount(),
 		Accepts:  0,
-		Dials:    mnet.dialCount,
-		Sends:    mnet.Sends,
-		Recvs:    mnet.Recvs,
+		Dials:    mnet.getDialCount(),
 		State:    state,
 		LastErr:  lastErr,
 	}
@@ -143,6 +140,17 @@ func (mnet *networkImpl) getNode() *node.Node {
 	mnet.mu.RLock()
 	defer mnet.mu.RUnlock()
 	return mnet.node
+}
+
+// GetStreamStates 实现 streamStateProvider 接口
+func (mnet *networkImpl) GetStreamStates() (actives, closeds []*stream.State) {
+	n := mnet.getNode()
+	if n == nil {
+		return nil, nil
+	}
+	actives = n.GetStreamStateList()
+	closeds = n.GetClosedStreamStateList(0)
+	return actives, closeds
 }
 
 func (mnet *networkImpl) Dial(network, addr string) (net.Conn, error) {
@@ -196,13 +204,16 @@ func (mnet *networkImpl) getNodeInstance() (*node.Node, error) {
 	})
 
 	// 第二步：获取实例
+	timer := time.NewTimer(mnet.nodeWaiterTimeout)
+	defer timer.Stop()
+
 	select {
 	case node := <-mnet.nodeWaiter:
 		if node == nil {
 			return nil, errors.New("node is nil")
 		}
 		return node, nil
-	case <-time.After(mnet.nodeWaiterTimeout):
+	case <-timer.C:
 		return nil, errors.New("wait node timeout")
 	}
 }
@@ -245,8 +256,8 @@ func (mnet *networkImpl) keepalive() {
 				}
 			}()
 
-			// mnet.node更新后，需要通知hub，更新相应的service依赖
-			mnet.hub.UpdateNetwork(mnet.Name)
+			// mnet.node更新后，需要通知依赖方更新相应的service
+			mnet.notifier.UpdateNetwork(mnet.name)
 
 			// 连接成功后设置等待时间为30秒，至少30秒后才会开始重连
 			cd.Set(30 * time.Second)
@@ -281,7 +292,7 @@ func (mnet *networkImpl) connect() (*node.Node, error) {
 	} else {
 		mnet.nl.Printf("dial to '%v'\n", mnet.Address)
 		var c net.Conn
-		c, err = mnet.hub.Dial(mnet.Protocol, mnet.Address)
+		c, err = mnet.rawDialer.Dial(mnet.Protocol, mnet.Address)
 		if err == nil && c != nil {
 			pc = packet.NewWithConn(c)
 		}

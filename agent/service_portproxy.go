@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -14,66 +13,50 @@ import (
 type PortproxyController struct {
 	state *ServiceState
 	nl    *utils.NamedLogger
-	hub   *Hub
+	lf    ListenerFactory
+	df    DialerFactory
 
-	listener net.Listener
-	dialer   QuickDialer
-	mut      sync.Mutex
+	hsl    *HotSwapListener
+	dialer QuickDialer
 }
 
-func NewPortproxyController(hub *Hub, state *ServiceState) *PortproxyController {
+func NewPortproxyController(lf ListenerFactory, df DialerFactory, state *ServiceState) *PortproxyController {
 	return &PortproxyController{
 		state: state,
 		nl:    utils.NewNamedLogger(state.Name, true),
-		hub:   hub,
+		lf:    lf,
+		df:    df,
 	}
 }
 
-func (s *PortproxyController) Init() (reterr error) {
-	dialer, err := s.hub.URLDialer(s.state.TargetURL)
+func (s *PortproxyController) Init() error {
+	dialer, err := s.df.URLDialer(s.state.TargetURL)
 	if err != nil {
 		return fmt.Errorf("parse target url failed: %v", err)
 	}
 	s.dialer = dialer
 
-	if err = s.Update(); err != nil {
-		return err
+	s.hsl = NewHotSwapListener(func() (net.Listener, error) {
+		return s.lf.ListenURL(s.state.ListenURL)
+	})
+
+	if err = s.hsl.Refresh(); err != nil {
+		return fmt.Errorf("listen url failed: %v", err)
 	}
 
 	return nil
 }
 
 func (s *PortproxyController) Update() error {
-	s.mut.Lock()
-	defer s.mut.Unlock()
-
-	l, err := s.hub.ListenURL(s.state.ListenURL)
-	if err != nil {
-		return fmt.Errorf("listen url failed: %v", err)
-	}
-
-	// close old listener
-	if s.listener != nil {
-		s.listener.Close()
-	}
-	s.listener = l
-
-	return nil
-}
-
-func (s *PortproxyController) getlistener() net.Listener {
-	s.mut.Lock()
-	defer s.mut.Unlock()
-
-	return s.listener
+	return s.hsl.Refresh()
 }
 
 func (p *PortproxyController) Start() error {
-	if p.dialer == nil || p.listener == nil {
+	if p.dialer == nil || p.hsl == nil {
 		return errors.New("init failed")
 	}
 
-	l := p.getlistener()
+	l := p.hsl.Get()
 
 	for {
 		conn, err := l.Accept()
@@ -87,7 +70,8 @@ func (p *PortproxyController) Start() error {
 		// accept连接出现错误后，尝试恢复服务，等待新的listener
 		// 如果尝试恢复listener失败后，才真正返回错误
 		//
-		newListener := p.getlistener()
+		time.Sleep(100 * time.Millisecond) // 等待Update()有机会替换listener
+		newListener := p.hsl.Get()
 		if newListener != nil && l != newListener {
 			// 更新listener成功，继续恢复accept循环
 			l = newListener
@@ -103,8 +87,8 @@ func (p *PortproxyController) Start() error {
 }
 
 func (p *PortproxyController) Close() error {
-	if p.listener != nil {
-		return p.listener.Close()
+	if p.hsl != nil {
+		return p.hsl.Close()
 	}
 	return nil
 }

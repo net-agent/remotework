@@ -237,19 +237,17 @@ func (hub *Hub) GetAllDataStreamStateString() string {
 	return buf.String()
 }
 
+// streamStateProvider 用于获取数据流状态的可选接口
+type streamStateProvider interface {
+	GetStreamStates() (actives, closeds []*stream.State)
+}
+
 func getDataStreamStateByNetwork(mnet Network) (actives, closeds []*stream.State) {
-	impl, ok := mnet.(*networkImpl)
+	provider, ok := mnet.(streamStateProvider)
 	if !ok {
 		return nil, nil
 	}
-
-	node := impl.getNode()
-	if node == nil {
-		return nil, nil
-	}
-	actives = node.GetStreamStateList()
-	closeds = node.GetClosedStreamStateList(0)
-	return actives, closeds
+	return provider.GetStreamStates()
 }
 
 type DataStreamState struct {

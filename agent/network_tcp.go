@@ -8,16 +8,12 @@ import (
 // tcp network wrap
 type tcpnetwork struct {
 	networkinfo
-	Type    string
-	Listens int32
-	Dials   int32
-	start   time.Time
+	start time.Time
 }
 
 func newTcpNetwork(name string) *tcpnetwork {
 	return &tcpnetwork{
 		networkinfo: networkinfo{name: name},
-		Type:        name,
 		start:       time.Now(),
 	}
 }
@@ -31,19 +27,19 @@ func (tcp *tcpnetwork) Listen(network, addr string) (net.Listener, error) {
 	return net.Listen(network, addr)
 }
 func (tcp *tcpnetwork) Ping(domain string, timeout time.Duration) (time.Duration, error) {
-	return 0, nil
+	return 0, ErrPingNotSupported
 }
 func (tcp *tcpnetwork) Report() NetworkReport {
 	return NetworkReport{
-		Name:     tcp.Type,
+		Name:    tcp.name,
 		Protocol: "-",
 		Address:  "-",
 		Domain:   "-",
-		Alive:    time.Since(tcp.start),
-		Listens:  tcp.listenCount,
-		Accepts:  0,
-		Dials:    tcp.dialCount,
-		State:    "online",
+		Alive:   time.Since(tcp.start),
+		Listens: tcp.getListenCount(),
+		Accepts: 0,
+		Dials:   tcp.getDialCount(),
+		State:   "online",
 	}
 }
 func (tcp *tcpnetwork) Stop() {}

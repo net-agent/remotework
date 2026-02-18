@@ -1,11 +1,15 @@
 package agent
 
 import (
+	"errors"
 	"net"
 	"time"
 )
 
+var ErrPingNotSupported = errors.New("ping not supported")
+
 type QuickDialer func() (net.Conn, error)
+
 type Network interface {
 	GetName() string
 	Dial(network, addr string) (net.Conn, error)
@@ -14,6 +18,27 @@ type Network interface {
 	Report() NetworkReport
 	Stop()
 }
+
+// ListenerFactory 创建 listener 的能力（从 URL）
+type ListenerFactory interface {
+	ListenURL(raw string) (net.Listener, error)
+}
+
+// DialerFactory 创建 dialer 的能力（从 URL）
+type DialerFactory interface {
+	URLDialer(raw string) (QuickDialer, error)
+}
+
+// RawDialer 提供原始网络拨号能力
+type RawDialer interface {
+	Dial(network, addr string) (net.Conn, error)
+}
+
+// NetworkUpdateNotifier 网络重连后通知依赖方更新
+type NetworkUpdateNotifier interface {
+	UpdateNetwork(network string)
+}
+
 type NetworkReport struct {
 	Name     string
 	Protocol string
@@ -23,8 +48,6 @@ type NetworkReport struct {
 	Listens  int32
 	Accepts  int32
 	Dials    int32
-	Sends    int64
-	Recvs    int64
 	State    string
 	LastErr  string
 }

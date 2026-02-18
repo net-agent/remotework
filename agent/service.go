@@ -60,22 +60,22 @@ type ServiceState struct {
 
 	status  int32 // 使用 atomic 操作，存储 ServiceStatus
 	ID      int32
-	Actives int32
-	Dones   int32
+	actives int32
+	dones   int32
 }
 
 func (s *ServiceState) SetStatus(st ServiceStatus) { atomic.StoreInt32(&s.status, int32(st)) }
 func (s *ServiceState) GetStatus() ServiceStatus    { return ServiceStatus(atomic.LoadInt32(&s.status)) }
 func (s *ServiceState) StatusString() string         { return s.GetStatus().String() }
 
-func (s *ServiceState) AddActiveCount(n int32) { atomic.AddInt32(&s.Actives, n) }
+func (s *ServiceState) AddActiveCount(n int32) { atomic.AddInt32(&s.actives, n) }
 func (s *ServiceState) AddDoneCount(n int32) {
-	atomic.AddInt32(&s.Actives, -1)
-	atomic.AddInt32(&s.Dones, 1)
+	atomic.AddInt32(&s.actives, -n)
+	atomic.AddInt32(&s.dones, n)
 }
-func (s *ServiceState) GetActiveCount() int32  { return atomic.LoadInt32(&s.Actives) }
-func (s *ServiceState) GetDoneCount() int32    { return atomic.LoadInt32(&s.Dones) }
-func (s *ServiceState) IsDepend(n string) bool { return strings.HasPrefix(s.ListenURL, n) }
+func (s *ServiceState) GetActiveCount() int32     { return atomic.LoadInt32(&s.actives) }
+func (s *ServiceState) GetDoneCount() int32       { return atomic.LoadInt32(&s.dones) }
+func (s *ServiceState) IsListenDepend(n string) bool { return strings.HasPrefix(s.ListenURL, n) }
 
 //
 // service constructors
@@ -88,7 +88,7 @@ func NewPortproxyService(hub *Hub, info PortproxyInfo) *Service {
 	svc.Name = utils.FirstString(info.LogName, "portproxy")
 	svc.ListenURL = info.ListenURL
 	svc.TargetURL = info.TargetURL
-	svc.controller = NewPortproxyController(hub, &svc.ServiceState)
+	svc.controller = NewPortproxyController(hub, hub, &svc.ServiceState)
 
 	return svc
 }
@@ -100,7 +100,7 @@ func NewRDPService(hub *Hub, info RDPInfo) *Service {
 	svc.Name = utils.FirstString(info.LogName, "rdp")
 	svc.ListenURL = info.ListenURL
 	svc.TargetURL = fmt.Sprintf("tcp://localhost:%v", utils.GetRDPPort())
-	svc.controller = NewPortproxyController(hub, &svc.ServiceState)
+	svc.controller = NewPortproxyController(hub, hub, &svc.ServiceState)
 
 	return svc
 }

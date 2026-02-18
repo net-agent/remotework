@@ -31,7 +31,7 @@ func handlePingDomain(pingUrl, pingName string, pingTimes int) {
 	}
 
 	hub := agent.NewHub()
-	err = hub.AddNetwork(agent.NewNetwork(hub, agent.AgentInfo{
+	err = hub.AddNetwork(agent.NewNetwork(hub, hub, agent.AgentInfo{
 		Name:     "flex",
 		Protocol: u.Scheme,
 		Address:  u.Host,

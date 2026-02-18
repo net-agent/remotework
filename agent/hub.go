@@ -45,7 +45,7 @@ func (hub *Hub) MountConfig(cfg *Config) {
 	var err error
 
 	for _, info := range cfg.Agents {
-		err = hub.AddNetwork(NewNetwork(hub, info))
+		err = hub.AddNetwork(NewNetwork(hub, hub, info))
 		if err != nil {
 			hub.nl.Printf("network register failed. err='%v'\n", err)
 		}
@@ -91,7 +91,7 @@ func (hub *Hub) UpdateNetwork(network string) {
 	hub.svcMut.RUnlock()
 
 	for _, svc := range svcs {
-		if svc.IsDepend(network) && svc.GetStatus() == StatusRunning {
+		if svc.IsListenDepend(network) && svc.GetStatus() == StatusRunning {
 			go svc.controller.Update()
 			count++
 		}
@@ -197,7 +197,12 @@ func (hub *Hub) StopNetworks() {
 func (hub *Hub) IsRunning() bool { return atomic.LoadInt32(&hub.running) == 1 }
 
 func (hub *Hub) RangeAllService(fn func(svc *Service)) {
-	for _, svc := range hub.svcs {
+	hub.svcMut.RLock()
+	svcs := make([]*Service, len(hub.svcs))
+	copy(svcs, hub.svcs)
+	hub.svcMut.RUnlock()
+
+	for _, svc := range svcs {
 		fn(svc)
 	}
 }
@@ -322,6 +327,7 @@ func (hub *Hub) ListenURL(raw string) (net.Listener, error) {
 
 	secret := u.Query().Get("secret")
 	if hub.IsPrivateNetwork(u.Scheme) && secret == "" {
+		l.Close()
 		return nil, errors.New("to listen private protocols, please set the encryption password in the secret parameter")
 	}
 

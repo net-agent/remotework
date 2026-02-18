@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/net-agent/remotework/utils"
@@ -14,18 +13,17 @@ import (
 type Socks5Controller struct {
 	state *ServiceState
 	nl    *utils.NamedLogger
-	hub   *Hub
+	lf    ListenerFactory
 
-	mut      sync.Mutex
-	listener net.Listener
-	server   socks.Server
+	hsl    *HotSwapListener
+	server socks.Server
 }
 
-func NewSocks5Controller(hub *Hub, state *ServiceState) *Socks5Controller {
+func NewSocks5Controller(lf ListenerFactory, state *ServiceState) *Socks5Controller {
 	return &Socks5Controller{
 		state: state,
 		nl:    utils.NewNamedLogger(state.Name, true),
-		hub:   hub,
+		lf:    lf,
 	}
 }
 
@@ -45,7 +43,11 @@ func (s *Socks5Controller) Init() error {
 		return utils.LinkReadWriteCloser(a, b)
 	})
 
-	if err := s.Update(); err != nil {
+	s.hsl = NewHotSwapListener(func() (net.Listener, error) {
+		return s.lf.ListenURL(s.state.ListenURL)
+	})
+
+	if err := s.hsl.Refresh(); err != nil {
 		return err
 	}
 
@@ -53,37 +55,20 @@ func (s *Socks5Controller) Init() error {
 }
 
 func (s *Socks5Controller) Update() error {
-	s.mut.Lock()
-	defer s.mut.Unlock()
-
-	l, err := s.hub.ListenURL(s.state.ListenURL)
-	if err != nil {
-		return err
-	}
-	if s.listener != nil {
-		s.listener.Close()
-	}
-	s.listener = l
-
-	return nil
-}
-
-func (s *Socks5Controller) getListener() net.Listener {
-	s.mut.Lock()
-	defer s.mut.Unlock()
-	return s.listener
+	return s.hsl.Refresh()
 }
 
 func (s *Socks5Controller) Start() error {
-	if s.server == nil || s.getListener() == nil {
+	if s.server == nil || s.hsl == nil {
 		return errors.New("init failed")
 	}
 
-	l := s.getListener()
+	l := s.hsl.Get()
 	for {
 		err := s.server.Run(l)
 
-		newListener := s.getListener()
+		time.Sleep(100 * time.Millisecond) // 等待Update()有机会替换listener
+		newListener := s.hsl.Get()
 		if newListener != nil && l != newListener {
 			s.nl.Println("listener updated")
 			l = newListener
@@ -95,11 +80,8 @@ func (s *Socks5Controller) Start() error {
 }
 
 func (s *Socks5Controller) Close() error {
-	s.mut.Lock()
-	defer s.mut.Unlock()
-
-	if s.listener != nil {
-		s.listener.Close()
+	if s.hsl != nil {
+		s.hsl.Close()
 	}
 	if s.server != nil {
 		s.server.Close()
