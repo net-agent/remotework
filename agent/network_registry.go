@@ -19,11 +19,16 @@ type NetworkRegistry struct {
 	mut  sync.RWMutex
 }
 
-func NewNetworkRegistry() *NetworkRegistry {
-	nr := &NetworkRegistry{
+// newNetworkRegistryBare 创建空的 NetworkRegistry，不注册任何网络（供测试使用）
+func newNetworkRegistryBare() *NetworkRegistry {
+	return &NetworkRegistry{
 		nl:   utils.NewNamedLogger("hub", false),
 		nets: make(map[string]Network),
 	}
+}
+
+func NewNetworkRegistry() *NetworkRegistry {
+	nr := newNetworkRegistryBare()
 	nr.Add(newTcpNetwork("tcp"))
 	nr.Add(newTcpNetwork("tcp4"))
 	nr.Add(newTcpNetwork("tcp6"))

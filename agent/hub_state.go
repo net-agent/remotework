@@ -181,11 +181,10 @@ func (nr *NetworkRegistry) GetDataStreamState(limits int, networks ...string) []
 //
 
 func (hub *Hub) GetPingState() ([]*PingReport, error) {
-	sm := hub.Services
-	sm.mut.RLock()
-	svcs := make([]*Service, len(sm.svcs))
-	copy(svcs, sm.svcs)
-	sm.mut.RUnlock()
+	var svcs []*Service
+	hub.Services.Range(func(svc *Service) {
+		svcs = append(svcs, svc)
+	})
 
 	if len(svcs) <= 0 {
 		return nil, errors.New("NO SERVICES")
