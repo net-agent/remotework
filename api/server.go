@@ -38,19 +38,33 @@ func New(hub *agent.Hub, cfg agent.APIInfo, log *slog.Logger) *Server {
 	wsHub := NewWSHub(log.With("module", "api.ws"))
 
 	s := &Server{
-		hub:   hub,
-		log:   log,
+		hub:    hub,
+		log:    log,
 		router: router,
-		wsHub: wsHub,
+		wsHub:  wsHub,
 		server: &http.Server{
 			Addr:    listen,
-			Handler: router,
+			Handler: corsMiddleware(router),
 		},
 		poller: NewStatePoller(hub, wsHub, time.Duration(pollInterval)*time.Second),
 	}
 
 	s.registerRoutes()
 	return s
+}
+
+// corsMiddleware 允许本地前端跨域访问 API
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Confirm")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) registerRoutes() {
