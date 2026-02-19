@@ -2,3 +2,11 @@ dist/
 *.exe
 
 loader/*.zip
+node_modules/
+
+target/
+
+# Tauri sidecar binaries
+desktop/src-tauri/remotework-*
+
+desktop/src-tauri/binaries/*

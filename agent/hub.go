@@ -15,6 +15,7 @@ type Hub struct {
 	networks *NetworkRegistry
 	services *ServiceManager
 	stopOnce sync.Once
+	done     chan struct{}
 
 	listenerMu sync.RWMutex
 	listeners  []HubEventListener
@@ -28,6 +29,7 @@ func NewHub(log *slog.Logger) *Hub {
 		log:      log,
 		networks: NewNetworkRegistry(log.With("module", "hub.net")),
 		services: NewServiceManager(log.With("module", "hub.svc")),
+		done:     make(chan struct{}),
 	}
 	hub.services.onStatusChange = func(name string, oldStatus, newStatus ServiceStatus) {
 		hub.notifyServiceStatusChange(name, oldStatus, newStatus)
@@ -73,18 +75,20 @@ func (hub *Hub) MountConfig(cfg *Config) error {
 	return nil
 }
 
-// Start 阻塞式启动所有服务，返回后自动清理网络连接
+// Start 阻塞式启动所有服务，等待 Stop() 被调用后清理退出
 func (hub *Hub) Start() error {
-	err := hub.services.StartAll()
-	hub.networks.StopAll() // 所有服务退出后，清理网络
-	return err
+	go hub.services.StartAll()
+	<-hub.done
+	hub.networks.StopAll()
+	return nil
 }
 
-// Stop 幂等优雅关闭，触发所有服务退出
+// Stop 幂等优雅关闭，触发所有服务退出并解除 Start() 阻塞
 func (hub *Hub) Stop() {
 	hub.stopOnce.Do(func() {
 		hub.log.Info("stopping hub...")
 		hub.services.StopAll()
+		close(hub.done)
 	})
 }
 
