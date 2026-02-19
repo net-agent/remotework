@@ -8,7 +8,7 @@ import { useUIStore } from "@/stores/ui-store";
 
 export function MainPage() {
   const { networks, agentRunning } = useAgentStore();
-  const { expandedNetwork, openNetworkForm } = useUIStore();
+  const { expandedNetwork, openNetworkForm, openServiceForm } = useUIStore();
 
   // Filter out built-in networks (tcp, tcp4, tcp6 — those with empty protocol)
   const userNetworks = networks.filter((n) => n.protocol !== "");
@@ -33,15 +33,26 @@ export function MainPage() {
         <span className="text-xs font-medium text-muted-foreground">
           网络 ({userNetworks.length})
         </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() => openNetworkForm()}
-        >
-          <Plus className="h-3 w-3 mr-1" />
-          添加
-        </Button>
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => openServiceForm()}
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            服务
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => openNetworkForm()}
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            网络
+          </Button>
+        </div>
       </div>
       {userNetworks.map((net) =>
         expandedNetwork === net.name ? (

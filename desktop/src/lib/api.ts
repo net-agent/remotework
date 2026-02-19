@@ -1,4 +1,5 @@
 import type {
+  ApiResponse,
   NetworkStateDTO,
   ServiceStateDTO,
   StreamStateDTO,
@@ -20,8 +21,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
   }
-  const json = await resp.json();
-  return json as T;
+  const json: ApiResponse<T> = await resp.json();
+  if (json.ErrCode !== 0) {
+    throw new Error(json.ErrMsg || `API error code ${json.ErrCode}`);
+  }
+  return json.Data;
 }
 
 export async function getStatus(): Promise<{ running: boolean }> {

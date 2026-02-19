@@ -43,12 +43,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   fetchAll: async () => {
     try {
-      const [networks, services, streams] = await Promise.all([
+      const [networks, services, streams] = await Promise.allSettled([
         api.getNetworks(),
         api.getServices(),
         api.getStreams(),
       ]);
-      set({ networks, services, streams, agentRunning: true });
+      set({
+        networks: networks.status === "fulfilled" ? networks.value : [],
+        services: services.status === "fulfilled" ? services.value : [],
+        streams: streams.status === "fulfilled" ? streams.value : [],
+        agentRunning: true,
+      });
     } catch {
       set({ agentRunning: false });
     }
