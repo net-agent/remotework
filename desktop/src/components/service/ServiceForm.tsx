@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UrlField } from "@/components/shared/UrlField";
 import { useUIStore } from "@/stores/ui-store";
 import { useProfileStore } from "@/stores/profile-store";
+import { useAgentStore } from "@/stores/agent-store";
 import {
   emptyPortproxy,
   emptySocks5,
@@ -25,16 +27,38 @@ import { toast } from "sonner";
 
 type ServiceType = "portproxy" | "socks5" | "rdp";
 
+const LOCAL_SCHEMES = ["tcp"];
+
 export function ServiceForm() {
   const { serviceFormOpen, closeServiceForm, editingServiceType, editingServiceIndex } =
     useUIStore();
   const { currentConfig, setCurrentConfig } = useProfileStore();
+  const runtimeNetworks = useAgentStore((s) => s.networks);
   const isEditing = editingServiceIndex !== null && editingServiceType !== null;
 
   const [tab, setTab] = useState<ServiceType>("portproxy");
   const [portproxy, setPortproxy] = useState<PortproxyInfo>(emptyPortproxy());
   const [socks5, setSocks5] = useState<Socks5Info>(emptySocks5());
   const [rdp, setRdp] = useState<RDPInfo>(emptyRDP());
+  const [localAddresses, setLocalAddresses] = useState<string[]>([]);
+
+  // Build networks list: local schemes + virtual network names from config agents + runtime networks
+  const virtualNames = new Set<string>();
+  for (const a of currentConfig.agents) {
+    if (a.name && !LOCAL_SCHEMES.includes(a.name)) virtualNames.add(a.name);
+  }
+  for (const n of runtimeNetworks) {
+    if (n.name && !LOCAL_SCHEMES.includes(n.name)) virtualNames.add(n.name);
+  }
+  const networks = [...LOCAL_SCHEMES, ...virtualNames];
+
+  useEffect(() => {
+    if (serviceFormOpen) {
+      invoke<string[]>("get_network_interfaces")
+        .then(setLocalAddresses)
+        .catch(() => setLocalAddresses(["0.0.0.0", "127.0.0.1"]));
+    }
+  }, [serviceFormOpen]);
 
   useEffect(() => {
     if (serviceFormOpen) {
@@ -159,15 +183,15 @@ export function ServiceForm() {
               label="监听地址"
               value={portproxy.listen}
               onChange={(v) => setPortproxy({ ...portproxy, listen: v })}
-              schemes={["tcp"]}
+              networks={networks}
+              localAddresses={localAddresses}
+              isListen
             />
             <UrlField
               label="目标地址"
               value={portproxy.target}
               onChange={(v) => setPortproxy({ ...portproxy, target: v })}
-              showDomain
-              showSecret
-              schemes={["vtcp", "tcp", "ws"]}
+              networks={networks}
             />
           </TabsContent>
 
@@ -186,7 +210,9 @@ export function ServiceForm() {
               label="监听地址"
               value={socks5.listen}
               onChange={(v) => setSocks5({ ...socks5, listen: v })}
-              schemes={["tcp"]}
+              networks={networks}
+              localAddresses={localAddresses}
+              isListen
             />
             <div>
               <Label htmlFor="s5-user">用户名</Label>
@@ -226,9 +252,11 @@ export function ServiceForm() {
               label="监听地址"
               value={rdp.listen}
               onChange={(v) => setRdp({ ...rdp, listen: v })}
-              schemes={["tcp"]}
+              networks={networks}
+              localAddresses={localAddresses}
+              isListen
             />
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               RDP 服务会自动将流量转发到 tcp://localhost:3389
             </p>
           </TabsContent>

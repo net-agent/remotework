@@ -202,6 +202,19 @@ pub fn export_profile(state: State<ConfigState>, name: String) -> Result<String,
     fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn get_network_interfaces() -> Result<Vec<String>, String> {
+    let mut addrs: Vec<String> = vec!["0.0.0.0".into(), "127.0.0.1".into()];
+    let ifaces = if_addrs::get_if_addrs().map_err(|e| e.to_string())?;
+    for iface in ifaces {
+        let ip = iface.addr.ip().to_string();
+        if !addrs.contains(&ip) {
+            addrs.push(ip);
+        }
+    }
+    Ok(addrs)
+}
+
 fn sanitize_filename(name: &str) -> String {
     name.chars()
         .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })

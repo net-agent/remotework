@@ -16,19 +16,22 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { invoke } from "@tauri-apps/api/core";
 import { useProfileStore } from "@/stores/profile-store";
 import { useAgentStore } from "@/stores/agent-store";
 import { useSidecar } from "@/hooks/use-sidecar";
 import { toast } from "sonner";
 
 export function ProfileSwitcher() {
-  const { profiles, activeProfile, setActiveProfile, createProfile, loadConfig } =
+  const { profiles, activeProfile, setActiveProfile, createProfile, loadConfig, loadProfiles } =
     useProfileStore();
   const { agentRunning } = useAgentStore();
   const { startAgent, stopAgent } = useSidecar();
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newConfig, setNewConfig] = useState("");
 
   const handleSwitch = async (name: string) => {
     try {
@@ -44,12 +47,19 @@ export function ProfileSwitcher() {
   };
 
   const handleCreate = async () => {
-    if (!newName.trim()) return;
+    const name = newName.trim();
+    if (!name) return;
     try {
-      await createProfile(newName.trim());
-      await setActiveProfile(newName.trim());
+      if (newConfig.trim()) {
+        await invoke("import_profile", { name, content: newConfig });
+        await loadProfiles();
+      } else {
+        await createProfile(name);
+      }
+      await setActiveProfile(name);
       setNewDialogOpen(false);
       setNewName("");
+      setNewConfig("");
     } catch (e) {
       toast.error(`创建失败: ${e}`);
     }
@@ -59,7 +69,7 @@ export function ProfileSwitcher() {
     <>
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs">
+          <Button variant="ghost" size="sm" className="h-7 gap-1 text-sm px-2">
             {activeProfile || "选择 Profile"}
             <ChevronDown className="h-3 w-3" />
           </Button>
@@ -73,7 +83,7 @@ export function ProfileSwitcher() {
             >
               {p.name}
               {p.name === activeProfile && (
-                <span className="ml-auto text-xs text-muted-foreground">当前</span>
+                <span className="ml-auto text-xs text-primary font-medium">当前</span>
               )}
             </DropdownMenuItem>
           ))}
@@ -85,21 +95,36 @@ export function ProfileSwitcher() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={newDialogOpen} onOpenChange={setNewDialogOpen}>
-        <DialogContent className="max-w-sm">
+      <Dialog open={newDialogOpen} onOpenChange={(open) => {
+        setNewDialogOpen(open);
+        if (!open) { setNewName(""); setNewConfig(""); }
+      }}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>新建 Profile</DialogTitle>
           </DialogHeader>
-          <div className="py-2">
-            <Label htmlFor="profile-name">名称</Label>
-            <Input
-              id="profile-name"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="例如：办公室"
-              className="mt-1.5"
-              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-            />
+          <div className="py-2 space-y-3">
+            <div>
+              <Label htmlFor="profile-name">名称</Label>
+              <Input
+                id="profile-name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="例如：办公室"
+                className="mt-1.5"
+                onKeyDown={(e) => e.key === "Enter" && !newConfig && handleCreate()}
+              />
+            </div>
+            <div>
+              <Label htmlFor="profile-config">配置（可选）</Label>
+              <Textarea
+                id="profile-config"
+                value={newConfig}
+                onChange={(e) => setNewConfig(e.target.value)}
+                placeholder="粘贴 JSON 配置"
+                className="mt-1.5 font-mono text-xs min-h-24 max-h-64 overflow-y-auto"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setNewDialogOpen(false)}>

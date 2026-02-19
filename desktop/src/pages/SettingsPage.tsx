@@ -88,7 +88,7 @@ export function SettingsPage() {
           <CardTitle className="text-sm">关于</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Remotework Desktop v0.1.0
           </p>
         </CardContent>

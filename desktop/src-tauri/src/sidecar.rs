@@ -27,9 +27,10 @@ pub async fn start_agent(
     config_state: State<'_, crate::config::ConfigState>,
     profile_name: String,
 ) -> Result<u16, String> {
-    // Check if already running
+    // If already running, return existing port
     if state.child.lock().unwrap().is_some() {
-        return Err("agent is already running".into());
+        let port = *state.api_port.lock().unwrap();
+        return Ok(port);
     }
 
     // Read profile config
@@ -149,6 +150,11 @@ pub async fn restart_agent(
 #[tauri::command]
 pub fn agent_running(state: State<SidecarState>) -> Result<bool, String> {
     Ok(state.child.lock().unwrap().is_some())
+}
+
+#[tauri::command]
+pub fn get_agent_port(state: State<SidecarState>) -> Result<u16, String> {
+    Ok(*state.api_port.lock().unwrap())
 }
 
 fn find_available_port() -> Option<u16> {

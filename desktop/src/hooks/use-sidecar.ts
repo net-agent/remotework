@@ -47,14 +47,32 @@ export function useSidecar() {
 }
 
 export function useStartup() {
-  const { startAgent } = useSidecar();
+  const { startAgent, isRunning } = useSidecar();
   const { loadProfiles, loadConfig } = useProfileStore();
+  const { setAgentRunning, setApiBaseUrl, fetchAll } = useAgentStore();
   const booted = useRef(false);
 
   const boot = useCallback(async () => {
     if (booted.current) return;
     booted.current = true;
     try {
+      // If agent is already running (e.g. UI reload), just reconnect
+      const running = await isRunning();
+      if (running) {
+        const port = await invoke<number>("get_agent_port");
+        if (port > 0) {
+          const url = `http://127.0.0.1:${port}`;
+          setApiBaseUrl(url);
+          setAgentRunning(true);
+          await fetchAll();
+        }
+        await loadProfiles();
+        const { activeProfile: active } = useProfileStore.getState();
+        if (active) await loadConfig(active);
+        return;
+      }
+
+      // Normal first boot
       await loadProfiles();
       const { activeProfile: active, profiles } = useProfileStore.getState();
       if (active && profiles.some((p) => p.name === active)) {
@@ -64,7 +82,7 @@ export function useStartup() {
     } catch (e) {
       console.error("Boot failed:", e);
     }
-  }, [loadProfiles, loadConfig, startAgent]);
+  }, [loadProfiles, loadConfig, startAgent, isRunning, setAgentRunning, setApiBaseUrl, fetchAll]);
 
   return { boot };
 }

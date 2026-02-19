@@ -1,14 +1,13 @@
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { NetworkCard } from "@/components/network/NetworkCard";
-import { NetworkCardExpanded } from "@/components/network/NetworkCardExpanded";
 import { EmptyState } from "@/components/network/EmptyState";
 import { useAgentStore } from "@/stores/agent-store";
 import { useUIStore } from "@/stores/ui-store";
 
 export function MainPage() {
   const { networks, agentRunning } = useAgentStore();
-  const { expandedNetwork, openNetworkForm, openServiceForm } = useUIStore();
+  const { openNetworkForm, openServiceForm } = useUIStore();
 
   // Filter out built-in networks (tcp, tcp4, tcp6 — those with empty protocol)
   const userNetworks = networks.filter((n) => n.protocol !== "");
@@ -28,39 +27,35 @@ export function MainPage() {
   }
 
   return (
-    <div className="p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-muted-foreground">
+    <div className="p-3 space-y-0.5">
+      <div className="flex items-center justify-between px-0.5">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           网络 ({userNetworks.length})
         </span>
-        <div className="flex gap-1">
+        <div className="flex gap-0.5">
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 text-xs"
+            className="h-6 text-xs px-1.5"
             onClick={() => openServiceForm()}
           >
-            <Plus className="h-3 w-3 mr-1" />
+            <Plus className="h-3.5 w-3.5 mr-0.5" />
             服务
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 text-xs"
+            className="h-6 text-xs px-1.5"
             onClick={() => openNetworkForm()}
           >
-            <Plus className="h-3 w-3 mr-1" />
+            <Plus className="h-3.5 w-3.5 mr-0.5" />
             网络
           </Button>
         </div>
       </div>
-      {userNetworks.map((net) =>
-        expandedNetwork === net.name ? (
-          <NetworkCardExpanded key={net.name} network={net} />
-        ) : (
-          <NetworkCard key={net.name} network={net} />
-        )
-      )}
+      {userNetworks.map((net) => (
+        <NetworkCard key={net.name} network={net} />
+      ))}
     </div>
   );
 }

@@ -25,6 +25,7 @@ pub fn run() {
             sidecar::stop_agent,
             sidecar::restart_agent,
             sidecar::agent_running,
+            sidecar::get_agent_port,
             config::list_profiles,
             config::get_profile,
             config::save_profile,
@@ -33,6 +34,7 @@ pub fn run() {
             config::set_active_profile,
             config::import_profile,
             config::export_profile,
+            config::get_network_interfaces,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

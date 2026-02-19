@@ -24,6 +24,10 @@ func (s *Server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 	}
 	dtos := make([]NetworkStateDTO, 0, len(reports))
 	for _, r := range reports {
+		// 对普通用户隐藏 tcp4/tcp6，仅保留 tcp
+		if r.Name == "tcp4" || r.Name == "tcp6" {
+			continue
+		}
 		dtos = append(dtos, toNetworkDTO(r))
 	}
 	utils.WriteJSON(w, nil, dtos)

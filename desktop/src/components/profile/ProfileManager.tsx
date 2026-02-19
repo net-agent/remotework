@@ -93,15 +93,15 @@ export function ProfileManager() {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm">Profile 管理</CardTitle>
-          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={handleImport}>
-            <Upload className="h-3 w-3 mr-1" />
+          <Button variant="ghost" size="sm" className="h-7 text-sm" onClick={handleImport}>
+            <Upload className="h-3.5 w-3.5 mr-1" />
             导入
           </Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
         {profiles.length === 0 && (
-          <p className="text-xs text-muted-foreground text-center py-4">
+          <p className="text-sm text-muted-foreground text-center py-4">
             暂无 Profile
           </p>
         )}
@@ -127,7 +127,7 @@ export function ProfileManager() {
                 <span className="flex-1 text-sm truncate">
                   {p.name}
                   {p.name === activeProfile && (
-                    <span className="ml-2 text-xs text-muted-foreground">
+                    <span className="ml-2 text-xs text-primary font-medium">
                       (当前)
                     </span>
                   )}
@@ -138,7 +138,7 @@ export function ProfileManager() {
                   className="h-6 w-6"
                   onClick={() => handleExport(p.name)}
                 >
-                  <Download className="h-3 w-3" />
+                  <Download className="h-3.5 w-3.5" />
                 </Button>
                 <Button
                   variant="ghost"
@@ -149,7 +149,7 @@ export function ProfileManager() {
                     setRenameValue(p.name);
                   }}
                 >
-                  <Pencil className="h-3 w-3" />
+                  <Pencil className="h-3.5 w-3.5" />
                 </Button>
                 <Button
                   variant="ghost"
@@ -158,7 +158,7 @@ export function ProfileManager() {
                   disabled={p.name === activeProfile}
                   onClick={() => setDeleteTarget(p.name)}
                 >
-                  <Trash2 className="h-3 w-3" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </>
             )}

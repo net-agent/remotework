@@ -36,7 +36,18 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   },
 
   loadConfig: async (name: string) => {
-    const config = await invoke<AgentConfig>("get_profile", { name });
+    const raw = await invoke<Partial<AgentConfig>>("get_profile", { name });
+    const defaults = emptyConfig();
+    const config: AgentConfig = {
+      ...defaults,
+      ...raw,
+      agents: raw.agents ?? defaults.agents,
+      portproxy: raw.portproxy ?? defaults.portproxy,
+      socks5: raw.socks5 ?? defaults.socks5,
+      rdp: raw.rdp ?? defaults.rdp,
+      pprof: raw.pprof ?? defaults.pprof,
+      api: raw.api ?? defaults.api,
+    };
     set({ currentConfig: config, dirty: false });
   },
 

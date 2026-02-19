@@ -1,9 +1,11 @@
 package server
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/net-agent/flex/v2/switcher"
+	"github.com/net-agent/flex/v2/warning"
 	"github.com/net-agent/mixlisten"
 	"github.com/net-agent/remotework/utils"
 )
@@ -23,6 +25,13 @@ func RunServer(configName string) {
 
 	// 初始化
 	app := switcher.NewServer(config.Server.Password)
+	app.SetHandler(func(msg *warning.Message) {
+		if msg.Error != "" {
+			syslog.Warn(fmt.Sprintf("%v, err='%v'", msg.Info, msg.Error))
+		} else {
+			syslog.Info(msg.Info)
+		}
+	})
 
 	syslog.Info("try to listen", "addr", config.Server.Listen)
 

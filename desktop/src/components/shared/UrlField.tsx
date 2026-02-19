@@ -4,28 +4,30 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
+const LOCAL_SCHEMES = ["tcp", "tcp4", "tcp6"];
+
 interface UrlParts {
   scheme: string;
   host: string;
   port: string;
-  domain: string;
   secret: string;
-  path: string;
 }
 
-function parseUrl(raw: string): UrlParts {
-  const parts: UrlParts = { scheme: "vtcp", host: "", port: "", domain: "", secret: "", path: "" };
+function parseUrl(raw: string, defaultScheme: string): UrlParts {
+  const parts: UrlParts = { scheme: defaultScheme, host: "", port: "", secret: "" };
   if (!raw) return parts;
   try {
-    // Format: scheme://domain:secret@host:port/path
-    const match = raw.match(/^(\w+):\/\/(?:([^:@]+)(?::([^@]*))?@)?([^:/]+)(?::(\d+))?(\/.*)?$/);
+    // Format: scheme://host:port?secret=xxx
+    const match = raw.match(/^(\w+):\/\/([^:/?]+)(?::(\d+))?(?:\?(.*))?$/);
     if (match) {
       parts.scheme = match[1];
-      parts.domain = match[2] ?? "";
-      parts.secret = match[3] ?? "";
-      parts.host = match[4];
-      parts.port = match[5] ?? "";
-      parts.path = match[6] ?? "";
+      parts.host = match[2];
+      parts.port = match[3] ?? "";
+      const queryStr = match[4] ?? "";
+      if (queryStr) {
+        const params = new URLSearchParams(queryStr);
+        parts.secret = params.get("secret") ?? "";
+      }
     }
   } catch {
     // ignore
@@ -34,15 +36,9 @@ function parseUrl(raw: string): UrlParts {
 }
 
 function buildUrl(parts: UrlParts): string {
-  let url = `${parts.scheme}://`;
-  if (parts.domain) {
-    url += parts.domain;
-    if (parts.secret) url += `:${parts.secret}`;
-    url += "@";
-  }
-  url += parts.host;
+  let url = `${parts.scheme}://${parts.host}`;
   if (parts.port) url += `:${parts.port}`;
-  if (parts.path) url += parts.path;
+  if (parts.secret) url += `?secret=${parts.secret}`;
   return url;
 }
 
@@ -50,25 +46,29 @@ interface UrlFieldProps {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  showDomain?: boolean;
-  showSecret?: boolean;
-  schemes?: string[];
+  networks?: string[];
+  localAddresses?: string[];
+  isListen?: boolean;
 }
 
 export function UrlField({
   label,
   value,
   onChange,
-  showDomain = false,
-  showSecret = false,
-  schemes = ["vtcp", "tcp", "ws"],
+  networks = ["vtcp", "tcp", "ws"],
+  localAddresses = [],
+  isListen = false,
 }: UrlFieldProps) {
   const [advanced, setAdvanced] = useState(false);
-  const [parts, setParts] = useState<UrlParts>(() => parseUrl(value));
+  const defaultScheme = networks[0] ?? "tcp";
+  const [parts, setParts] = useState<UrlParts>(() => parseUrl(value, defaultScheme));
 
   useEffect(() => {
-    setParts(parseUrl(value));
-  }, [value]);
+    setParts(parseUrl(value, defaultScheme));
+  }, [value, defaultScheme]);
+
+  const isLocalScheme = LOCAL_SCHEMES.includes(parts.scheme);
+  const showSecret = !isLocalScheme;
 
   const updatePart = (key: keyof UrlParts, val: string) => {
     const next = { ...parts, [key]: val };
@@ -76,12 +76,86 @@ export function UrlField({
     onChange(buildUrl(next));
   };
 
+  const handleSchemeChange = (scheme: string) => {
+    const next = { ...parts, scheme };
+    const wasLocal = LOCAL_SCHEMES.includes(parts.scheme);
+    const nowLocal = LOCAL_SCHEMES.includes(scheme);
+
+    if (isListen) {
+      if (!nowLocal) {
+        next.host = "local";
+      } else if (!wasLocal) {
+        next.host = localAddresses[0] ?? "0.0.0.0";
+      }
+    }
+
+    // Clear secret when switching to local scheme
+    if (nowLocal) {
+      next.secret = "";
+    }
+
+    setParts(next);
+    onChange(buildUrl(next));
+  };
+
+  const renderHostField = () => {
+    if (isListen && !isLocalScheme) {
+      return (
+        <Input
+          value="local"
+          readOnly
+          className="h-8 flex-1 bg-muted"
+        />
+      );
+    }
+
+    if (isListen && isLocalScheme && localAddresses.length > 0) {
+      return (
+        <Select value={parts.host} onValueChange={(v) => updatePart("host", v)}>
+          <SelectTrigger className="h-8 flex-1">
+            <SelectValue placeholder="地址" />
+          </SelectTrigger>
+          <SelectContent>
+            {localAddresses.map((addr) => (
+              <SelectItem key={addr} value={addr}>{addr}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      );
+    }
+
+    return (
+      <Input
+        value={parts.host}
+        onChange={(e) => updatePart("host", e.target.value)}
+        placeholder="地址"
+        className="h-8 flex-1"
+      />
+    );
+  };
+
+  const renderSecretWarning = () => {
+    if (isLocalScheme || parts.secret) return null;
+    if (isListen) {
+      return (
+        <p className="text-xs text-destructive">
+          ⚠ 虚拟网络监听必须设置传输密码
+        </p>
+      );
+    }
+    return (
+      <p className="text-xs text-amber-500">
+        ⚠ 虚拟网络建议设置传输密码
+      </p>
+    );
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <Label>{label}</Label>
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-muted-foreground">高级</span>
+          <span className="text-sm text-muted-foreground">高级</span>
           <Switch
             checked={advanced}
             onCheckedChange={setAdvanced}
@@ -94,28 +168,23 @@ export function UrlField({
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="vtcp://domain:secret@host:port"
-          className="font-mono text-xs"
+          placeholder="vtcp://host:port?secret=xxx"
+          className="font-mono text-sm"
         />
       ) : (
         <div className="grid gap-2">
           <div className="flex gap-2">
-            <Select value={parts.scheme} onValueChange={(v) => updatePart("scheme", v)}>
+            <Select value={parts.scheme} onValueChange={handleSchemeChange}>
               <SelectTrigger className="w-24 h-8">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {schemes.map((s) => (
+                {networks.map((s) => (
                   <SelectItem key={s} value={s}>{s}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Input
-              value={parts.host}
-              onChange={(e) => updatePart("host", e.target.value)}
-              placeholder="地址"
-              className="h-8 flex-1"
-            />
+            {renderHostField()}
             <Input
               value={parts.port}
               onChange={(e) => updatePart("port", e.target.value)}
@@ -123,30 +192,20 @@ export function UrlField({
               className="h-8 w-20"
             />
           </div>
-          {showDomain && (
-            <Input
-              value={parts.domain}
-              onChange={(e) => updatePart("domain", e.target.value)}
-              placeholder="域名"
-              className="h-8"
-            />
-          )}
           {showSecret && (
             <Input
               value={parts.secret}
               onChange={(e) => updatePart("secret", e.target.value)}
-              placeholder="密码"
+              placeholder="传输密码"
               type="password"
               className="h-8"
             />
           )}
-          {parts.scheme === "ws" && (
-            <Input
-              value={parts.path}
-              onChange={(e) => updatePart("path", e.target.value)}
-              placeholder="路径 (例如 /ws)"
-              className="h-8"
-            />
+          {renderSecretWarning()}
+          {value && (
+            <p className="text-xs text-muted-foreground font-mono truncate" title={value}>
+              {value}
+            </p>
           )}
         </div>
       )}

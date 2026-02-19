@@ -1521,6 +1521,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "if-addrs"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b2eeee38fef3aa9b4cc5f1beea8a2444fc00e7377cafae396de3f5c2065e24"
+dependencies = [
+ "libc",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2799,6 +2809,7 @@ name = "remotework-desktop"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "if-addrs",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

@@ -1,19 +1,22 @@
 import { useAgentStore } from "@/stores/agent-store";
-import { Badge } from "@/components/ui/badge";
 
 export function StatusBar() {
   const { agentRunning, wsConnected, streams } = useAgentStore();
   const activeStreams = streams.filter((s) => !s.isClosed).length;
 
   return (
-    <div className="flex items-center justify-between border-t px-4 py-1.5 text-xs text-muted-foreground bg-card">
-      <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between px-3 py-1 text-xs text-muted-foreground bg-card border-t shrink-0">
+      <div className="flex items-center gap-1.5">
         <span
           className={`inline-block h-1.5 w-1.5 rounded-full ${
-            agentRunning ? "bg-emerald-500" : "bg-zinc-400"
+            agentRunning
+              ? wsConnected
+                ? "bg-primary"
+                : "bg-emerald-500"
+              : "bg-zinc-400"
           }`}
         />
-        <span>
+        <span className={agentRunning && wsConnected ? "text-primary" : ""}>
           {agentRunning
             ? wsConnected
               ? "已连接"
@@ -22,9 +25,7 @@ export function StatusBar() {
         </span>
       </div>
       {agentRunning && activeStreams > 0 && (
-        <Badge variant="secondary" className="text-xs font-normal">
-          {activeStreams} 个活跃连接
-        </Badge>
+        <span className="tabular-nums text-primary/80">{activeStreams} 连接</span>
       )}
     </div>
   );
