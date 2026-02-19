@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/net-agent/remotework/utils"
 )
@@ -16,6 +17,7 @@ type Hub struct {
 	services *ServiceManager
 	stopOnce sync.Once
 	done     chan struct{}
+	running  int32 // atomic: 0=stopped, 1=running
 
 	listenerMu sync.RWMutex
 	listeners  []HubEventListener
@@ -77,8 +79,10 @@ func (hub *Hub) MountConfig(cfg *Config) error {
 
 // Start 阻塞式启动所有服务，等待 Stop() 被调用后清理退出
 func (hub *Hub) Start() error {
+	atomic.StoreInt32(&hub.running, 1)
 	go hub.services.StartAll()
 	<-hub.done
+	atomic.StoreInt32(&hub.running, 0)
 	hub.networks.StopAll()
 	return nil
 }
@@ -125,7 +129,7 @@ func (hub *Hub) AddNetwork(mnet Network) error              { return hub.network
 func (hub *Hub) FindNetwork(network string) (Network, error) { return hub.networks.Find(network) }
 func (hub *Hub) AddService(svc *Service) error               { return hub.services.Add(svc) }
 func (hub *Hub) FindService(name string) (*Service, error)   { return hub.services.Find(name) }
-func (hub *Hub) IsRunning() bool                             { return hub.services.IsRunning() }
+func (hub *Hub) IsRunning() bool                             { return atomic.LoadInt32(&hub.running) == 1 }
 func (hub *Hub) RangeAllService(fn func(svc *Service))       { hub.services.Range(fn) }
 
 //

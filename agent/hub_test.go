@@ -211,13 +211,18 @@ func TestHub_Start_StopsNetworks(t *testing.T) {
 	mn := newMockNetwork("vnet")
 	hub.AddNetwork(mn)
 
-	// 没有服务，Start 应该立即返回并清理网络
+	// Start 现在阻塞在 done channel，需要在另一个 goroutine 中调用 Stop
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		hub.Stop()
+	}()
+
 	err := hub.Start()
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
 	}
 	if !mn.isStopped() {
-		t.Error("Start() should stop networks after services exit")
+		t.Error("Start() should stop networks after Stop() is called")
 	}
 }
 
@@ -227,8 +232,17 @@ func TestHub_Start_ReportsFailedServices(t *testing.T) {
 	ctrl.initErr = errors.New("init boom")
 	hub.AddService(svc)
 
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		hub.Stop()
+	}()
+
 	err := hub.Start()
-	if err == nil {
-		t.Fatal("Start() should return error when services fail")
+	// Start 不再返回 service 错误（它阻塞在 done channel 上）
+	if err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+	if svc.GetStatus() != StatusFailed {
+		t.Errorf("status = %v, want StatusFailed", svc.GetStatus())
 	}
 }

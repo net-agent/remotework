@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -225,5 +226,62 @@ func TestNewNetworkRegistry_ContainsTCP(t *testing.T) {
 		if _, err := nr.Find(name); err != nil {
 			t.Errorf("NewNetworkRegistry(nil) missing %q: %v", name, err)
 		}
+	}
+}
+
+func TestNetworkRegistry_ListenURL_DependencyNotReady(t *testing.T) {
+	nr := newNetworkRegistryBare(nil)
+	// vtcpx network not registered — should return ErrDependencyNotReady
+	_, err := nr.ListenURL("vtcpx://host:80?secret=abc")
+	if err == nil {
+		t.Fatal("expected error for unregistered non-builtin network")
+	}
+	var depErr *ErrDependencyNotReady
+	if !errors.As(err, &depErr) {
+		t.Fatalf("error type = %T, want *ErrDependencyNotReady", err)
+	}
+	if depErr.Network != "vtcpx" {
+		t.Errorf("Network = %q, want %q", depErr.Network, "vtcpx")
+	}
+}
+
+func TestNetworkRegistry_ListenURL_BuiltinError_NotDependency(t *testing.T) {
+	nr := NewNetworkRegistry(nil)
+	// tcp is builtin — listen on invalid address should return regular error, not dependency error
+	_, err := nr.ListenURL("tcp://invalid-addr-no-port")
+	if err == nil {
+		t.Fatal("expected error for invalid tcp listen address")
+	}
+	var depErr *ErrDependencyNotReady
+	if errors.As(err, &depErr) {
+		t.Error("builtin network error should NOT be ErrDependencyNotReady")
+	}
+}
+
+func TestNetworkRegistry_URLDialer_DependencyNotReady(t *testing.T) {
+	nr := newNetworkRegistryBare(nil)
+	// vtcpx network not registered
+	_, err := nr.URLDialer("vtcpx://host:3389?secret=key")
+	if err == nil {
+		t.Fatal("expected error for unregistered non-builtin network")
+	}
+	var depErr *ErrDependencyNotReady
+	if !errors.As(err, &depErr) {
+		t.Fatalf("error type = %T, want *ErrDependencyNotReady", err)
+	}
+	if depErr.Network != "vtcpx" {
+		t.Errorf("Network = %q, want %q", depErr.Network, "vtcpx")
+	}
+}
+
+func TestNetworkRegistry_URLDialer_BuiltinNetwork_NoDependencyError(t *testing.T) {
+	nr := NewNetworkRegistry(nil)
+	// tcp is builtin — URLDialer should succeed (actual dial is lazy)
+	dialer, err := nr.URLDialer("tcp://localhost:12345")
+	if err != nil {
+		t.Fatalf("URLDialer() error: %v", err)
+	}
+	if dialer == nil {
+		t.Fatal("URLDialer() returned nil for builtin network")
 	}
 }

@@ -74,7 +74,7 @@ func (nr *NetworkRegistry) IsPrivateNetwork(network string) bool {
 	if network == "" {
 		return false
 	}
-	if network == "tcp" || network == "tcp4" || network == "tcp6" {
+	if nr.isBuiltinNetwork(network) {
 		return false
 	}
 	nr.mut.RLock()
@@ -82,6 +82,11 @@ func (nr *NetworkRegistry) IsPrivateNetwork(network string) bool {
 
 	_, found := nr.nets[network]
 	return found
+}
+
+// isBuiltinNetwork 判断是否为内置网络（tcp/tcp4/tcp6）
+func (nr *NetworkRegistry) isBuiltinNetwork(network string) bool {
+	return network == "tcp" || network == "tcp4" || network == "tcp6"
 }
 
 func (nr *NetworkRegistry) StopAll() {
@@ -124,6 +129,9 @@ func (nr *NetworkRegistry) ListenURL(raw string) (net.Listener, error) {
 
 	l, err := nr.Listen(u.Scheme, u.Host)
 	if err != nil {
+		if !nr.isBuiltinNetwork(u.Scheme) {
+			return nil, &ErrDependencyNotReady{Network: u.Scheme}
+		}
 		return nil, err
 	}
 
@@ -145,6 +153,11 @@ func (nr *NetworkRegistry) URLDialer(raw string) (QuickDialer, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
+	}
+
+	// 预检查网络是否存在，对非内置网络返回依赖未就绪错误
+	if _, err := nr.Find(u.Scheme); err != nil && !nr.isBuiltinNetwork(u.Scheme) {
+		return nil, &ErrDependencyNotReady{Network: u.Scheme}
 	}
 
 	return func() (net.Conn, error) {

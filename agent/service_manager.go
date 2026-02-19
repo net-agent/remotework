@@ -117,6 +117,13 @@ func (sm *ServiceManager) manageState(svc *Service, waiter *sync.WaitGroup) {
 	sm.fireStatusChange(svc.Name, oldStatus, StatusInit)
 
 	if err := svc.controller.Init(); err != nil {
+		var depErr *ErrDependencyNotReady
+		if errors.As(err, &depErr) {
+			svc.SetStatus(StatusPending)
+			sm.fireStatusChange(svc.Name, StatusInit, StatusPending)
+			sm.log.Info("service pending", "name", svc.Name, "waiting", depErr.Network)
+			return
+		}
 		svc.SetStatus(StatusFailed)
 		sm.fireStatusChange(svc.Name, StatusInit, StatusFailed)
 		sm.log.Error("init service failed", "name", svc.Name, "err", err)
@@ -161,21 +168,30 @@ func (sm *ServiceManager) IsRunning() bool {
 	return atomic.LoadInt32(&sm.running) == 1
 }
 
-// UpdateByNetwork 遍历服务，找到依赖指定网络的服务并触发更新
+// UpdateByNetwork 遍历服务，找到依赖指定网络的服务并触发更新或启动
 func (sm *ServiceManager) UpdateByNetwork(network string) {
-	count := 0
+	updated := 0
+	started := 0
 	sm.mut.RLock()
 	svcs := make([]*Service, len(sm.svcs))
 	copy(svcs, sm.svcs)
 	sm.mut.RUnlock()
 
 	for _, svc := range svcs {
-		if svc.IsListenDepend(network) && svc.GetStatus() == StatusRunning {
-			go svc.controller.Update()
-			count++
+		switch svc.GetStatus() {
+		case StatusRunning:
+			if svc.IsListenDepend(network) {
+				go svc.controller.Update()
+				updated++
+			}
+		case StatusPending:
+			if svc.IsDepend(network) {
+				sm.Start(svc)
+				started++
+			}
 		}
 	}
-	sm.log.Info("update network", "network", network, "updated", count)
+	sm.log.Info("update network", "network", network, "updated", updated, "started", started)
 }
 
 // Names 返回所有已注册的服务名称

@@ -304,3 +304,123 @@ func TestServiceManager_StartAll_PartialInitFailed(t *testing.T) {
 
 	_ = ctrl2 // used for initErr setup
 }
+
+func TestServiceManager_InitDependencyNotReady_SetsPending(t *testing.T) {
+	sm := NewServiceManager(nil)
+	svc, ctrl := newTestService("dep-svc", "portproxy", "vtcpx://host:80", "tcp://localhost:3389")
+	ctrl.initErr = &ErrDependencyNotReady{Network: "vtcpx"}
+	sm.Add(svc)
+
+	err := sm.StartAll()
+	if err != nil {
+		t.Fatalf("StartAll() error: %v (pending should not count as failed)", err)
+	}
+
+	if svc.GetStatus() != StatusPending {
+		t.Errorf("status = %v, want StatusPending", svc.GetStatus())
+	}
+}
+
+func TestServiceManager_UpdateByNetwork_StartsPendingService(t *testing.T) {
+	sm := NewServiceManager(nil)
+	svc, ctrl := newTestService("pending-svc", "portproxy", "vtcpx://host:80", "tcp://localhost:3389")
+	ctrl.initErr = &ErrDependencyNotReady{Network: "vtcpx"}
+	sm.Add(svc)
+
+	// StartAll → service becomes Pending
+	atomic.StoreInt32(&sm.running, 1)
+	sm.Start(svc)
+	time.Sleep(50 * time.Millisecond)
+
+	if svc.GetStatus() != StatusPending {
+		t.Fatalf("status = %v, want StatusPending", svc.GetStatus())
+	}
+
+	// Now clear the init error (simulate network becoming available)
+	ctrl.mu.Lock()
+	ctrl.initErr = nil
+	ctrl.mu.Unlock()
+	ctrl.startBlock = make(chan struct{})
+
+	// Trigger UpdateByNetwork → should re-start the pending service
+	sm.UpdateByNetwork("vtcpx://")
+
+	// Wait for service to reach Running
+	deadline := time.After(2 * time.Second)
+	for {
+		if svc.GetStatus() == StatusRunning {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timeout: status = %v, want StatusRunning", svc.GetStatus())
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	close(ctrl.startBlock)
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestServiceManager_UpdateByNetwork_IgnoresNonMatchingPending(t *testing.T) {
+	sm := NewServiceManager(nil)
+	svc, ctrl := newTestService("pending-other", "portproxy", "vtcpx://host:80", "tcp://localhost:3389")
+	ctrl.initErr = &ErrDependencyNotReady{Network: "vtcpx"}
+	sm.Add(svc)
+
+	atomic.StoreInt32(&sm.running, 1)
+	sm.Start(svc)
+	time.Sleep(50 * time.Millisecond)
+
+	if svc.GetStatus() != StatusPending {
+		t.Fatalf("status = %v, want StatusPending", svc.GetStatus())
+	}
+
+	// Update a different network — should NOT start this service
+	sm.UpdateByNetwork("ws://")
+	time.Sleep(50 * time.Millisecond)
+
+	if svc.GetStatus() != StatusPending {
+		t.Errorf("status = %v, want StatusPending (should not be started by unrelated network)", svc.GetStatus())
+	}
+}
+
+func TestServiceManager_UpdateByNetwork_PendingViaTargetURL(t *testing.T) {
+	sm := NewServiceManager(nil)
+	svc, ctrl := newTestService("target-dep", "portproxy", "tcp://0:8080", "vtcpx://remote:3389")
+	ctrl.initErr = &ErrDependencyNotReady{Network: "vtcpx"}
+	sm.Add(svc)
+
+	atomic.StoreInt32(&sm.running, 1)
+	sm.Start(svc)
+	time.Sleep(50 * time.Millisecond)
+
+	if svc.GetStatus() != StatusPending {
+		t.Fatalf("status = %v, want StatusPending", svc.GetStatus())
+	}
+
+	// Clear init error and trigger update
+	ctrl.mu.Lock()
+	ctrl.initErr = nil
+	ctrl.mu.Unlock()
+	ctrl.startBlock = make(chan struct{})
+
+	sm.UpdateByNetwork("vtcpx://")
+
+	deadline := time.After(2 * time.Second)
+	for {
+		if svc.GetStatus() == StatusRunning {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timeout: status = %v, want StatusRunning", svc.GetStatus())
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	close(ctrl.startBlock)
+	time.Sleep(50 * time.Millisecond)
+}

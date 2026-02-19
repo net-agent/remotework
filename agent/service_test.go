@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -14,6 +16,7 @@ func TestServiceStatus_String(t *testing.T) {
 		{StatusRunning, "running"},
 		{StatusStopped, "stopped"},
 		{StatusFailed, "init failed"},
+		{StatusPending, "pending"},
 		{ServiceStatus(99), "unknown"},
 	}
 	for _, tt := range tests {
@@ -76,6 +79,51 @@ func TestServiceState_IsListenDepend(t *testing.T) {
 	}
 	if s.IsListenDepend("ws://") {
 		t.Error("expected IsListenDepend(ws://) = false")
+	}
+}
+
+func TestServiceState_IsTargetDepend(t *testing.T) {
+	s := &ServiceState{TargetURL: "vtcp://remote:3389?secret=key"}
+
+	if !s.IsTargetDepend("vtcp://") {
+		t.Error("expected IsTargetDepend(vtcp://) = true")
+	}
+	if s.IsTargetDepend("tcp://") {
+		t.Error("expected IsTargetDepend(tcp://) = false")
+	}
+}
+
+func TestServiceState_IsDepend(t *testing.T) {
+	s := &ServiceState{
+		ListenURL: "vtcp://host:80?secret=abc",
+		TargetURL: "tcp://localhost:3389",
+	}
+
+	if !s.IsDepend("vtcp://") {
+		t.Error("expected IsDepend(vtcp://) = true via ListenURL")
+	}
+	if !s.IsDepend("tcp://") {
+		t.Error("expected IsDepend(tcp://) = true via TargetURL")
+	}
+	if s.IsDepend("ws://") {
+		t.Error("expected IsDepend(ws://) = false")
+	}
+}
+
+func TestErrDependencyNotReady(t *testing.T) {
+	err := &ErrDependencyNotReady{Network: "vtcpx"}
+	if err.Error() != "dependency network 'vtcpx' not ready" {
+		t.Errorf("Error() = %q", err.Error())
+	}
+
+	// errors.As should work
+	var wrapped error = fmt.Errorf("init: %w", err)
+	var depErr *ErrDependencyNotReady
+	if !errors.As(wrapped, &depErr) {
+		t.Error("errors.As should match wrapped ErrDependencyNotReady")
+	}
+	if depErr.Network != "vtcpx" {
+		t.Errorf("Network = %q, want %q", depErr.Network, "vtcpx")
 	}
 }
 

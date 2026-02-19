@@ -10,6 +10,15 @@ import (
 	"github.com/net-agent/remotework/utils"
 )
 
+// ErrDependencyNotReady 表示服务依赖的网络尚未注册
+type ErrDependencyNotReady struct {
+	Network string
+}
+
+func (e *ErrDependencyNotReady) Error() string {
+	return fmt.Sprintf("dependency network '%s' not ready", e.Network)
+}
+
 // ServiceStatus 服务状态枚举
 type ServiceStatus int32
 
@@ -19,6 +28,7 @@ const (
 	StatusRunning               // 运行中
 	StatusStopped               // 已停止
 	StatusFailed                // 初始化失败
+	StatusPending               // 依赖未就绪，等待自动启动
 )
 
 func (s ServiceStatus) String() string {
@@ -33,6 +43,8 @@ func (s ServiceStatus) String() string {
 		return "stopped"
 	case StatusFailed:
 		return "init failed"
+	case StatusPending:
+		return "pending"
 	default:
 		return "unknown"
 	}
@@ -76,6 +88,10 @@ func (s *ServiceState) AddDoneCount(n int32) {
 func (s *ServiceState) GetActiveCount() int32     { return atomic.LoadInt32(&s.actives) }
 func (s *ServiceState) GetDoneCount() int32       { return atomic.LoadInt32(&s.dones) }
 func (s *ServiceState) IsListenDepend(n string) bool { return strings.HasPrefix(s.ListenURL, n) }
+func (s *ServiceState) IsTargetDepend(n string) bool { return strings.HasPrefix(s.TargetURL, n) }
+func (s *ServiceState) IsDepend(n string) bool {
+	return s.IsListenDepend(n) || s.IsTargetDepend(n)
+}
 
 //
 // service constructors
