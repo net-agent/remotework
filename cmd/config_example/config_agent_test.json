@@ -1,0 +1,18 @@
+{
+  "pprof": {
+    "enable": true,
+    "listen": "localhost:6060"
+  },
+
+  "agent": {
+    "txy": "tcp://cloud_agent:dev_test_pswd@localhost:2040"
+  },
+
+  "sox": {
+    "local-proxy": {"listen": "txy://local:1080?secret=pswd", "username": "", "password": ""}
+  },
+
+  "pipe": {
+    "call-myself": {"listen": "tcp://localhost:1080", "target": "txy://cloud_agent:1080?secret=pswd"}
+  }
+}

@@ -1,0 +1,8 @@
+{
+	"server": {
+		"listen": "127.0.0.1:2040",
+		"password": "dev_test_pswd",
+		"wsEnable": false,
+		"wsPath": "/wsconn"
+	}
+}
