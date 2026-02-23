@@ -1,10 +1,13 @@
 import { create } from "zustand";
 
 type Page = "main" | "settings";
+type MainTab = "networks" | "services" | "logs";
 
 interface UIState {
   currentPage: Page;
-  expandedNetwork: string | null;
+  activeTab: MainTab;
+  selectedNetwork: string | null;
+  selectedService: number | null;
   networkFormOpen: boolean;
   serviceFormOpen: boolean;
   editingNetworkIndex: number | null;
@@ -12,7 +15,9 @@ interface UIState {
   editingServiceIndex: number | null;
 
   setCurrentPage: (page: Page) => void;
-  setExpandedNetwork: (name: string | null) => void;
+  setActiveTab: (tab: MainTab) => void;
+  setSelectedNetwork: (name: string | null) => void;
+  setSelectedService: (id: number | null) => void;
   openNetworkForm: (index?: number) => void;
   closeNetworkForm: () => void;
   openServiceForm: (type?: "portproxy" | "socks5" | "rdp", index?: number) => void;
@@ -21,7 +26,9 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set) => ({
   currentPage: "main",
-  expandedNetwork: null,
+  activeTab: "networks",
+  selectedNetwork: null,
+  selectedService: null,
   networkFormOpen: false,
   serviceFormOpen: false,
   editingNetworkIndex: null,
@@ -29,8 +36,9 @@ export const useUIStore = create<UIState>((set) => ({
   editingServiceIndex: null,
 
   setCurrentPage: (page) => set({ currentPage: page }),
-  setExpandedNetwork: (name) =>
-    set((s) => ({ expandedNetwork: s.expandedNetwork === name ? null : name })),
+  setActiveTab: (tab) => set({ activeTab: tab }),
+  setSelectedNetwork: (name) => set({ selectedNetwork: name }),
+  setSelectedService: (id) => set({ selectedService: id }),
 
   openNetworkForm: (index) =>
     set({

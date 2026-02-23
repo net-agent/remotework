@@ -4,9 +4,17 @@ import { Button } from "@/components/ui/button";
 import { StatusBar } from "./StatusBar";
 import { ProfileSwitcher } from "@/components/profile/ProfileSwitcher";
 import { useUIStore } from "@/stores/ui-store";
+import { useAgentStore } from "@/stores/agent-store";
+
+const tabs = [
+  { value: "networks", label: "网络" },
+  { value: "services", label: "服务" },
+  { value: "logs", label: "日志" },
+] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { currentPage, setCurrentPage } = useUIStore();
+  const { currentPage, setCurrentPage, activeTab, setActiveTab } = useUIStore();
+  const { agentRunning } = useAgentStore();
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -29,6 +37,26 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
           </h1>
         </div>
+
+        {/* Center: tab buttons */}
+        {currentPage === "main" && agentRunning && (
+          <div className="flex items-center gap-0.5 bg-muted rounded-md p-0.5">
+            {tabs.map((t) => (
+              <button
+                key={t.value}
+                className={`px-3 py-0.5 text-xs font-medium rounded transition-colors ${
+                  activeTab === t.value
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                onClick={() => setActiveTab(t.value)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-center gap-0.5">
           {currentPage === "main" && <ProfileSwitcher />}
           {currentPage === "main" && (

@@ -5,6 +5,7 @@ import type {
   StreamStateDTO,
   PingResultDTO,
 } from "./types";
+import type { AgentInfo } from "./config-types";
 
 let baseUrl = "";
 
@@ -50,6 +51,10 @@ export async function ping(): Promise<PingResultDTO[]> {
   return request("/api/v1/ping", { method: "POST" });
 }
 
+export async function pingSingle(network: string, domain: string): Promise<{ network: string; domain: string; result: string }> {
+  return request(`/api/v1/ping/${encodeURIComponent(network)}/${encodeURIComponent(domain)}`, { method: "POST" });
+}
+
 export async function setLogLevel(level: string): Promise<{ level: string }> {
   return request("/api/v1/loglevel", {
     method: "PUT",
@@ -62,5 +67,22 @@ export async function stopAgent(): Promise<{ status: string }> {
   return request("/api/v1/stop", {
     method: "POST",
     headers: { "X-Confirm": "yes" },
+  });
+}
+
+export async function addNetwork(info: AgentInfo): Promise<{ status: string; name: string }> {
+  return request("/api/v1/networks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(info),
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function addService(type: string, info: any): Promise<{ status: string; name: string }> {
+  return request(`/api/v1/services/${type}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(info),
   });
 }

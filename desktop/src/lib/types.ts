@@ -5,6 +5,7 @@ export interface ServiceStateDTO {
   type: string;
   name: string;
   status: string;
+  lastErr?: string;
   listenURL: string;
   targetURL: string;
   actives: number;

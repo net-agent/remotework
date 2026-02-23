@@ -23,6 +23,7 @@ import {
   type Socks5Info,
   type RDPInfo,
 } from "@/lib/config-types";
+import * as api from "@/lib/api";
 import { toast } from "sonner";
 
 type ServiceType = "portproxy" | "socks5" | "rdp";
@@ -32,7 +33,7 @@ const LOCAL_SCHEMES = ["tcp"];
 export function ServiceForm() {
   const { serviceFormOpen, closeServiceForm, editingServiceType, editingServiceIndex } =
     useUIStore();
-  const { currentConfig, setCurrentConfig } = useProfileStore();
+  const { currentConfig, setCurrentConfig, saveConfig, activeProfile } = useProfileStore();
   const runtimeNetworks = useAgentStore((s) => s.networks);
   const isEditing = editingServiceIndex !== null && editingServiceType !== null;
 
@@ -84,8 +85,10 @@ export function ServiceForm() {
     }
   }, [serviceFormOpen, isEditing, editingServiceType, editingServiceIndex, currentConfig]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const config = { ...currentConfig };
+    let dynamicInfo: PortproxyInfo | Socks5Info | RDPInfo | null = null;
+
     switch (tab) {
       case "portproxy": {
         if (!portproxy.listen || !portproxy.target) {
@@ -97,6 +100,7 @@ export function ServiceForm() {
           list[editingServiceIndex!] = portproxy;
         } else {
           list.push(portproxy);
+          dynamicInfo = portproxy;
         }
         config.portproxy = list;
         break;
@@ -111,6 +115,7 @@ export function ServiceForm() {
           list[editingServiceIndex!] = socks5;
         } else {
           list.push(socks5);
+          dynamicInfo = socks5;
         }
         config.socks5 = list;
         break;
@@ -125,14 +130,30 @@ export function ServiceForm() {
           list[editingServiceIndex!] = rdp;
         } else {
           list.push(rdp);
+          dynamicInfo = rdp;
         }
         config.rdp = list;
         break;
       }
     }
+
     setCurrentConfig(config);
+    if (activeProfile) saveConfig(activeProfile, config);
+
+    // Dynamically add to running agent (new only; edits require restart)
+    const agentRunning = useAgentStore.getState().agentRunning;
+    if (dynamicInfo && agentRunning) {
+      try {
+        await api.addService(tab, dynamicInfo);
+        toast.success("服务已添加并启动");
+      } catch (e) {
+        toast.warning(`已保存配置，但动态添加失败: ${e}`);
+      }
+    } else {
+      toast.success(isEditing ? "服务已更新，重启后生效" : "服务已添加");
+    }
+
     closeServiceForm();
-    toast.success(isEditing ? "服务已更新" : "服务已添加");
   };
 
   const handleDelete = () => {
@@ -150,6 +171,7 @@ export function ServiceForm() {
         break;
     }
     setCurrentConfig(config);
+    if (activeProfile) saveConfig(activeProfile, config);
     closeServiceForm();
     toast.success("服务已删除");
   };

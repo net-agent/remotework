@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandChild;
 
@@ -83,15 +83,24 @@ pub async fn start_agent(
     *state.api_port.lock().unwrap() = port;
 
     // Spawn a task to read sidecar output (prevent pipe buffer from filling)
+    let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
         use tauri_plugin_shell::process::CommandEvent;
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
-                    eprintln!("[agent stdout] {}", String::from_utf8_lossy(&line));
+                    let text = String::from_utf8_lossy(&line).to_string();
+                    eprintln!("[agent stdout] {}", &text);
+                    let _ = app_handle.emit("sidecar-log", serde_json::json!({
+                        "source": "stdout", "line": text
+                    }));
                 }
                 CommandEvent::Stderr(line) => {
-                    eprintln!("[agent stderr] {}", String::from_utf8_lossy(&line));
+                    let text = String::from_utf8_lossy(&line).to_string();
+                    eprintln!("[agent stderr] {}", &text);
+                    let _ = app_handle.emit("sidecar-log", serde_json::json!({
+                        "source": "stderr", "line": text
+                    }));
                 }
                 CommandEvent::Terminated(_) => break,
                 _ => {}

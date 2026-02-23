@@ -15,7 +15,7 @@ export function SettingsPage() {
   const [logLevel, setLogLevel] = useState("info");
   const { setLogLevel: apiSetLogLevel } = useAgentApi();
   const { agentRunning } = useAgentStore();
-  const { activeProfile, dirty } = useProfileStore();
+  const { activeProfile, dirty, needsRestart } = useProfileStore();
   const { restartAgent } = useSidecar();
 
   const handleLogLevelChange = async (level: string) => {
@@ -64,7 +64,7 @@ export function SettingsPage() {
               </SelectContent>
             </Select>
           </div>
-          {dirty && (
+          {(dirty || needsRestart) && (
             <div className="flex items-center justify-between">
               <span className="text-sm text-amber-600">配置已修改，需要重启</span>
               <Button size="sm" variant="outline" onClick={handleRestart}>

@@ -1,16 +1,19 @@
+import { NetworksTab } from "@/components/tabs/NetworksTab";
+import { ServicesTab } from "@/components/tabs/ServicesTab";
+import { LogsTab } from "@/components/tabs/LogsTab";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
-import { NetworkCard } from "@/components/network/NetworkCard";
-import { EmptyState } from "@/components/network/EmptyState";
 import { useAgentStore } from "@/stores/agent-store";
+import { useProfileStore } from "@/stores/profile-store";
 import { useUIStore } from "@/stores/ui-store";
+import { useSidecar } from "@/hooks/use-sidecar";
+import { RotateCw } from "lucide-react";
+import { toast } from "sonner";
 
 export function MainPage() {
-  const { networks, agentRunning } = useAgentStore();
-  const { openNetworkForm, openServiceForm } = useUIStore();
-
-  // Filter out built-in networks (tcp, tcp4, tcp6 — those with empty protocol)
-  const userNetworks = networks.filter((n) => n.protocol !== "");
+  const { agentRunning } = useAgentStore();
+  const { activeTab } = useUIStore();
+  const { needsRestart, activeProfile, clearNeedsRestart } = useProfileStore();
+  const { restartAgent } = useSidecar();
 
   if (!agentRunning) {
     return (
@@ -22,40 +25,38 @@ export function MainPage() {
     );
   }
 
-  if (userNetworks.length === 0) {
-    return <EmptyState />;
-  }
+  const handleRestart = async () => {
+    if (!activeProfile) return;
+    try {
+      await restartAgent(activeProfile);
+      clearNeedsRestart();
+      toast.success("Agent 已重启");
+    } catch (e) {
+      toast.error(`重启失败: ${e}`);
+    }
+  };
 
   return (
-    <div className="p-3 space-y-0.5">
-      <div className="flex items-center justify-between px-0.5">
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          网络 ({userNetworks.length})
-        </span>
-        <div className="flex gap-0.5">
+    <div className="flex flex-col h-full">
+      {needsRestart && (
+        <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-400 shrink-0">
+          <span>配置已修改，重启后生效</span>
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 text-xs px-1.5"
-            onClick={() => openServiceForm()}
+            className="h-5 text-xs px-1.5 text-amber-700 dark:text-amber-400 hover:text-amber-900"
+            onClick={handleRestart}
           >
-            <Plus className="h-3.5 w-3.5 mr-0.5" />
-            服务
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-xs px-1.5"
-            onClick={() => openNetworkForm()}
-          >
-            <Plus className="h-3.5 w-3.5 mr-0.5" />
-            网络
+            <RotateCw className="h-3 w-3 mr-1" />
+            重启
           </Button>
         </div>
+      )}
+      <div className="flex-1 min-h-0">
+        {activeTab === "networks" && <NetworksTab />}
+        {activeTab === "services" && <ServicesTab />}
+        {activeTab === "logs" && <LogsTab />}
       </div>
-      {userNetworks.map((net) => (
-        <NetworkCard key={net.name} network={net} />
-      ))}
     </div>
   );
 }

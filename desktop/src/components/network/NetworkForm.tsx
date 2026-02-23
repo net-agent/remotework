@@ -12,12 +12,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUIStore } from "@/stores/ui-store";
 import { useProfileStore } from "@/stores/profile-store";
+import { useAgentStore } from "@/stores/agent-store";
 import { emptyAgentInfo, type AgentInfo } from "@/lib/config-types";
+import * as api from "@/lib/api";
 import { toast } from "sonner";
 
 export function NetworkForm() {
   const { networkFormOpen, closeNetworkForm, editingNetworkIndex } = useUIStore();
-  const { currentConfig, setCurrentConfig } = useProfileStore();
+  const { currentConfig, setCurrentConfig, saveConfig, activeProfile } = useProfileStore();
+  const { agentRunning } = useAgentStore();
   const isEditing = editingNetworkIndex !== null;
 
   const [form, setForm] = useState<AgentInfo>(emptyAgentInfo());
@@ -44,7 +47,7 @@ export function NetworkForm() {
     return url;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name.trim()) {
       toast.error("请输入网络名称");
       return;
@@ -59,22 +62,38 @@ export function NetworkForm() {
       url: buildUrl(),
     };
 
+    // Save to config
     const agents = [...currentConfig.agents];
     if (isEditing) {
       agents[editingNetworkIndex!] = agent;
     } else {
       agents.push(agent);
     }
+    const newConfig = { ...currentConfig, agents };
+    setCurrentConfig(newConfig);
+    if (activeProfile) saveConfig(activeProfile, newConfig);
 
-    setCurrentConfig({ ...currentConfig, agents });
+    // Dynamically add to running agent (new only; edits require restart)
+    if (!isEditing && agentRunning) {
+      try {
+        await api.addNetwork(agent);
+        toast.success("网络已添加并启动");
+      } catch (e) {
+        toast.warning(`已保存配置，但动态添加失败: ${e}`);
+      }
+    } else {
+      toast.success(isEditing ? "网络已更新，重启后生效" : "网络已添加");
+    }
+
     closeNetworkForm();
-    toast.success(isEditing ? "网络已更新" : "网络已添加");
   };
 
   const handleDelete = () => {
     if (!isEditing) return;
     const agents = currentConfig.agents.filter((_, i) => i !== editingNetworkIndex);
-    setCurrentConfig({ ...currentConfig, agents });
+    const newConfig = { ...currentConfig, agents };
+    setCurrentConfig(newConfig);
+    if (activeProfile) saveConfig(activeProfile, newConfig);
     closeNetworkForm();
     toast.success("网络已删除");
   };
