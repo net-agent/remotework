@@ -19,8 +19,8 @@ func TestNetworkRegistry_AddAndFind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Find() error: %v", err)
 	}
-	if got != mn {
-		t.Error("Find() returned different network")
+	if got.GetName() != "test-net" {
+		t.Errorf("Find() returned network with name %q, want %q", got.GetName(), "test-net")
 	}
 }
 

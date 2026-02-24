@@ -1,10 +1,6 @@
 package server
 
 import (
-	"fmt"
-	"path"
-	"strings"
-
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -21,16 +17,7 @@ type ServerInfo struct {
 
 func NewConfig(configFile string) (*Config, error) {
 	cfg := &Config{}
-	var err error
-	switch strings.ToLower(path.Ext(configFile)) {
-	case ".json":
-		err = utils.LoadJSONFile(configFile, cfg)
-	case ".toml":
-		err = utils.LoadTomlFile(configFile, cfg)
-	default:
-		err = fmt.Errorf("config file [%s] not supported, must be json or toml", configFile)
-	}
-	if err != nil {
+	if err := utils.LoadConfigFile(configFile, cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil

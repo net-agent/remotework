@@ -8,54 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/net-agent/flex/v2/stream"
+	"github.com/net-agent/flex/v3/stream"
 	"github.com/net-agent/remotework/utils"
 )
-
-//
-// ServiceManager 状态报告方法
-//
-
-func (sm *ServiceManager) GetAllState() ([]ServiceState, error) {
-	sm.mut.RLock()
-	defer sm.mut.RUnlock()
-
-	if len(sm.svcs) <= 0 {
-		return nil, errors.New("NO SERVICES")
-	}
-
-	var reports []ServiceState
-	for _, svc := range sm.svcs {
-		reports = append(reports, svc.ServiceState)
-	}
-	return reports, nil
-}
-
-func (sm *ServiceManager) GetAllStateString() string {
-	reports, err := sm.GetAllState()
-	if err != nil {
-		return fmt.Sprintf("report service failed: %v\n", err)
-	}
-
-	buf := bytes.NewBufferString("report service:\n")
-	utils.RenderAsciiTable(buf, reports,
-		[]string{"index", "type", "name", "state", "listen", "target", "actives", "dones"},
-		func(d interface{}, index int) []string {
-			s := d.(ServiceState)
-			return []string{
-				fmt.Sprintf("%v", index),
-				s.Type,
-				s.Name,
-				s.StatusString(),
-				s.ListenURL,
-				s.TargetURL,
-				fmt.Sprintf("%v", s.GetActiveCount()),
-				fmt.Sprintf("%v", s.GetDoneCount()),
-			}
-		},
-	)
-	return buf.String()
-}
 
 //
 // NetworkRegistry 状态报告方法
@@ -106,7 +61,12 @@ type streamStateProvider interface {
 }
 
 func getDataStreamStateByNetwork(mnet Network) (actives, closeds []*stream.State) {
-	provider, ok := mnet.(streamStateProvider)
+	// 穿透装饰器访问内部 Network
+	inner := mnet
+	if rn, ok := mnet.(*reportingNetwork); ok {
+		inner = rn.Network
+	}
+	provider, ok := inner.(streamStateProvider)
 	if !ok {
 		return nil, nil
 	}
@@ -123,14 +83,14 @@ func (nr *NetworkRegistry) GetAllDataStreamStateString() string {
 	buf := bytes.NewBufferString("report actived stream:\n")
 
 	nr.mut.RLock()
-	nets := make(map[string]Network, len(nr.nets))
+	nets := make(map[string]*reportingNetwork, len(nr.nets))
 	for k, v := range nr.nets {
 		nets[k] = v
 	}
 	nr.mut.RUnlock()
 
-	for networkName, mnet := range nets {
-		states, _ := getDataStreamStateByNetwork(mnet)
+	for networkName, rn := range nets {
+		states, _ := getDataStreamStateByNetwork(rn)
 		if len(states) > 0 {
 			utils.RenderAsciiTable(buf, states,
 				[]string{"index", "network", "local", "remote", "readed", "wrote", "alive"},
@@ -244,10 +204,12 @@ func (hub *Hub) GetPingStateString() string {
 //
 
 func (hub *Hub) GetAllServiceState() ([]ServiceState, error)  { return hub.services.GetAllState() }
-func (hub *Hub) GetAllServiceStateString() string              { return hub.services.GetAllStateString() }
-func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error)  { return hub.networks.GetAllState() }
-func (hub *Hub) GetAllNetworkStateString() string              { return hub.networks.GetAllStateString() }
-func (hub *Hub) GetAllDataStreamStateString() string           { return hub.networks.GetAllDataStreamStateString() }
+func (hub *Hub) GetAllServiceStateString() string             { return hub.services.GetAllStateString() }
+func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error) { return hub.networks.GetAllState() }
+func (hub *Hub) GetAllNetworkStateString() string             { return hub.networks.GetAllStateString() }
+func (hub *Hub) GetAllDataStreamStateString() string {
+	return hub.networks.GetAllDataStreamStateString()
+}
 func (hub *Hub) GetDataStreamState(limits int, networks ...string) []*DataStreamState {
 	return hub.networks.GetDataStreamState(limits, networks...)
 }

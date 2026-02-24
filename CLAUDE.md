@@ -64,7 +64,7 @@ Supports JSON (with `//` line comments) and TOML. Key sections: `agent` (network
 
 ## Key Dependencies
 
-- `github.com/net-agent/flex/v2` — Virtual network protocol (core transport layer)
+- `github.com/net-agent/flex/v3` — Virtual network protocol (core transport layer)
 - `github.com/net-agent/cipherconn` — Pre-shared key encryption
 - `github.com/net-agent/socks` — SOCKS5 implementation
 - `github.com/getlantern/systray` — System tray UI

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -29,6 +30,18 @@ func LoadJSONFile(pathname string, v interface{}) error {
 func LoadTomlFile(pathname string, v interface{}) error {
 	_, err := toml.DecodeFile(pathname, v)
 	return err
+}
+
+// LoadConfigFile 根据文件扩展名（.json/.toml）加载配置到目标对象
+func LoadConfigFile(configFile string, v interface{}) error {
+	switch strings.ToLower(path.Ext(configFile)) {
+	case ".json":
+		return LoadJSONFile(configFile, v)
+	case ".toml":
+		return LoadTomlFile(configFile, v)
+	default:
+		return fmt.Errorf("config file [%s] not supported, must be json or toml", configFile)
+	}
 }
 
 func FileExist(path string) bool {

@@ -15,7 +15,7 @@ type mockNetwork struct {
 	dialFn   func(network, addr string) (net.Conn, error)
 	listenFn func(network, addr string) (net.Listener, error)
 	pingFn   func(domain string, timeout time.Duration) (time.Duration, error)
-	report   NetworkReport
+	meta     *NetworkMeta
 
 	stopped int32
 }
@@ -48,8 +48,11 @@ func (m *mockNetwork) Ping(domain string, timeout time.Duration) (time.Duration,
 	}
 	return 0, ErrPingNotSupported
 }
-func (m *mockNetwork) Report() NetworkReport {
-	return m.report
+func (m *mockNetwork) Meta() NetworkMeta {
+	if m.meta != nil {
+		return *m.meta
+	}
+	return NetworkMeta{}
 }
 func (m *mockNetwork) Stop() {
 	atomic.StoreInt32(&m.stopped, 1)
@@ -60,16 +63,14 @@ func (m *mockNetwork) isStopped() bool {
 
 // mockServiceController 实现 ServiceController 接口
 type mockServiceController struct {
-	mu        sync.Mutex
-	initErr   error
-	startErr  error
-	closeErr  error
-	updateErr error
+	mu       sync.Mutex
+	initErr  error
+	startErr error
+	closeErr error
 
-	initCalled   int32
-	startCalled  int32
-	closeCalled  int32
-	updateCalled int32
+	initCalled  int32
+	startCalled int32
+	closeCalled int32
 
 	// startBlock 如果非 nil，Start() 会阻塞直到该 channel 关闭
 	startBlock chan struct{}
@@ -102,14 +103,6 @@ func (c *mockServiceController) Close() error {
 	atomic.AddInt32(&c.closeCalled, 1)
 	c.mu.Lock()
 	err := c.closeErr
-	c.mu.Unlock()
-	return err
-}
-
-func (c *mockServiceController) Update() error {
-	atomic.AddInt32(&c.updateCalled, 1)
-	c.mu.Lock()
-	err := c.updateErr
 	c.mu.Unlock()
 	return err
 }

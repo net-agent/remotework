@@ -1,15 +1,47 @@
 package agent
 
-import "sync/atomic"
+import (
+	"net"
+	"sync/atomic"
+	"time"
+)
 
-type networkinfo struct {
-	name        string
-	dialCount   int32
-	listenCount int32
+// reportingNetwork 装饰器，包装 Network 统一追踪通用指标
+type reportingNetwork struct {
+	Network
+	start       time.Time
+	dialCount   atomic.Int32
+	listenCount atomic.Int32
 }
 
-func (info *networkinfo) GetName() string        { return info.name }
-func (info *networkinfo) addDialCount(n int32)   { atomic.AddInt32(&info.dialCount, n) }
-func (info *networkinfo) addListenCount(n int32) { atomic.AddInt32(&info.listenCount, n) }
-func (info *networkinfo) getDialCount() int32    { return atomic.LoadInt32(&info.dialCount) }
-func (info *networkinfo) getListenCount() int32  { return atomic.LoadInt32(&info.listenCount) }
+func newReportingNetwork(n Network) *reportingNetwork {
+	return &reportingNetwork{Network: n, start: time.Now()}
+}
+
+func (r *reportingNetwork) Dial(network, addr string) (net.Conn, error) {
+	r.dialCount.Add(1)
+	return r.Network.Dial(network, addr)
+}
+
+func (r *reportingNetwork) Listen(network, addr string) (net.Listener, error) {
+	r.listenCount.Add(1)
+	return r.Network.Listen(network, addr)
+}
+
+func (r *reportingNetwork) Report() NetworkReport {
+	report := NetworkReport{
+		Name:    r.GetName(),
+		Alive:   time.Since(r.start),
+		Dials:   r.dialCount.Load(),
+		Listens: r.listenCount.Load(),
+	}
+	if mp, ok := r.Network.(NetworkMetaProvider); ok {
+		meta := mp.Meta()
+		report.Protocol = meta.Protocol
+		report.Address = meta.Address
+		report.Domain = meta.Domain
+		report.State = meta.State
+		report.LastErr = meta.LastErr
+	}
+	return report
+}

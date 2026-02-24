@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"path"
-	"strings"
 
 	"github.com/net-agent/remotework/utils"
 )
@@ -63,19 +61,10 @@ type RDPInfo struct {
 
 func NewConfig(configFileName string) (*Config, error) {
 	cfg := &Config{}
-	var err error
-	switch strings.ToLower(path.Ext(configFileName)) {
-	case ".json":
-		err = utils.LoadJSONFile(configFileName, cfg)
-	case ".toml":
-		err = utils.LoadTomlFile(configFileName, cfg)
-	default:
-		err = fmt.Errorf("config file [%s] not support, must be json or toml", configFileName)
-	}
-	if err != nil {
+	if err := utils.LoadConfigFile(configFileName, cfg); err != nil {
 		return nil, err
 	}
-	if err = cfg.PreProcess(); err != nil {
+	if err := cfg.PreProcess(); err != nil {
 		return nil, err
 	}
 	return cfg, nil

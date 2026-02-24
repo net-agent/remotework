@@ -16,7 +16,7 @@ import (
 // NetworkRegistry 管理所有网络的注册、查找和连接工厂
 type NetworkRegistry struct {
 	log  *slog.Logger
-	nets map[string]Network
+	nets map[string]*reportingNetwork
 	mut  sync.RWMutex
 }
 
@@ -27,7 +27,7 @@ func newNetworkRegistryBare(log *slog.Logger) *NetworkRegistry {
 	}
 	return &NetworkRegistry{
 		log:  log,
-		nets: make(map[string]Network),
+		nets: make(map[string]*reportingNetwork),
 	}
 }
 
@@ -39,7 +39,7 @@ func NewNetworkRegistry(log *slog.Logger) *NetworkRegistry {
 	return nr
 }
 
-// Add 在注册表中增加network
+// Add 在注册表中增加network，自动包装为 reportingNetwork
 func (nr *NetworkRegistry) Add(mnet Network) error {
 	name := mnet.GetName()
 	if name == "" {
@@ -51,7 +51,7 @@ func (nr *NetworkRegistry) Add(mnet Network) error {
 	if _, found := nr.nets[name]; found {
 		return errors.New("network exists")
 	}
-	nr.nets[name] = mnet
+	nr.nets[name] = newReportingNetwork(mnet)
 	return nil
 }
 
@@ -91,14 +91,14 @@ func (nr *NetworkRegistry) isBuiltinNetwork(network string) bool {
 
 func (nr *NetworkRegistry) StopAll() {
 	nr.mut.RLock()
-	nets := make(map[string]Network, len(nr.nets))
-	for k, v := range nr.nets {
-		nets[k] = v
+	nets := make([]*reportingNetwork, 0, len(nr.nets))
+	for _, v := range nr.nets {
+		nets = append(nets, v)
 	}
 	nr.mut.RUnlock()
 
-	for _, mnet := range nets {
-		mnet.Stop()
+	for _, rn := range nets {
+		rn.Stop()
 	}
 }
 

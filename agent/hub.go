@@ -43,7 +43,8 @@ func (hub *Hub) MountConfig(cfg *Config) error {
 	var errs []string
 
 	for _, info := range cfg.Agents {
-		if err := hub.networks.Add(NewNetwork(hub, hub, info, hub.log)); err != nil {
+
+		if err := hub.NewAgentNetwork(info); err != nil {
 			hub.log.Warn("network register failed", "err", err)
 			errs = append(errs, fmt.Sprintf("network: %v", err))
 		}
@@ -98,15 +99,14 @@ func (hub *Hub) Stop() {
 
 // NewAgentNetwork 创建并注册一个 agent 网络，消除外部对 NewNetwork 的直接依赖
 func (hub *Hub) NewAgentNetwork(info AgentInfo) error {
-	return hub.networks.Add(NewNetwork(hub, hub, info, hub.log))
+	vnet, err := NewNetwork(hub, info)
+	if err != nil {
+		return err
+	}
+	return hub.networks.Add(vnet)
 }
 
-// UpdateNetwork 实现 NetworkUpdateNotifier 接口，桥接 Networks 和 Services
-func (hub *Hub) UpdateNetwork(network string) {
-	hub.services.UpdateByNetwork(network)
-}
-
-// Dial 实现 RawDialer 接口，供 NewNetwork 使用
+// Dial 供 NetworkRegistry 使用
 func (hub *Hub) Dial(network, addr string) (net.Conn, error) {
 	return hub.networks.Dial(network, addr)
 }
@@ -125,12 +125,19 @@ func (hub *Hub) URLDialer(raw string) (QuickDialer, error) {
 // 外部 API 兼容的委托方法
 //
 
-func (hub *Hub) AddNetwork(mnet Network) error              { return hub.networks.Add(mnet) }
+func (hub *Hub) AddNetwork(mnet Network) error               { return hub.networks.Add(mnet) }
 func (hub *Hub) FindNetwork(network string) (Network, error) { return hub.networks.Find(network) }
 func (hub *Hub) AddService(svc *Service) error               { return hub.services.Add(svc) }
-func (hub *Hub) FindService(name string) (*Service, error)   { return hub.services.Find(name) }
-func (hub *Hub) IsRunning() bool                             { return atomic.LoadInt32(&hub.running) == 1 }
-func (hub *Hub) RangeAllService(fn func(svc *Service))       { hub.services.Range(fn) }
+func (hub *Hub) AddAndStartService(svc *Service) error {
+	if err := hub.services.Add(svc); err != nil {
+		return err
+	}
+	hub.services.Start(svc)
+	return nil
+}
+func (hub *Hub) FindService(name string) (*Service, error) { return hub.services.Find(name) }
+func (hub *Hub) IsRunning() bool                           { return atomic.LoadInt32(&hub.running) == 1 }
+func (hub *Hub) RangeAllService(fn func(svc *Service))     { hub.services.Range(fn) }
 
 //
 // Deprecated 方法，保持向后兼容

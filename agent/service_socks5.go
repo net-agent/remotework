@@ -12,12 +12,11 @@ import (
 )
 
 type Socks5Controller struct {
-	state *ServiceState
-	log   *slog.Logger
-	lf    ListenerFactory
-
-	hsl    *HotSwapListener
-	server socks.Server
+	state    *ServiceState
+	log      *slog.Logger
+	lf       ListenerFactory
+	listener net.Listener
+	server   socks.Server
 }
 
 func NewSocks5Controller(lf ListenerFactory, state *ServiceState) *Socks5Controller {
@@ -44,45 +43,24 @@ func (s *Socks5Controller) Init() error {
 		return utils.LinkReadWriteCloser(a, b)
 	})
 
-	s.hsl = NewHotSwapListener(func() (net.Listener, error) {
-		return s.lf.ListenURL(s.state.ListenURL)
-	})
-
-	if err := s.hsl.Refresh(); err != nil {
+	var err error
+	s.listener, err = s.lf.ListenURL(s.state.ListenURL)
+	if err != nil {
 		return err
 	}
-
 	return nil
 }
 
-func (s *Socks5Controller) Update() error {
-	return s.hsl.Refresh()
-}
-
 func (s *Socks5Controller) Start() error {
-	if s.server == nil || s.hsl == nil {
+	if s.server == nil || s.listener == nil {
 		return errors.New("init failed")
 	}
-
-	l := s.hsl.Get()
-	for {
-		err := s.server.Run(l)
-
-		time.Sleep(100 * time.Millisecond) // 等待Update()有机会替换listener
-		newListener := s.hsl.Get()
-		if newListener != nil && l != newListener {
-			s.log.Info("listener updated")
-			l = newListener
-			continue
-		}
-
-		return err
-	}
+	return s.server.Run(s.listener)
 }
 
 func (s *Socks5Controller) Close() error {
-	if s.hsl != nil {
-		s.hsl.Close()
+	if s.listener != nil {
+		s.listener.Close()
 	}
 	if s.server != nil {
 		s.server.Close()

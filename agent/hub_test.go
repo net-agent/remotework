@@ -3,7 +3,6 @@ package agent
 import (
 	"errors"
 	"net"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -37,8 +36,8 @@ func TestHub_AddAndFindNetwork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindNetwork() error: %v", err)
 	}
-	if got != mn {
-		t.Error("FindNetwork() returned different network")
+	if got.GetName() != "vnet" {
+		t.Errorf("FindNetwork() returned network with name %q, want %q", got.GetName(), "vnet")
 	}
 }
 
@@ -56,22 +55,6 @@ func TestHub_AddAndFindService(t *testing.T) {
 	}
 	if got != svc {
 		t.Error("FindService() returned different service")
-	}
-}
-
-func TestHub_UpdateNetwork(t *testing.T) {
-	hub := NewHub(nil)
-	svc, ctrl := newTestService("pp", "portproxy", "vtcp://host:80", "tcp://0:81")
-	hub.AddService(svc)
-	svc.SetStatus(StatusRunning)
-
-	hub.UpdateNetwork("vtcp://")
-
-	// UpdateByNetwork 内部用 go svc.controller.Update()，等一下
-	time.Sleep(100 * time.Millisecond)
-
-	if atomic.LoadInt32(&ctrl.updateCalled) != 1 {
-		t.Errorf("Update called %d times, want 1", atomic.LoadInt32(&ctrl.updateCalled))
 	}
 }
 

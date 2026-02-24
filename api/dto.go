@@ -3,7 +3,7 @@ package api
 import (
 	"time"
 
-	"github.com/net-agent/flex/v2/stream"
+	"github.com/net-agent/flex/v3/stream"
 	"github.com/net-agent/remotework/agent"
 )
 
@@ -12,6 +12,7 @@ type ServiceStateDTO struct {
 	Type      string `json:"type"`
 	Name      string `json:"name"`
 	Status    string `json:"status"`
+	LastErr   string `json:"lastErr,omitempty"`
 	ListenURL string `json:"listenURL"`
 	TargetURL string `json:"targetURL"`
 	Actives   int32  `json:"actives"`
@@ -55,6 +56,7 @@ func toServiceDTO(s agent.ServiceState) ServiceStateDTO {
 		Type:      s.Type,
 		Name:      s.Name,
 		Status:    s.StatusString(),
+		LastErr:   s.LastErr,
 		ListenURL: s.ListenURL,
 		TargetURL: s.TargetURL,
 		Actives:   s.GetActiveCount(),

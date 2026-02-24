@@ -1,348 +1,110 @@
 package agent
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"strconv"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/net-agent/flex/v2/handshake"
-	"github.com/net-agent/flex/v2/node"
-	"github.com/net-agent/flex/v2/packet"
-	"github.com/net-agent/flex/v2/stream"
-	"github.com/net-agent/remotework/utils"
+	"github.com/net-agent/flex/v3/node"
+	"github.com/net-agent/flex/v3/packet"
 )
 
 var (
 	ErrNodeClosed = errors.New("connect failed, node closed")
 )
 
-type networkImpl struct {
-	networkinfo
-	rawDialer  RawDialer
-	notifier   NetworkUpdateNotifier
-	log               *slog.Logger
-	onceInit          sync.Once
-	nodeWaiter        chan *node.Node
-	nodeWaiterTimeout time.Duration
-
-	mu      sync.RWMutex // 保护 node, state, lastErr, closed, ConnectTime
-	node    *node.Node
-	state   string
-	lastErr string
-	closed  bool
-
-	Protocol    string
-	Address     string
-	URL         string
-	Domain      string
-	Password    string
-	MacStr      string
-	ConnectTime time.Time
+type flexNetwork struct {
+	hub     *Hub
+	info    AgentInfo
+	session *node.Session
 }
 
-func NewNetwork(rd RawDialer, notifier NetworkUpdateNotifier, info AgentInfo, log *slog.Logger) *networkImpl {
-	if log == nil {
-		log = utils.NewModuleLogger("net." + info.Name)
-	} else {
-		log = log.With("module", "net."+info.Name)
-	}
-	n := &networkImpl{
-		networkinfo:       networkinfo{name: info.Name},
-		rawDialer:         rd,
-		notifier:          notifier,
-		log:               log,
-		state:             "offline",
-		lastErr:           "",
-		nodeWaiter:        make(chan *node.Node),
-		nodeWaiterTimeout: time.Second * 8,
+func NewNetwork(hub *Hub, info AgentInfo) (Network, error) {
+	var connector func() (packet.Conn, error)
 
-		Protocol:    info.Protocol,
-		Domain:      info.Domain,
-		Address:     info.Address,
-		Password:    info.Password,
-		MacStr:      utils.GetMacAddressStr(),
-		ConnectTime: time.Now(),
-	}
-
-	n.URL = fmt.Sprintf("%v://%v%v", info.Protocol, info.Address, info.WsPath)
-
-	return n
-}
-
-func (mnet *networkImpl) Stop() {
-	mnet.mu.Lock()
-	mnet.closed = true
-	n := mnet.node
-	mnet.mu.Unlock()
-	if n != nil {
-		n.Close()
-	}
-}
-
-func (mnet *networkImpl) isClosed() bool {
-	mnet.mu.RLock()
-	defer mnet.mu.RUnlock()
-	return mnet.closed
-}
-
-func (mnet *networkImpl) setState(state, lastErr string) {
-	mnet.mu.Lock()
-	oldState := mnet.state
-	mnet.state = state
-	if lastErr != "" {
-		mnet.lastErr = lastErr
-	}
-	mnet.mu.Unlock()
-
-	if oldState != state {
-		if n, ok := mnet.notifier.(NetworkStateNotifier); ok {
-			n.NotifyNetworkStateChange(mnet.name, oldState, state)
+	switch info.Protocol {
+	case "ws", "wss":
+		wsURL := fmt.Sprintf("%s://%s%s", info.Protocol, info.Address, info.WsPath)
+		connector = func() (packet.Conn, error) {
+			wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+			if err != nil {
+				return nil, err
+			}
+			return packet.NewWithWs(wsConn), nil
+		}
+	default:
+		connector = func() (packet.Conn, error) {
+			conn, err := net.Dial("tcp", info.Address)
+			if err != nil {
+				return nil, err
+			}
+			return packet.NewWithConn(conn), nil
 		}
 	}
-}
 
-func (mnet *networkImpl) setOnline(n *node.Node) {
-	mnet.mu.Lock()
-	oldState := mnet.state
-	mnet.node = n
-	mnet.state = "online"
-	mnet.lastErr = ""
-	mnet.ConnectTime = time.Now()
-	mnet.mu.Unlock()
-
-	if oldState != "online" {
-		if notifier, ok := mnet.notifier.(NetworkStateNotifier); ok {
-			notifier.NotifyNetworkStateChange(mnet.name, oldState, "online")
-		}
+	cfg := node.SessionConfig{
+		Domain:   info.Domain,
+		Password: info.Password,
 	}
+
+	sess := node.NewSession(connector, cfg)
+	go sess.Serve()
+
+	return &flexNetwork{
+		hub:     hub,
+		info:    info,
+		session: sess,
+	}, nil
 }
 
-func (mnet *networkImpl) clearNode() {
-	mnet.mu.Lock()
-	oldState := mnet.state
-	mnet.node = nil
-	mnet.state = "offline"
-	mnet.mu.Unlock()
+func (fnet *flexNetwork) GetName() string                             { return fnet.info.Name }
+func (fnet *flexNetwork) Dial(network, addr string) (net.Conn, error) { return fnet.session.Dial(addr) }
+func (fnet *flexNetwork) Stop()                                       { fnet.session.Close() }
 
-	if oldState != "offline" {
-		if notifier, ok := mnet.notifier.(NetworkStateNotifier); ok {
-			notifier.NotifyNetworkStateChange(mnet.name, oldState, "offline")
-		}
+func (fnet *flexNetwork) Listen(network, addr string) (net.Listener, error) {
+	if network != fnet.GetName() {
+		return nil, errors.New("network name mismatch")
 	}
-}
-
-func (mnet *networkImpl) Report() NetworkReport {
-	mnet.mu.RLock()
-	state := mnet.state
-	lastErr := mnet.lastErr
-	connectTime := mnet.ConnectTime
-	mnet.mu.RUnlock()
-
-	alive := time.Since(connectTime)
-	if state != "online" {
-		alive = 0
-	}
-	return NetworkReport{
-		Name:     mnet.name,
-		Protocol: mnet.Protocol,
-		Address:  mnet.Address,
-		Domain:   mnet.Domain,
-		Alive:    alive,
-		Listens:  mnet.getListenCount(),
-		Accepts:  0,
-		Dials:    mnet.getDialCount(),
-		State:    state,
-		LastErr:  lastErr,
-	}
-}
-
-func (mnet *networkImpl) getNode() *node.Node {
-	mnet.mu.RLock()
-	defer mnet.mu.RUnlock()
-	return mnet.node
-}
-
-// GetStreamStates 实现 streamStateProvider 接口
-func (mnet *networkImpl) GetStreamStates() (actives, closeds []*stream.State) {
-	n := mnet.getNode()
-	if n == nil {
-		return nil, nil
-	}
-	actives = n.GetStreamStateList()
-	closeds = n.GetClosedStreamStateList(0)
-	return actives, closeds
-}
-
-func (mnet *networkImpl) Dial(network, addr string) (net.Conn, error) {
-	node, err := mnet.getNodeInstance()
+	port, err := parsePort(addr)
 	if err != nil {
 		return nil, err
 	}
-	if node == nil {
-		return nil, errors.New("dial with nil node")
-	}
-	mnet.addDialCount(1)
-	return node.Dial(addr)
+	return fnet.session.Listen(port)
 }
 
-func (mnet *networkImpl) Ping(domain string, timeout time.Duration) (time.Duration, error) {
-	node, err := mnet.getNodeInstance()
+func parsePort(addr string) (uint16, error) {
+	hostname, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return 0, err
 	}
-	return node.PingDomain(domain, timeout)
-}
-
-func (mnet *networkImpl) Listen(network, addr string) (net.Listener, error) {
-	hostname, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, err
-	}
 	if hostname != "" && hostname != "0" && hostname != "local" && hostname != "localhost" {
-		return nil, errors.New("invalid listen hostname")
+		return 0, errors.New("invalid listen hostname")
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-
-	node, err := mnet.getNodeInstance()
-	if err != nil {
-		return nil, err
+	if port < 0 || port > 65535 {
+		return 0, errors.New("invalid port number")
 	}
-	if node == nil {
-		return nil, errors.New("listen with nil node")
-	}
-	mnet.addListenCount(1)
-	return node.Listen(uint16(port))
+	return uint16(port), nil
 }
 
-func (mnet *networkImpl) getNodeInstance() (*node.Node, error) {
-	// 第一步：初始化（只会执行一次）
-	mnet.onceInit.Do(func() {
-		go mnet.keepalive()
-	})
-
-	// 第二步：获取实例
-	timer := time.NewTimer(mnet.nodeWaiterTimeout)
-	defer timer.Stop()
-
-	select {
-	case node := <-mnet.nodeWaiter:
-		if node == nil {
-			return nil, errors.New("node is nil")
-		}
-		return node, nil
-	case <-timer.C:
-		return nil, errors.New("wait node timeout")
+func (fnet *flexNetwork) Ping(domain string, timeout time.Duration) (time.Duration, error) {
+	pinger := fnet.session.GetNode()
+	if pinger == nil {
+		return 0, ErrNodeClosed
 	}
+	return pinger.PingDomain(domain, timeout)
 }
 
-// keepalive 创建连接，并保持连接在线。出现异常时会不断尝试重连，直至连接成功为止
-// 该方法在第一次尝试调用getNodeInstance时触发
-// 每一次调用Dial和Listen时，都会调用getNodeInstance
-func (mnet *networkImpl) keepalive() {
-	cd := utils.NewCooldown(3*time.Second, 1*time.Minute)
-
-	for {
-		mnet.setState("connecting", "")
-		n, err := mnet.connect()
-		cd.Tick() // 开始冷却计时
-
-		if err == ErrNodeClosed {
-			mnet.setState("closed", "")
-			mnet.log.Info("network closed")
-			return
-		}
-
-		if err != nil {
-			mnet.setState("offline", err.Error())
-
-			mnet.log.Warn("connect failed", "name", mnet.name, "err", err, "retry_after", cd.WaitDuration())
-
-			<-cd.Wait()
-			cd.Increase(3 * time.Second) // 连接失败后等待时间增加3秒
-		} else {
-			mnet.setOnline(n)
-
-			closeCtx, cancel := context.WithCancel(context.Background())
-			go func() {
-				for {
-					select {
-					case mnet.nodeWaiter <- n:
-					case <-closeCtx.Done():
-						return
-					}
-				}
-			}()
-
-			// mnet.node更新后，需要通知依赖方更新相应的service
-			mnet.notifier.UpdateNetwork(mnet.name)
-
-			// 连接成功后设置等待时间为30秒，至少30秒后才会开始重连
-			cd.Set(30 * time.Second)
-			n.Run() // 正常情况下这里会阻塞住
-
-			cancel()
-			mnet.clearNode()
-
-			mnet.log.Info("reconnecting", "name", mnet.name, "retry_after", cd.WaitDuration())
-			<-cd.Wait()
-			cd.Reset() // 清零等待的叠加时间
-		}
+func (fnet *flexNetwork) Meta() NetworkMeta {
+	return NetworkMeta{
+		Protocol: fnet.info.Protocol,
+		Address:  fnet.info.Address,
+		Domain:   fnet.info.Domain,
 	}
-}
-
-// connect 连接中转服务器，创建会话。每次断线后需要重新调用
-func (mnet *networkImpl) connect() (*node.Node, error) {
-	if mnet.isClosed() {
-		return nil, ErrNodeClosed
-	}
-	// step1: 尝试通过tcp或ws连接中转服务
-	var pc packet.Conn
-	var err error
-
-	if strings.HasPrefix(mnet.URL, "ws") {
-		mnet.log.Info("dialing", "url", mnet.URL)
-		var c *websocket.Conn
-		c, _, err = websocket.DefaultDialer.Dial(mnet.URL, nil)
-		if err == nil && c != nil {
-			pc = packet.NewWithWs(c)
-		}
-	} else {
-		mnet.log.Info("dialing", "addr", mnet.Address)
-		var c net.Conn
-		c, err = mnet.rawDialer.Dial(mnet.Protocol, mnet.Address)
-		if err == nil && c != nil {
-			pc = packet.NewWithConn(c)
-		}
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	if pc == nil {
-		return nil, fmt.Errorf("connect failed with no error")
-	}
-
-	// step2: 通过upgrade对连接进行认证升级
-	mnet.log.Info("upgrading", "name", mnet.name, "domain", mnet.Domain)
-	ip, err := handshake.UpgradeRequest(pc, mnet.Domain, mnet.MacStr, mnet.Password)
-	if err != nil {
-		pc.Close()
-		return nil, err
-	}
-
-	n := node.New(pc)
-	n.SetDomain(mnet.Domain)
-	n.SetIP(ip)
-	return n, nil
 }

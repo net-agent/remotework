@@ -68,7 +68,7 @@ func TestNetworkRegistry_GetAllState_Empty(t *testing.T) {
 func TestNetworkRegistry_GetAllState(t *testing.T) {
 	nr := newNetworkRegistryBare(nil)
 	mn := newMockNetwork("vnet")
-	mn.report = NetworkReport{Name: "vnet", State: "online"}
+	mn.meta = &NetworkMeta{State: "online"}
 	nr.Add(mn)
 
 	reports, err := nr.GetAllState()
@@ -86,7 +86,7 @@ func TestNetworkRegistry_GetAllState(t *testing.T) {
 func TestNetworkRegistry_GetAllStateString(t *testing.T) {
 	nr := newNetworkRegistryBare(nil)
 	mn := newMockNetwork("vnet")
-	mn.report = NetworkReport{Name: "vnet", Address: "1.2.3.4:80", Domain: "test"}
+	mn.meta = &NetworkMeta{Address: "1.2.3.4:80", Domain: "test"}
 	nr.Add(mn)
 
 	s := nr.GetAllStateString()

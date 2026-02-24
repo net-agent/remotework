@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/net-agent/flex/v2/stream"
+	"github.com/net-agent/flex/v3/stream"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -59,7 +59,6 @@ type ServiceController interface {
 	Init() error
 	Start() error
 	Close() error
-	Update() error // 依赖的netnode重连后，能够更新runner
 }
 
 type ServiceState struct {
@@ -69,6 +68,7 @@ type ServiceState struct {
 	TargetURL string
 	Username  string
 	Password  string
+	LastErr   string
 
 	status  int32 // 使用 atomic 操作，存储 ServiceStatus
 	ID      int32
@@ -77,16 +77,16 @@ type ServiceState struct {
 }
 
 func (s *ServiceState) SetStatus(st ServiceStatus) { atomic.StoreInt32(&s.status, int32(st)) }
-func (s *ServiceState) GetStatus() ServiceStatus    { return ServiceStatus(atomic.LoadInt32(&s.status)) }
-func (s *ServiceState) StatusString() string         { return s.GetStatus().String() }
+func (s *ServiceState) GetStatus() ServiceStatus   { return ServiceStatus(atomic.LoadInt32(&s.status)) }
+func (s *ServiceState) StatusString() string       { return s.GetStatus().String() }
 
 func (s *ServiceState) AddActiveCount(n int32) { atomic.AddInt32(&s.actives, n) }
 func (s *ServiceState) AddDoneCount(n int32) {
 	atomic.AddInt32(&s.actives, -n)
 	atomic.AddInt32(&s.dones, n)
 }
-func (s *ServiceState) GetActiveCount() int32     { return atomic.LoadInt32(&s.actives) }
-func (s *ServiceState) GetDoneCount() int32       { return atomic.LoadInt32(&s.dones) }
+func (s *ServiceState) GetActiveCount() int32        { return atomic.LoadInt32(&s.actives) }
+func (s *ServiceState) GetDoneCount() int32          { return atomic.LoadInt32(&s.dones) }
 func (s *ServiceState) IsListenDepend(n string) bool { return strings.HasPrefix(s.ListenURL, n) }
 func (s *ServiceState) IsTargetDepend(n string) bool { return strings.HasPrefix(s.TargetURL, n) }
 func (s *ServiceState) IsDepend(n string) bool {

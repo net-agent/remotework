@@ -12,13 +12,12 @@ import (
 )
 
 type PortproxyController struct {
-	state *ServiceState
-	log   *slog.Logger
-	lf    ListenerFactory
-	df    DialerFactory
-
-	hsl    *HotSwapListener
-	dialer QuickDialer
+	state    *ServiceState
+	log      *slog.Logger
+	lf       ListenerFactory
+	df       DialerFactory
+	listener net.Listener
+	dialer   QuickDialer
 }
 
 func NewPortproxyController(lf ListenerFactory, df DialerFactory, state *ServiceState) *PortproxyController {
@@ -37,59 +36,29 @@ func (s *PortproxyController) Init() error {
 	}
 	s.dialer = dialer
 
-	s.hsl = NewHotSwapListener(func() (net.Listener, error) {
-		return s.lf.ListenURL(s.state.ListenURL)
-	})
-
-	if err = s.hsl.Refresh(); err != nil {
+	s.listener, err = s.lf.ListenURL(s.state.ListenURL)
+	if err != nil {
 		return fmt.Errorf("listen url failed: %v", err)
 	}
-
 	return nil
 }
 
-func (s *PortproxyController) Update() error {
-	return s.hsl.Refresh()
-}
-
 func (p *PortproxyController) Start() error {
-	if p.dialer == nil || p.hsl == nil {
+	if p.dialer == nil || p.listener == nil {
 		return errors.New("init failed")
 	}
-
-	l := p.hsl.Get()
-
 	for {
-		conn, err := l.Accept()
-
-		if err == nil {
-			go p.serve(conn)
-			continue
+		conn, err := p.listener.Accept()
+		if err != nil {
+			return err
 		}
-
-		//
-		// accept连接出现错误后，尝试恢复服务，等待新的listener
-		// 如果尝试恢复listener失败后，才真正返回错误
-		//
-		time.Sleep(100 * time.Millisecond) // 等待Update()有机会替换listener
-		newListener := p.hsl.Get()
-		if newListener != nil && l != newListener {
-			// 更新listener成功，继续恢复accept循环
-			l = newListener
-
-			p.log.Info("listener updated")
-
-			continue
-		}
-
-		// 最终恢复失败后，返回
-		return err
+		go p.serve(conn)
 	}
 }
 
 func (p *PortproxyController) Close() error {
-	if p.hsl != nil {
-		return p.hsl.Close()
+	if p.listener != nil {
+		return p.listener.Close()
 	}
 	return nil
 }
@@ -101,7 +70,7 @@ func (p *PortproxyController) serve(dialConn net.Conn) {
 		p.state.AddDoneCount(1)
 	}()
 
-	targetConn, err := p.dialer() // quick dial target
+	targetConn, err := p.dialer()
 	if err != nil {
 		p.log.Error("dial error", "target", p.state.TargetURL, "err", err)
 		return

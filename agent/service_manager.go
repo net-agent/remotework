@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,7 +19,7 @@ type ServiceManager struct {
 	mut            sync.RWMutex
 	id             int32
 	waiter         sync.WaitGroup
-	running        int32 // atomic: 0=stopped, 1=running
+	running        int32                                                 // atomic: 0=stopped, 1=running
 	onStatusChange func(name string, oldStatus, newStatus ServiceStatus) // 可选回调
 }
 
@@ -124,6 +125,7 @@ func (sm *ServiceManager) manageState(svc *Service, waiter *sync.WaitGroup) {
 			sm.log.Info("service pending", "name", svc.Name, "waiting", depErr.Network)
 			return
 		}
+		svc.LastErr = err.Error()
 		svc.SetStatus(StatusFailed)
 		sm.fireStatusChange(svc.Name, StatusInit, StatusFailed)
 		sm.log.Error("init service failed", "name", svc.Name, "err", err)
@@ -168,32 +170,6 @@ func (sm *ServiceManager) IsRunning() bool {
 	return atomic.LoadInt32(&sm.running) == 1
 }
 
-// UpdateByNetwork 遍历服务，找到依赖指定网络的服务并触发更新或启动
-func (sm *ServiceManager) UpdateByNetwork(network string) {
-	updated := 0
-	started := 0
-	sm.mut.RLock()
-	svcs := make([]*Service, len(sm.svcs))
-	copy(svcs, sm.svcs)
-	sm.mut.RUnlock()
-
-	for _, svc := range svcs {
-		switch svc.GetStatus() {
-		case StatusRunning:
-			if svc.IsListenDepend(network) {
-				go svc.controller.Update()
-				updated++
-			}
-		case StatusPending:
-			if svc.IsDepend(network) {
-				sm.Start(svc)
-				started++
-			}
-		}
-	}
-	sm.log.Info("update network", "network", network, "updated", updated, "started", started)
-}
-
 // Names 返回所有已注册的服务名称
 func (sm *ServiceManager) Names() []string {
 	sm.mut.RLock()
@@ -204,4 +180,49 @@ func (sm *ServiceManager) Names() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+//
+// ServiceManager 状态报告方法
+//
+
+func (sm *ServiceManager) GetAllState() ([]ServiceState, error) {
+	sm.mut.RLock()
+	defer sm.mut.RUnlock()
+
+	if len(sm.svcs) <= 0 {
+		return nil, errors.New("NO SERVICES")
+	}
+
+	var reports []ServiceState
+	for _, svc := range sm.svcs {
+		reports = append(reports, svc.ServiceState)
+	}
+	return reports, nil
+}
+
+func (sm *ServiceManager) GetAllStateString() string {
+	reports, err := sm.GetAllState()
+	if err != nil {
+		return fmt.Sprintf("report service failed: %v\n", err)
+	}
+
+	buf := bytes.NewBufferString("report service:\n")
+	utils.RenderAsciiTable(buf, reports,
+		[]string{"index", "type", "name", "state", "listen", "target", "actives", "dones"},
+		func(d interface{}, index int) []string {
+			s := d.(ServiceState)
+			return []string{
+				fmt.Sprintf("%v", index),
+				s.Type,
+				s.Name,
+				s.StatusString(),
+				s.ListenURL,
+				s.TargetURL,
+				fmt.Sprintf("%v", s.GetActiveCount()),
+				fmt.Sprintf("%v", s.GetDoneCount()),
+			}
+		},
+	)
+	return buf.String()
 }

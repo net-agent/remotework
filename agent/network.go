@@ -10,12 +10,12 @@ var ErrPingNotSupported = errors.New("ping not supported")
 
 type QuickDialer func() (net.Conn, error)
 
+// Network 纯网络能力接口
 type Network interface {
 	GetName() string
 	Dial(network, addr string) (net.Conn, error)
 	Listen(network, addr string) (net.Listener, error)
 	Ping(domain string, timeout time.Duration) (time.Duration, error)
-	Report() NetworkReport
 	Stop()
 }
 
@@ -29,14 +29,17 @@ type DialerFactory interface {
 	URLDialer(raw string) (QuickDialer, error)
 }
 
-// RawDialer 提供原始网络拨号能力
-type RawDialer interface {
-	Dial(network, addr string) (net.Conn, error)
+// NetworkMetaProvider 可选接口，提供实现特有的元数据
+type NetworkMetaProvider interface {
+	Meta() NetworkMeta
 }
 
-// NetworkUpdateNotifier 网络重连后通知依赖方更新
-type NetworkUpdateNotifier interface {
-	UpdateNetwork(network string)
+type NetworkMeta struct {
+	Protocol string
+	Address  string
+	Domain   string
+	State    string
+	LastErr  string
 }
 
 type NetworkReport struct {

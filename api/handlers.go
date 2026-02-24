@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
+	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -157,4 +158,55 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.WriteJSON(w, nil, map[string]string{"status": "stopping"})
 	go s.hub.Stop()
+}
+
+func (s *Server) handleAddNetwork(w http.ResponseWriter, r *http.Request) {
+	var info agent.AgentInfo
+	if err := utils.ReadJSON(r, &info); err != nil {
+		utils.WriteJSON(w, err, nil)
+		return
+	}
+	if err := s.hub.NewAgentNetwork(info); err != nil {
+		utils.WriteJSON(w, err, nil)
+		return
+	}
+	utils.WriteJSON(w, nil, map[string]string{"status": "ok", "name": info.Name})
+}
+
+func (s *Server) handleAddService(w http.ResponseWriter, r *http.Request) {
+	svcType := mux.Vars(r)["type"]
+
+	var svc *agent.Service
+	switch svcType {
+	case "portproxy":
+		var info agent.PortproxyInfo
+		if err := utils.ReadJSON(r, &info); err != nil {
+			utils.WriteJSON(w, err, nil)
+			return
+		}
+		svc = agent.NewPortproxyService(s.hub, s.hub, info)
+	case "socks5":
+		var info agent.Socks5Info
+		if err := utils.ReadJSON(r, &info); err != nil {
+			utils.WriteJSON(w, err, nil)
+			return
+		}
+		svc = agent.NewSocks5Service(s.hub, info)
+	case "rdp":
+		var info agent.RDPInfo
+		if err := utils.ReadJSON(r, &info); err != nil {
+			utils.WriteJSON(w, err, nil)
+			return
+		}
+		svc = agent.NewRDPService(s.hub, s.hub, info)
+	default:
+		utils.WriteJSON(w, errors.New("invalid service type, use: portproxy/socks5/rdp"), nil)
+		return
+	}
+
+	if err := s.hub.AddAndStartService(svc); err != nil {
+		utils.WriteJSON(w, err, nil)
+		return
+	}
+	utils.WriteJSON(w, nil, map[string]string{"status": "ok", "name": svc.Name})
 }

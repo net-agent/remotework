@@ -5,39 +5,61 @@ import (
 	"testing"
 )
 
-func TestNetworkinfo_GetName(t *testing.T) {
-	info := networkinfo{name: "test-net"}
-	if got := info.GetName(); got != "test-net" {
-		t.Errorf("GetName() = %q, want %q", got, "test-net")
+func TestReportingNetwork_Report_Basic(t *testing.T) {
+	mn := newMockNetwork("test-net")
+	mn.meta = &NetworkMeta{Protocol: "tcp", Address: "1.2.3.4:80", Domain: "d1", State: "online"}
+	rn := newReportingNetwork(mn)
+
+	report := rn.Report()
+	if report.Name != "test-net" {
+		t.Errorf("Name = %q, want %q", report.Name, "test-net")
+	}
+	if report.Protocol != "tcp" {
+		t.Errorf("Protocol = %q, want %q", report.Protocol, "tcp")
+	}
+	if report.State != "online" {
+		t.Errorf("State = %q, want %q", report.State, "online")
+	}
+	if report.Dials != 0 {
+		t.Errorf("Dials = %d, want 0", report.Dials)
 	}
 }
 
-func TestNetworkinfo_DialCount(t *testing.T) {
-	info := networkinfo{}
-	if got := info.getDialCount(); got != 0 {
-		t.Fatalf("initial dial count = %d, want 0", got)
+func TestReportingNetwork_CountsDialAndListen(t *testing.T) {
+	mn := newMockNetwork("test-net")
+	rn := newReportingNetwork(mn)
+
+	// Dial/Listen 会失败（mock 默认返回 error），但计数器仍应递增
+	rn.Dial("tcp", "1.2.3.4:80")
+	rn.Dial("tcp", "1.2.3.4:81")
+	rn.Listen("test-net", "0:80")
+
+	report := rn.Report()
+	if report.Dials != 2 {
+		t.Errorf("Dials = %d, want 2", report.Dials)
 	}
-	info.addDialCount(1)
-	info.addDialCount(3)
-	if got := info.getDialCount(); got != 4 {
-		t.Errorf("dial count = %d, want 4", got)
+	if report.Listens != 1 {
+		t.Errorf("Listens = %d, want 1", report.Listens)
 	}
 }
 
-func TestNetworkinfo_ListenCount(t *testing.T) {
-	info := networkinfo{}
-	if got := info.getListenCount(); got != 0 {
-		t.Fatalf("initial listen count = %d, want 0", got)
+func TestReportingNetwork_NoMetaProvider(t *testing.T) {
+	// mockNetwork without meta set — still implements NetworkMetaProvider, returns empty
+	mn := newMockNetwork("bare")
+	rn := newReportingNetwork(mn)
+
+	report := rn.Report()
+	if report.Name != "bare" {
+		t.Errorf("Name = %q, want %q", report.Name, "bare")
 	}
-	info.addListenCount(2)
-	info.addListenCount(5)
-	if got := info.getListenCount(); got != 7 {
-		t.Errorf("listen count = %d, want 7", got)
+	if report.Alive <= 0 {
+		t.Error("Alive should be positive")
 	}
 }
 
-func TestNetworkinfo_ConcurrentAccess(t *testing.T) {
-	info := networkinfo{}
+func TestReportingNetwork_ConcurrentAccess(t *testing.T) {
+	mn := newMockNetwork("concurrent")
+	rn := newReportingNetwork(mn)
 	var wg sync.WaitGroup
 	n := 100
 
@@ -45,19 +67,20 @@ func TestNetworkinfo_ConcurrentAccess(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func() {
 			defer wg.Done()
-			info.addDialCount(1)
+			rn.Dial("tcp", "0:80")
 		}()
 		go func() {
 			defer wg.Done()
-			info.addListenCount(1)
+			rn.Listen("concurrent", "0:80")
 		}()
 	}
 	wg.Wait()
 
-	if got := info.getDialCount(); got != int32(n) {
-		t.Errorf("concurrent dial count = %d, want %d", got, n)
+	report := rn.Report()
+	if report.Dials != int32(n) {
+		t.Errorf("Dials = %d, want %d", report.Dials, n)
 	}
-	if got := info.getListenCount(); got != int32(n) {
-		t.Errorf("concurrent listen count = %d, want %d", got, n)
+	if report.Listens != int32(n) {
+		t.Errorf("Listens = %d, want %d", report.Listens, n)
 	}
 }

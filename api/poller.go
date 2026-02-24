@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/net-agent/flex/v2/stream"
+	"github.com/net-agent/flex/v3/stream"
 	"github.com/net-agent/remotework/agent"
 )
 
@@ -26,7 +26,7 @@ func NewStatePoller(hub *agent.Hub, wsHub *WSHub, interval time.Duration) *State
 		wsHub:       wsHub,
 		interval:    interval,
 		stopCh:      make(chan struct{}),
-		lastStreams:  make(map[string]map[string]bool),
+		lastStreams: make(map[string]map[string]bool),
 		lastRunning: true,
 	}
 }

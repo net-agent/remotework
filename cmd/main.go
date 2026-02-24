@@ -1,6 +1,10 @@
 package main
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/net-agent/remotework/agent"
 	"github.com/net-agent/remotework/api"
 	"github.com/net-agent/remotework/server"
@@ -15,25 +19,30 @@ func main() {
 
 	switch flags.RunMode {
 	case "agent":
-		RunServiceMode(&flags)
+		runAgent(flags.ConfigFileName)
 	case "server":
 		server.RunServer(flags.ConfigFileName)
-	case "cli":
-		RunCLIMode(&flags)
 	default:
 		utils.Fatal(syslog, "invalid run-mode: ", flags.RunMode)
 	}
 }
 
-func RunServiceMode(flags *ClientFlags) {
-	config := loadConfig(flags)
+func runAgent(configFile string) {
+	resolved, err := utils.ResolveConfigFile(configFile)
+	if err != nil {
+		utils.Fatal(syslog, "load config failed: ", err)
+	}
+	syslog.Info("read config", "path", resolved)
 
-	// 启动 pprof 服务器
-	var pprofServer *utils.PprofServer
+	config, err := agent.NewConfig(resolved)
+	if err != nil {
+		utils.Fatal(syslog, "load config failed: ", err)
+	}
+
 	if config.Pprof.Enable {
-		pprofServer = utils.NewPprofServer(syslog.With("module", "pprof"))
-		pprofServer.Start(config.Pprof.Listen)
-		defer pprofServer.Stop()
+		pp := utils.NewPprofServer(syslog.With("module", "pprof"))
+		pp.Start(config.Pprof.Listen)
+		defer pp.Stop()
 	}
 
 	hub := agent.NewHub(nil)
@@ -41,22 +50,20 @@ func RunServiceMode(flags *ClientFlags) {
 		syslog.Warn("mount config warning", "err", err)
 	}
 
-	// 启动 API 服务器
-	var apiServer *api.Server
 	if config.API.Enable {
-		apiServer = api.New(hub, config.API, syslog.With("module", "api"))
-		apiServer.Start()
-		defer apiServer.Stop()
+		apiSrv := api.New(hub, config.API, syslog.With("module", "api"))
+		apiSrv.Start()
+		defer apiSrv.Stop()
 	}
 
-	initSysTray(hub)
-	defer releaseSysTray()
+	go func() {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+		sig := <-ch
+		syslog.Info("close with signal", "signal", sig)
+		hub.Stop()
+	}()
 
-	go waitCloseSignal(hub)
 	hub.Start()
 	syslog.Info("main process exit")
-}
-
-func RunCLIMode(flags *ClientFlags) {
-	handlePingDomain(flags.PingDomain, flags.PingClientName, 8)
 }

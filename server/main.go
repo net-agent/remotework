@@ -2,72 +2,93 @@ package server
 
 import (
 	"fmt"
-	"sync"
+	"net"
+	"net/http"
+	"time"
 
-	"github.com/net-agent/flex/v2/switcher"
-	"github.com/net-agent/flex/v2/warning"
-	"github.com/net-agent/mixlisten"
+	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
+	"github.com/net-agent/flex/v3/packet"
+	"github.com/net-agent/flex/v3/switcher"
 	"github.com/net-agent/remotework/utils"
 )
 
 var syslog = utils.NewModuleLogger("server")
 
+// Server 封装 relay 服务的完整生命周期
+type Server struct {
+	config *Config
+	app    *switcher.Server
+	mux    *Mux
+}
+
+func NewServer(config *Config) *Server {
+	app := switcher.NewServer(config.Server.Password, syslog, nil)
+	app.OnContextStart = func(ctx *switcher.Context) {
+		syslog.Info("agent connected", "domain", ctx.Domain, "ip", ctx.IP)
+	}
+	app.OnContextStop = func(ctx *switcher.Context, duration time.Duration) {
+		syslog.Info("agent disconnected", "domain", ctx.Domain, "ip", ctx.IP, "duration", duration)
+	}
+	return &Server{config: config, app: app}
+}
+
+// ListenAndServe 监听端口并启动服务，阻塞直到出错或 Close 被调用
+func (s *Server) ListenAndServe() error {
+	l, err := net.Listen("tcp", s.config.Server.Listen)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	syslog.Info("server started", "addr", s.config.Server.Listen)
+
+	s.mux = NewMux(l, syslog)
+	go s.app.Serve(s.mux.FlexListener())
+
+	if s.config.Server.WsEnable {
+		r := mux.NewRouter()
+		r.Methods("GET").Path(s.config.Server.WsPath).HandlerFunc(s.wsHandler())
+		go http.Serve(s.mux.HTTPListener(), r)
+	}
+
+	return s.mux.Serve()
+}
+
+func (s *Server) Close() error {
+	if s.mux != nil {
+		return s.mux.Close()
+	}
+	return nil
+}
+
+func (s *Server) wsHandler() http.HandlerFunc {
+	upgrader := websocket.Upgrader{}
+	return func(w http.ResponseWriter, r *http.Request) {
+		c, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			fmt.Fprintf(w, "upgrade failed: %v", err)
+			return
+		}
+		pc := packet.NewWithWs(c)
+		syslog.Info("ws agent connected", "remote", c.RemoteAddr())
+		go s.app.ServeConn(pc)
+	}
+}
+
+// RunServer 从配置文件启动服务（保持向后兼容）
 func RunServer(configName string) {
 	resolved, err := utils.ResolveConfigFile(configName)
 	if err != nil {
 		utils.Fatal(syslog, "load config failed: ", err)
 	}
 	syslog.Info("read config", "path", resolved)
+
 	config, err := NewConfig(resolved)
 	if err != nil {
 		utils.Fatal(syslog, "load config failed: ", err)
 	}
 
-	// 初始化
-	app := switcher.NewServer(config.Server.Password)
-	app.SetHandler(func(msg *warning.Message) {
-		if msg.Error != "" {
-			syslog.Warn(fmt.Sprintf("%v, err='%v'", msg.Info, msg.Error))
-		} else {
-			syslog.Info(msg.Info)
-		}
-	})
-
-	syslog.Info("try to listen", "addr", config.Server.Listen)
-
-	// 监听本地端口（混合协议模式）
-	mxl := mixlisten.Listen("tcp", config.Server.Listen)
-	mxl.RegisterBuiltIn("flex", "http")
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		mxl.Run()
-		wg.Done()
-	}()
-
-	// 处理Flex协议监听
-	flexListener, err := mxl.GetListener("flex")
-	if err != nil {
-		utils.Fatal(syslog, "get flex listener failed: ", err)
+	srv := NewServer(config)
+	if err := srv.ListenAndServe(); err != nil {
+		syslog.Error("server stopped", "error", err)
 	}
-	wg.Add(1)
-	go func() {
-		ServeTCP(app, config.Server, flexListener)
-		wg.Done()
-	}()
-
-	// 处理HTTP协议监听
-	httpListener, err := mxl.GetListener("http")
-	if err != nil {
-		utils.Fatal(syslog, "get http listener failed: ", err)
-	}
-	wg.Add(1)
-	go func() {
-		ServeWs(app, config.Server, httpListener)
-		wg.Done()
-	}()
-
-	// 等待所有协成结束
-	wg.Wait()
-	syslog.Info("server stopped")
 }
