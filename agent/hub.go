@@ -8,8 +8,21 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"time"
+
 	"github.com/net-agent/remotework/utils"
 )
+
+// HubEventListener 可选的事件监听器，用于接收 Hub 内部状态变化通知
+type HubEventListener interface {
+	OnNetworkStateChange(name, oldState, newState string)
+	OnServiceStatusChange(name string, oldStatus, newStatus ServiceStatus)
+}
+
+// NetworkStateNotifier 网络状态变化通知接口
+type NetworkStateNotifier interface {
+	NotifyNetworkStateChange(name, oldState, newState string)
+}
 
 type Hub struct {
 	log      *slog.Logger
@@ -151,6 +164,24 @@ func (hub *Hub) StopServices() { hub.Stop() }
 
 // Deprecated: Stop() 已包含网络清理
 func (hub *Hub) StopNetworks() { hub.networks.StopAll() }
+
+//
+// 状态查询委托方法
+//
+
+func (hub *Hub) GetAllServiceState() ([]ServiceState, error)  { return hub.services.GetAllState() }
+func (hub *Hub) GetAllServiceStateString() string             { return hub.services.GetAllStateString() }
+func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error) { return hub.networks.GetAllState() }
+func (hub *Hub) GetAllNetworkStateString() string             { return hub.networks.GetAllStateString() }
+func (hub *Hub) GetAllDataStreamStateString() string {
+	return hub.networks.GetAllDataStreamStateString()
+}
+func (hub *Hub) GetDataStreamState(limits int, networks ...string) []*DataStreamState {
+	return hub.networks.GetDataStreamState(limits, networks...)
+}
+func (hub *Hub) PingDomain(network, domain string) (time.Duration, error) {
+	return hub.networks.PingDomain(network, domain)
+}
 
 //
 // 事件监听器管理

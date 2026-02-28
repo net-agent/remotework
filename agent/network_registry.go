@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/net-agent/cipherconn"
+	"github.com/net-agent/flex/v3/stream"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -210,4 +212,128 @@ func (nr *NetworkRegistry) Names() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+//
+// NetworkRegistry 状态报告方法
+//
+
+func (nr *NetworkRegistry) GetAllState() ([]NetworkReport, error) {
+	nr.mut.RLock()
+	defer nr.mut.RUnlock()
+
+	if len(nr.nets) <= 0 {
+		return nil, errors.New("NO NETWORKS")
+	}
+
+	var reports []NetworkReport
+	for _, nt := range nr.nets {
+		reports = append(reports, nt.Report())
+	}
+	return reports, nil
+}
+
+func (nr *NetworkRegistry) GetAllStateString() string {
+	reports, err := nr.GetAllState()
+	if err != nil {
+		return fmt.Sprintf("report network failed: %v\n", err)
+	}
+
+	buf := bytes.NewBufferString("report network:\n")
+	utils.RenderAsciiTable(buf, reports,
+		[]string{"index", "name", "addr", "domain", "lsn", "dial"},
+		func(d interface{}, index int) []string {
+			s := d.(NetworkReport)
+			return []string{
+				fmt.Sprintf("%v", index),
+				s.Name,
+				s.Address,
+				s.Domain,
+				fmt.Sprintf("%v", s.Listens),
+				fmt.Sprintf("%v", s.Dials),
+			}
+		},
+	)
+	return buf.String()
+}
+
+// streamStateProvider 用于获取数据流状态的可选接口
+type streamStateProvider interface {
+	GetStreamStates() (actives, closeds []*stream.State)
+}
+
+func getDataStreamStateByNetwork(mnet Network) (actives, closeds []*stream.State) {
+	// 穿透装饰器访问内部 Network
+	inner := mnet
+	if rn, ok := mnet.(*reportingNetwork); ok {
+		inner = rn.Network
+	}
+	provider, ok := inner.(streamStateProvider)
+	if !ok {
+		return nil, nil
+	}
+	return provider.GetStreamStates()
+}
+
+type DataStreamState struct {
+	Network string
+	Actives []*stream.State
+	Closeds []*stream.State
+}
+
+func (nr *NetworkRegistry) GetAllDataStreamStateString() string {
+	buf := bytes.NewBufferString("report actived stream:\n")
+
+	nr.mut.RLock()
+	nets := make(map[string]*reportingNetwork, len(nr.nets))
+	for k, v := range nr.nets {
+		nets[k] = v
+	}
+	nr.mut.RUnlock()
+
+	for networkName, rn := range nets {
+		states, _ := getDataStreamStateByNetwork(rn)
+		if len(states) > 0 {
+			utils.RenderAsciiTable(buf, states,
+				[]string{"index", "network", "local", "remote", "readed", "wrote", "alive"},
+				func(d interface{}, index int) []string {
+					st := d.(*stream.State)
+					alived := time.Since(st.Created)
+					if st.IsClosed {
+						alived = st.Closed.Sub(st.Created)
+					}
+					return []string{
+						fmt.Sprint(index),
+						networkName,
+						fmt.Sprintf("%v(%v)", st.LocalDomain, st.LocalAddr.String()),
+						fmt.Sprintf("%v(%v)", st.RemoteDomain, st.RemoteAddr.String()),
+						fmt.Sprint(0), // todo: st.ConnReadSize
+						fmt.Sprint(0), // todo: st.ConnWriteSize
+						fmt.Sprint(alived),
+					}
+				},
+			)
+		}
+	}
+	return buf.String()
+}
+
+func (nr *NetworkRegistry) GetDataStreamState(limits int, networks ...string) []*DataStreamState {
+	resp := []*DataStreamState{}
+	for _, network := range networks {
+		mnet, err := nr.Find(network)
+		if err != nil {
+			resp = append(resp, nil)
+			continue
+		}
+
+		actives, closeds := getDataStreamStateByNetwork(mnet)
+		size := len(closeds)
+		if size > limits {
+			closeds = closeds[size-limits : size]
+		}
+		resp = append(resp, &DataStreamState{network, actives, closeds})
+	}
+
+	return resp
 }

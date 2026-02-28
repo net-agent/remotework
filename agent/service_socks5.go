@@ -11,6 +11,17 @@ import (
 	"github.com/net-agent/socks"
 )
 
+func NewSocks5Service(lf ListenerFactory, info Socks5Info) *Service {
+	svc := &Service{}
+	svc.Type = "socks5"
+	svc.Name = utils.FirstString(info.LogName, "socks5")
+	svc.ListenURL = info.ListenURL
+	svc.Username = info.Username
+	svc.Password = info.Password
+	svc.controller = NewSocks5Controller(lf, &svc.ServiceState)
+	return svc
+}
+
 type Socks5Controller struct {
 	state    *ServiceState
 	log      *slog.Logger

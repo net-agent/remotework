@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/net-agent/flex/v3/node"
 	"github.com/net-agent/flex/v3/packet"
+	"github.com/net-agent/flex/v3/packet/ws"
 )
 
 var (
@@ -33,7 +34,7 @@ func NewNetwork(hub *Hub, info AgentInfo) (Network, error) {
 			if err != nil {
 				return nil, err
 			}
-			return packet.NewWithWs(wsConn), nil
+			return ws.NewConn(wsConn), nil
 		}
 	default:
 		connector = func() (packet.Conn, error) {
@@ -102,9 +103,14 @@ func (fnet *flexNetwork) Ping(domain string, timeout time.Duration) (time.Durati
 }
 
 func (fnet *flexNetwork) Meta() NetworkMeta {
+	state := "connecting"
+	if fnet.session.GetNode() != nil {
+		state = "online"
+	}
 	return NetworkMeta{
 		Protocol: fnet.info.Protocol,
 		Address:  fnet.info.Address,
 		Domain:   fnet.info.Domain,
+		State:    state,
 	}
 }

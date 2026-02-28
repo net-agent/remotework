@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 
 	"github.com/net-agent/flex/v3/stream"
-	"github.com/net-agent/remotework/utils"
 )
 
 // ErrDependencyNotReady 表示服务依赖的网络尚未注册
@@ -91,47 +90,6 @@ func (s *ServiceState) IsListenDepend(n string) bool { return strings.HasPrefix(
 func (s *ServiceState) IsTargetDepend(n string) bool { return strings.HasPrefix(s.TargetURL, n) }
 func (s *ServiceState) IsDepend(n string) bool {
 	return s.IsListenDepend(n) || s.IsTargetDepend(n)
-}
-
-//
-// service constructors
-//
-
-func NewPortproxyService(lf ListenerFactory, df DialerFactory, info PortproxyInfo) *Service {
-	svc := &Service{}
-
-	svc.Type = "portproxy"
-	svc.Name = utils.FirstString(info.LogName, "portproxy")
-	svc.ListenURL = info.ListenURL
-	svc.TargetURL = info.TargetURL
-	svc.controller = NewPortproxyController(lf, df, &svc.ServiceState)
-
-	return svc
-}
-
-func NewRDPService(lf ListenerFactory, df DialerFactory, info RDPInfo) *Service {
-	svc := &Service{}
-
-	svc.Type = "rdpserver"
-	svc.Name = utils.FirstString(info.LogName, "rdp")
-	svc.ListenURL = info.ListenURL
-	svc.TargetURL = fmt.Sprintf("tcp://localhost:%v", utils.GetRDPPort())
-	svc.controller = NewPortproxyController(lf, df, &svc.ServiceState)
-
-	return svc
-}
-
-func NewSocks5Service(lf ListenerFactory, info Socks5Info) *Service {
-	svc := &Service{}
-
-	svc.Type = "socks5"
-	svc.Name = utils.FirstString(info.LogName, "socks5")
-	svc.ListenURL = info.ListenURL
-	svc.Username = info.Username
-	svc.Password = info.Password
-	svc.controller = NewSocks5Controller(lf, &svc.ServiceState)
-
-	return svc
 }
 
 func getRemoteInfo(c interface{}) string {
