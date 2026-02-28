@@ -89,8 +89,8 @@ func toStreamDTO(network string, s *stream.State) StreamStateDTO {
 		LocalAddr:    s.LocalAddr.String(),
 		RemoteDomain: s.RemoteDomain,
 		RemoteAddr:   s.RemoteAddr.String(),
-		ReadBytes:    s.ConnReadSize,
-		WriteBytes:   s.ConnWriteSize,
+		ReadBytes:    0, // todo
+		WriteBytes:   0, // todo
 		AliveMs:      aliveMs,
 		IsClosed:     s.IsClosed,
 	}

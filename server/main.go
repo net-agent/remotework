@@ -8,7 +8,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/net-agent/flex/v3/packet"
+	"github.com/net-agent/flex/v3/packet/ws"
 	"github.com/net-agent/flex/v3/switcher"
 	"github.com/net-agent/remotework/utils"
 )
@@ -68,7 +68,7 @@ func (s *Server) wsHandler() http.HandlerFunc {
 			fmt.Fprintf(w, "upgrade failed: %v", err)
 			return
 		}
-		pc := packet.NewWithWs(c)
+		pc := ws.NewConn(c)
 		syslog.Info("ws agent connected", "remote", c.RemoteAddr())
 		go s.app.ServeConn(pc)
 	}

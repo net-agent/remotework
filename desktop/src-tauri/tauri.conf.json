@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build"
+    "beforeDevCommand": "sh build-sidecar.sh current && pnpm dev",
+    "beforeBuildCommand": "sh build-sidecar.sh current && pnpm build"
   },
   "app": {
     "windows": [
