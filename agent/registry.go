@@ -12,32 +12,33 @@ import (
 
 	"github.com/net-agent/cipherconn"
 	"github.com/net-agent/flex/v3/stream"
+	"github.com/net-agent/remotework/agent/vnet"
 	"github.com/net-agent/remotework/utils"
 )
 
 // NetworkRegistry 管理所有网络的注册、查找和连接工厂
 type NetworkRegistry struct {
 	log  *slog.Logger
-	nets map[string]*reportingNetwork
+	nets map[string]*vnet.ReportingNetwork
 	mut  sync.RWMutex
 }
 
-// newNetworkRegistryBare 创建空的 NetworkRegistry，不注册任何网络（供测试使用）
-func newNetworkRegistryBare(log *slog.Logger) *NetworkRegistry {
+// NewNetworkRegistryBare 创建空的 NetworkRegistry，不注册任何网络（供测试使用）
+func NewNetworkRegistryBare(log *slog.Logger) *NetworkRegistry {
 	if log == nil {
 		log = utils.NewModuleLogger("hub.net")
 	}
 	return &NetworkRegistry{
 		log:  log,
-		nets: make(map[string]*reportingNetwork),
+		nets: make(map[string]*vnet.ReportingNetwork),
 	}
 }
 
 func NewNetworkRegistry(log *slog.Logger) *NetworkRegistry {
-	nr := newNetworkRegistryBare(log)
-	nr.Add(newTcpNetwork("tcp"))
-	nr.Add(newTcpNetwork("tcp4"))
-	nr.Add(newTcpNetwork("tcp6"))
+	nr := NewNetworkRegistryBare(log)
+	nr.Add(vnet.NewTcpNetwork("tcp"))
+	nr.Add(vnet.NewTcpNetwork("tcp4"))
+	nr.Add(vnet.NewTcpNetwork("tcp6"))
 	return nr
 }
 
@@ -53,7 +54,7 @@ func (nr *NetworkRegistry) Add(mnet Network) error {
 	if _, found := nr.nets[name]; found {
 		return errors.New("network exists")
 	}
-	nr.nets[name] = newReportingNetwork(mnet)
+	nr.nets[name] = vnet.NewReportingNetwork(mnet)
 	return nil
 }
 
@@ -93,7 +94,7 @@ func (nr *NetworkRegistry) isBuiltinNetwork(network string) bool {
 
 func (nr *NetworkRegistry) StopAll() {
 	nr.mut.RLock()
-	nets := make([]*reportingNetwork, 0, len(nr.nets))
+	nets := make([]*vnet.ReportingNetwork, 0, len(nr.nets))
 	for _, v := range nr.nets {
 		nets = append(nets, v)
 	}
@@ -137,17 +138,13 @@ func (nr *NetworkRegistry) ListenURL(raw string) (net.Listener, error) {
 		return nil, err
 	}
 
-	secret := u.Query().Get("secret")
-	if nr.IsPrivateNetwork(u.Scheme) && secret == "" {
-		l.Close()
-		return nil, errors.New("to listen private protocols, please set the encryption password in the secret parameter")
-	}
-
-	if secret == "" {
+	// 传输层加密：vtcp 端点通过 authcode 参数启用 cipherconn
+	authcode := u.Query().Get("authcode")
+	if authcode == "" {
 		return l, nil
 	}
 
-	return utils.NewSecretListener(l, secret), nil
+	return utils.NewSecretListener(l, authcode), nil
 }
 
 // URLDialer 对URL进行预处理，在调用时快速创建连接，实现 DialerFactory 接口
@@ -157,7 +154,7 @@ func (nr *NetworkRegistry) URLDialer(raw string) (QuickDialer, error) {
 		return nil, err
 	}
 
-	// 预检查网络是否存在，对非内置网络返回依赖未就绪错误
+	// 预��查网络是否存在，对非内置网络返回依赖未就绪错误
 	if _, err := nr.Find(u.Scheme); err != nil && !nr.isBuiltinNetwork(u.Scheme) {
 		return nil, &ErrDependencyNotReady{Network: u.Scheme}
 	}
@@ -182,11 +179,11 @@ func (nr *NetworkRegistry) dialu(u *url.URL) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	secret := u.Query().Get("secret")
-	if secret == "" {
+	authcode := u.Query().Get("authcode")
+	if authcode == "" {
 		return c, nil
 	}
-	c, err = cipherconn.New(c, secret)
+	c, err = cipherconn.New(c, authcode)
 	if err != nil {
 		c.Close()
 		return nil, err
@@ -265,7 +262,7 @@ type streamStateProvider interface {
 func getDataStreamStateByNetwork(mnet Network) (actives, closeds []*stream.State) {
 	// 穿透装饰器访问内部 Network
 	inner := mnet
-	if rn, ok := mnet.(*reportingNetwork); ok {
+	if rn, ok := mnet.(*vnet.ReportingNetwork); ok {
 		inner = rn.Network
 	}
 	provider, ok := inner.(streamStateProvider)
@@ -285,7 +282,7 @@ func (nr *NetworkRegistry) GetAllDataStreamStateString() string {
 	buf := bytes.NewBufferString("report actived stream:\n")
 
 	nr.mut.RLock()
-	nets := make(map[string]*reportingNetwork, len(nr.nets))
+	nets := make(map[string]*vnet.ReportingNetwork, len(nr.nets))
 	for k, v := range nr.nets {
 		nets[k] = v
 	}

@@ -78,8 +78,8 @@ func (s *Server) registerRoutes() {
 	r.HandleFunc("/ping/{network}/{domain}", s.handlePingSingle).Methods("POST")
 	r.HandleFunc("/loglevel", s.handleLogLevel).Methods("PUT")
 	r.HandleFunc("/stop", s.handleStop).Methods("POST")
-	r.HandleFunc("/networks", s.handleAddNetwork).Methods("POST")
-	r.HandleFunc("/services/{type}", s.handleAddService).Methods("POST")
+	r.HandleFunc("/links", s.handleAddLink).Methods("POST")
+	r.HandleFunc("/tunnels", s.handleAddTunnel).Methods("POST")
 	r.HandleFunc("/ws", s.handleWebSocket)
 }
 

@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
-	"github.com/net-agent/remotework/agent"
+	"github.com/net-agent/remotework/agent/configv2"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -25,7 +25,6 @@ func (s *Server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 	}
 	dtos := make([]NetworkStateDTO, 0, len(reports))
 	for _, r := range reports {
-		// 对普通用户隐藏 tcp4/tcp6，仅保留 tcp
 		if r.Name == "tcp4" || r.Name == "tcp6" {
 			continue
 		}
@@ -56,7 +55,6 @@ func (s *Server) handleStreams(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 获取所有网络名称，可选按 network 参数过滤
 	filterNetwork := r.URL.Query().Get("network")
 
 	reports, err := s.hub.GetAllNetworkState()
@@ -160,53 +158,77 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	go s.hub.Stop()
 }
 
-func (s *Server) handleAddNetwork(w http.ResponseWriter, r *http.Request) {
-	var info agent.AgentInfo
-	if err := utils.ReadJSON(r, &info); err != nil {
+// handleAddLink dynamically adds a link (network) at runtime.
+func (s *Server) handleAddLink(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Alias string `json:"alias"`
+		URL   string `json:"url"`
+	}
+	if err := utils.ReadJSON(r, &req); err != nil {
 		utils.WriteJSON(w, err, nil)
 		return
 	}
-	if err := s.hub.NewAgentNetwork(info); err != nil {
+
+	if req.Alias == "" || req.URL == "" {
+		utils.WriteJSON(w, errors.New("alias and url are required"), nil)
+		return
+	}
+
+	// Normalize the link
+	raw := &configv2.RawConfig{
+		Links: map[string]string{req.Alias: req.URL},
+	}
+	canonical, err := configv2.Normalize(raw)
+	if err != nil {
 		utils.WriteJSON(w, err, nil)
 		return
 	}
-	utils.WriteJSON(w, nil, map[string]string{"status": "ok", "name": info.Name})
+
+	link := canonical.Links[req.Alias]
+	if link.As == "" {
+		utils.WriteJSON(w, errors.New("'as' parameter is required in link URL"), nil)
+		return
+	}
+
+	if err := s.hub.MountLink(req.Alias, link); err != nil {
+		utils.WriteJSON(w, err, nil)
+		return
+	}
+	utils.WriteJSON(w, nil, map[string]string{"status": "ok", "alias": req.Alias})
 }
 
-func (s *Server) handleAddService(w http.ResponseWriter, r *http.Request) {
-	svcType := mux.Vars(r)["type"]
-
-	var svc *agent.Service
-	switch svcType {
-	case "portproxy":
-		var info agent.PortproxyInfo
-		if err := utils.ReadJSON(r, &info); err != nil {
-			utils.WriteJSON(w, err, nil)
-			return
-		}
-		svc = agent.NewPortproxyService(s.hub, s.hub, info)
-	case "socks5":
-		var info agent.Socks5Info
-		if err := utils.ReadJSON(r, &info); err != nil {
-			utils.WriteJSON(w, err, nil)
-			return
-		}
-		svc = agent.NewSocks5Service(s.hub, info)
-	case "rdp":
-		var info agent.RDPInfo
-		if err := utils.ReadJSON(r, &info); err != nil {
-			utils.WriteJSON(w, err, nil)
-			return
-		}
-		svc = agent.NewRDPService(s.hub, s.hub, info)
-	default:
-		utils.WriteJSON(w, errors.New("invalid service type, use: portproxy/socks5/rdp"), nil)
-		return
-	}
-
-	if err := s.hub.AddAndStartService(svc); err != nil {
+// handleAddTunnel dynamically adds a tunnel (service) at runtime.
+func (s *Server) handleAddTunnel(w http.ResponseWriter, r *http.Request) {
+	var tunnelRaw configv2.TunnelRaw
+	if err := utils.ReadJSON(r, &tunnelRaw); err != nil {
 		utils.WriteJSON(w, err, nil)
 		return
 	}
-	utils.WriteJSON(w, nil, map[string]string{"status": "ok", "name": svc.Name})
+
+	// Normalize the tunnel
+	raw := &configv2.RawConfig{
+		Tunnels: []configv2.TunnelRaw{tunnelRaw},
+	}
+	canonical, err := configv2.Normalize(raw)
+	if err != nil {
+		utils.WriteJSON(w, err, nil)
+		return
+	}
+
+	if len(canonical.Tunnels) == 0 {
+		utils.WriteJSON(w, errors.New("no tunnel produced"), nil)
+		return
+	}
+
+	tunnel := canonical.Tunnels[0]
+	if err := s.hub.MountTunnel(tunnel); err != nil {
+		utils.WriteJSON(w, err, nil)
+		return
+	}
+
+	utils.WriteJSON(w, nil, map[string]string{
+		"status": "ok",
+		"name":   tunnel.Name,
+		"id":     tunnel.ID,
+	})
 }

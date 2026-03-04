@@ -1,4 +1,4 @@
-package agent
+package vservice
 
 import (
 	"errors"
@@ -10,26 +10,6 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/net-agent/remotework/utils"
 )
-
-func NewPortproxyService(lf ListenerFactory, df DialerFactory, info PortproxyInfo) *Service {
-	svc := &Service{}
-	svc.Type = "portproxy"
-	svc.Name = utils.FirstString(info.LogName, "portproxy")
-	svc.ListenURL = info.ListenURL
-	svc.TargetURL = info.TargetURL
-	svc.controller = NewPortproxyController(lf, df, &svc.ServiceState)
-	return svc
-}
-
-func NewRDPService(lf ListenerFactory, df DialerFactory, info RDPInfo) *Service {
-	svc := &Service{}
-	svc.Type = "rdpserver"
-	svc.Name = utils.FirstString(info.LogName, "rdp")
-	svc.ListenURL = info.ListenURL
-	svc.TargetURL = fmt.Sprintf("tcp://localhost:%v", utils.GetRDPPort())
-	svc.controller = NewPortproxyController(lf, df, &svc.ServiceState)
-	return svc
-}
 
 type PortproxyController struct {
 	state    *ServiceState
@@ -97,7 +77,7 @@ func (p *PortproxyController) serve(dialConn net.Conn) {
 	}
 	defer targetConn.Close()
 
-	dialer := getRemoteInfo(dialConn)
+	dialer := GetRemoteInfo(dialConn)
 	start := time.Now()
 
 	p.log.Info("pipe created", "from", dialer, "to", p.state.TargetURL)

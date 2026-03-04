@@ -1,149 +1,28 @@
 package agent
 
 import (
-	"encoding/json"
-	"fmt"
-	"net/url"
-
-	"github.com/net-agent/remotework/utils"
+	"github.com/net-agent/remotework/agent/configv2"
 )
 
-type Config struct {
-	AgentMap  json.RawMessage `json:"agent" toml:"agent"`
-	PipeMap   json.RawMessage `json:"pipe" toml:"pipe"`
-	SocksMap  json.RawMessage `json:"sox" toml:"sox"`
-	Agents    []AgentInfo     `json:"agents" toml:"agents"`
-	Portproxy []PortproxyInfo `json:"portproxy" toml:"portproxy"`
-	Socks5    []Socks5Info    `json:"socks5" toml:"socks5"`
-	RDP       []RDPInfo       `json:"rdp" toml:"rdp"`
-	Pprof     PprofInfo       `json:"pprof" toml:"pprof"`
-	API       APIInfo         `json:"api" toml:"api"`
-}
+// Config is the v2 configuration model (links + tunnels).
+// This is a re-export of configv2.RawConfig for backward compatibility in cmd/.
+type Config = configv2.RawConfig
 
-type PprofInfo struct {
-	Enable bool   `json:"enable" toml:"enable"`
-	Listen string `json:"listen" toml:"listen"`
-}
+// CanonicalConfig is the normalized internal representation.
+type CanonicalConfig = configv2.CanonicalConfig
 
-type APIInfo struct {
-	Enable       bool   `json:"enable" toml:"enable"`
-	Listen       string `json:"listen" toml:"listen"`             // 默认 "127.0.0.1:8080"
-	PollInterval int    `json:"pollInterval" toml:"pollInterval"` // 秒，默认 5
-}
+// PprofInfo controls the optional pprof HTTP server.
+type PprofInfo = configv2.PprofInfo
 
-type AgentInfo struct {
-	Name     string `json:"name" toml:"name"` // 网络名称，不能为tcp、tcp4、tcp6
-	Protocol string `json:"protocol" toml:"protocol"`
-	Address  string `json:"address" toml:"address"`   // 服务端地址
-	Password string `json:"password" toml:"password"` // 连接服务的密码
-	Domain   string `json:"domain" toml:"domain"`     // 独立域名（不能重复）
-	URL      string `json:"url" toml:"url"`           // <Network>://<Domain>:<Password>@<Address>
-	WsPath   string `json:"wsPath" toml:"wsPath"`     // Websocket路径
-}
+// APIInfo controls the optional management API server.
+type APIInfo = configv2.APIInfo
 
-type PortproxyInfo struct {
-	ListenURL string `json:"listen" toml:"listen"`
-	TargetURL string `json:"target" toml:"target"`
-	LogName   string `json:"log" toml:"log"`
-}
-
-type Socks5Info struct {
-	ListenURL string `json:"listen" toml:"listen"`
-	Username  string `json:"username" toml:"username"`
-	Password  string `json:"password" toml:"password"`
-	LogName   string `json:"log" toml:"log"`
-}
-
-type RDPInfo struct {
-	ListenURL string `json:"listen" toml:"listen"`
-	LogName   string `json:"log" toml:"log"`
-}
-
+// NewConfig loads and returns a raw configuration from the given file.
 func NewConfig(configFileName string) (*Config, error) {
-	cfg := &Config{}
-	if err := utils.LoadConfigFile(configFileName, cfg); err != nil {
-		return nil, err
-	}
-	if err := cfg.PreProcess(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
+	return configv2.LoadFile(configFileName)
 }
 
-func (config *Config) PreProcess() error {
-	// parse agents url
-	for i := 0; i < len(config.Agents); i++ {
-		if config.Agents[i].URL != "" {
-			u, err := url.Parse(config.Agents[i].URL)
-			var ok bool
-			if err == nil {
-				config.Agents[i].Name = u.Scheme
-				config.Agents[i].Protocol = "tcp" // 默认只通过tcp连接服务端
-				config.Agents[i].Domain = u.User.Username()
-				config.Agents[i].Password, ok = u.User.Password()
-				if !ok {
-					config.Agents[i].Password = ""
-				}
-				config.Agents[i].Address = u.Host
-			}
-		}
-	}
-
-	// parse agent name map
-	// 与agents数组的url类似，但是url里的scheme含义发生了变化
-	agentMap := make(map[string]string)
-	if len(config.AgentMap) > 0 {
-		if err := json.Unmarshal(config.AgentMap, &agentMap); err != nil {
-			return fmt.Errorf("parse agent map failed: %w", err)
-		}
-	}
-	for k, v := range agentMap {
-		u, err := url.Parse(v)
-		if err == nil {
-			var ok bool
-			var ag AgentInfo
-			ag.Name = k
-			ag.Protocol = u.Scheme
-			ag.Domain = u.User.Username()
-			ag.Password, ok = u.User.Password()
-			ag.WsPath = u.Path
-			if !ok {
-				ag.Password = ""
-			}
-			ag.Address = u.Host
-
-			config.Agents = append(config.Agents, ag)
-		}
-	}
-	config.AgentMap = nil
-
-	// parse pipe map
-	// 是portproxy的别名，简化书写
-	pipeMap := make(map[string]PortproxyInfo)
-	if len(config.PipeMap) > 0 {
-		if err := json.Unmarshal(config.PipeMap, &pipeMap); err != nil {
-			return fmt.Errorf("parse pipe map failed: %w", err)
-		}
-	}
-	for k, v := range pipeMap {
-		v.LogName = k
-		config.Portproxy = append(config.Portproxy, v)
-	}
-	config.PipeMap = nil
-
-	// parse sox
-	// 是socks5的别名，简化书写
-	socksMap := make(map[string]Socks5Info)
-	if len(config.SocksMap) > 0 {
-		if err := json.Unmarshal(config.SocksMap, &socksMap); err != nil {
-			return fmt.Errorf("parse socks map failed: %w", err)
-		}
-	}
-	for k, v := range socksMap {
-		v.LogName = k
-		config.Socks5 = append(config.Socks5, v)
-	}
-	config.SocksMap = nil
-
-	return nil
+// NewCanonicalConfig loads, normalizes, and validates a configuration file.
+func NewCanonicalConfig(configFileName string) (*CanonicalConfig, error) {
+	return configv2.LoadAndNormalize(configFileName)
 }

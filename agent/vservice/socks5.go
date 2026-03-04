@@ -1,4 +1,4 @@
-package agent
+package vservice
 
 import (
 	"errors"
@@ -10,17 +10,6 @@ import (
 	"github.com/net-agent/remotework/utils"
 	"github.com/net-agent/socks"
 )
-
-func NewSocks5Service(lf ListenerFactory, info Socks5Info) *Service {
-	svc := &Service{}
-	svc.Type = "socks5"
-	svc.Name = utils.FirstString(info.LogName, "socks5")
-	svc.ListenURL = info.ListenURL
-	svc.Username = info.Username
-	svc.Password = info.Password
-	svc.controller = NewSocks5Controller(lf, &svc.ServiceState)
-	return svc
-}
 
 type Socks5Controller struct {
 	state    *ServiceState
@@ -41,7 +30,7 @@ func NewSocks5Controller(lf ListenerFactory, state *ServiceState) *Socks5Control
 func (s *Socks5Controller) Init() error {
 	s.server = socks.NewPswdServer(s.state.Username, s.state.Password)
 	s.server.SetConnLinker(func(a, b io.ReadWriteCloser) (a2b int64, b2a int64, err error) {
-		dialer := getRemoteInfo(a)
+		dialer := GetRemoteInfo(a)
 		start := time.Now()
 		s.state.AddActiveCount(1)
 		defer func() {

@@ -2,6 +2,7 @@
 
 export interface ServiceStateDTO {
   id: number;
+  tunnelId?: string;
   type: string;
   name: string;
   status: string;

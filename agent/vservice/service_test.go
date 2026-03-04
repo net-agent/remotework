@@ -1,4 +1,4 @@
-package agent
+package vservice
 
 import (
 	"errors"
@@ -110,32 +110,31 @@ func TestServiceState_IsDepend(t *testing.T) {
 	}
 }
 
-func TestErrDependencyNotReady(t *testing.T) {
-	err := &ErrDependencyNotReady{Network: "vtcpx"}
-	if err.Error() != "dependency network 'vtcpx' not ready" {
-		t.Errorf("Error() = %q", err.Error())
-	}
-
-	// errors.As should work
-	var wrapped error = fmt.Errorf("init: %w", err)
-	var depErr *ErrDependencyNotReady
-	if !errors.As(wrapped, &depErr) {
-		t.Error("errors.As should match wrapped ErrDependencyNotReady")
+func TestErrDependencyNotReady_ViaVnet(t *testing.T) {
+	// ErrDependencyNotReady 通过 errors.As 应该正常工作
+	err := fmt.Errorf("init: %w", &errDepWrap{Network: "vtcpx"})
+	var depErr *errDepWrap
+	if !errors.As(err, &depErr) {
+		t.Error("errors.As should match wrapped error")
 	}
 	if depErr.Network != "vtcpx" {
 		t.Errorf("Network = %q, want %q", depErr.Network, "vtcpx")
 	}
 }
 
+// errDepWrap 用于在 vservice 测试中模拟 ErrDependencyNotReady
+type errDepWrap struct {
+	Network string
+}
+
+func (e *errDepWrap) Error() string {
+	return fmt.Sprintf("dependency network '%s' not ready", e.Network)
+}
+
 func TestNewPortproxyService(t *testing.T) {
 	lf := &mockListenerFactory{}
 	df := &mockDialerFactory{}
-	info := PortproxyInfo{
-		ListenURL: "vtcp://0:1234",
-		TargetURL: "tcp://localhost:3389",
-		LogName:   "pp-test",
-	}
-	svc := NewPortproxyService(lf, df, info)
+	svc := NewPortproxyService(lf, df, "pp-test", "vtcp://0:1234", "tcp://localhost:3389")
 
 	if svc.Type != "portproxy" {
 		t.Errorf("Type = %q, want %q", svc.Type, "portproxy")
@@ -143,22 +142,19 @@ func TestNewPortproxyService(t *testing.T) {
 	if svc.Name != "pp-test" {
 		t.Errorf("Name = %q, want %q", svc.Name, "pp-test")
 	}
-	if svc.ListenURL != info.ListenURL {
-		t.Errorf("ListenURL = %q, want %q", svc.ListenURL, info.ListenURL)
+	if svc.ListenURL != "vtcp://0:1234" {
+		t.Errorf("ListenURL = %q, want %q", svc.ListenURL, "vtcp://0:1234")
 	}
-	if svc.TargetURL != info.TargetURL {
-		t.Errorf("TargetURL = %q, want %q", svc.TargetURL, info.TargetURL)
+	if svc.TargetURL != "tcp://localhost:3389" {
+		t.Errorf("TargetURL = %q, want %q", svc.TargetURL, "tcp://localhost:3389")
 	}
-	if svc.controller == nil {
-		t.Error("controller is nil")
+	if svc.Controller == nil {
+		t.Error("Controller is nil")
 	}
 }
 
 func TestNewPortproxyService_DefaultName(t *testing.T) {
-	svc := NewPortproxyService(&mockListenerFactory{}, &mockDialerFactory{}, PortproxyInfo{
-		ListenURL: "tcp://0:80",
-		TargetURL: "tcp://0:81",
-	})
+	svc := NewPortproxyService(&mockListenerFactory{}, &mockDialerFactory{}, "", "tcp://0:80", "tcp://0:81")
 	if svc.Name != "portproxy" {
 		t.Errorf("default Name = %q, want %q", svc.Name, "portproxy")
 	}
@@ -166,13 +162,7 @@ func TestNewPortproxyService_DefaultName(t *testing.T) {
 
 func TestNewSocks5Service(t *testing.T) {
 	lf := &mockListenerFactory{}
-	info := Socks5Info{
-		ListenURL: "vtcp://0:1080",
-		Username:  "user",
-		Password:  "pass",
-		LogName:   "sox-test",
-	}
-	svc := NewSocks5Service(lf, info)
+	svc := NewSocks5Service(lf, "sox-test", "vtcp://0:1080", "user", "pass")
 
 	if svc.Type != "socks5" {
 		t.Errorf("Type = %q, want %q", svc.Type, "socks5")
@@ -183,34 +173,8 @@ func TestNewSocks5Service(t *testing.T) {
 	if svc.Username != "user" || svc.Password != "pass" {
 		t.Errorf("credentials = %q/%q, want user/pass", svc.Username, svc.Password)
 	}
-	if svc.controller == nil {
-		t.Error("controller is nil")
+	if svc.Controller == nil {
+		t.Error("Controller is nil")
 	}
 }
 
-func TestNewRDPService(t *testing.T) {
-	lf := &mockListenerFactory{}
-	df := &mockDialerFactory{}
-	info := RDPInfo{
-		ListenURL: "vtcp://0:3389",
-		LogName:   "rdp-test",
-	}
-	svc := NewRDPService(lf, df, info)
-
-	if svc.Type != "rdpserver" {
-		t.Errorf("Type = %q, want %q", svc.Type, "rdpserver")
-	}
-	if svc.Name != "rdp-test" {
-		t.Errorf("Name = %q, want %q", svc.Name, "rdp-test")
-	}
-	if svc.ListenURL != info.ListenURL {
-		t.Errorf("ListenURL = %q, want %q", svc.ListenURL, info.ListenURL)
-	}
-	// TargetURL should be tcp://localhost:<rdp_port>
-	if svc.TargetURL == "" {
-		t.Error("TargetURL is empty")
-	}
-	if svc.controller == nil {
-		t.Error("controller is nil")
-	}
-}

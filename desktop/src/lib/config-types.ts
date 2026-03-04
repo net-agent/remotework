@@ -1,31 +1,10 @@
-// Mirrors Go agent/config.go
+// Mirrors Go agent/configv2/model.go
 
-export interface AgentInfo {
+export interface TunnelInfo {
+  id: string;
   name: string;
-  protocol: string;
-  address: string;
-  password: string;
-  domain: string;
-  url: string;
-  wsPath: string;
-}
-
-export interface PortproxyInfo {
   listen: string;
   target: string;
-  log: string;
-}
-
-export interface Socks5Info {
-  listen: string;
-  username: string;
-  password: string;
-  log: string;
-}
-
-export interface RDPInfo {
-  listen: string;
-  log: string;
 }
 
 export interface PprofInfo {
@@ -40,10 +19,8 @@ export interface APIInfo {
 }
 
 export interface AgentConfig {
-  agents: AgentInfo[];
-  portproxy: PortproxyInfo[];
-  socks5: Socks5Info[];
-  rdp: RDPInfo[];
+  links: Record<string, string>; // alias -> Registration URL
+  tunnels: TunnelInfo[];
   pprof: PprofInfo;
   api: APIInfo;
 }
@@ -61,28 +38,19 @@ export interface ProfilesIndex {
 
 // Helpers
 
-export function emptyAgentInfo(): AgentInfo {
-  return { name: "", protocol: "vtcp", address: "", password: "", domain: "", url: "", wsPath: "" };
-}
-
-export function emptyPortproxy(): PortproxyInfo {
-  return { listen: "", target: "", log: "" };
-}
-
-export function emptySocks5(): Socks5Info {
-  return { listen: "", username: "", password: "", log: "" };
-}
-
-export function emptyRDP(): RDPInfo {
-  return { listen: "", log: "" };
+export function emptyTunnel(): TunnelInfo {
+  return {
+    id: crypto.randomUUID(),
+    name: "",
+    listen: "",
+    target: "",
+  };
 }
 
 export function emptyConfig(): AgentConfig {
   return {
-    agents: [],
-    portproxy: [],
-    socks5: [],
-    rdp: [],
+    links: {},
+    tunnels: [],
     pprof: { enable: false, listen: "" },
     api: { enable: true, listen: "127.0.0.1:8080", pollInterval: 5 },
   };

@@ -8,19 +8,18 @@ interface UIState {
   activeTab: MainTab;
   selectedNetwork: string | null;
   selectedService: number | null;
-  networkFormOpen: boolean;
+  linkFormOpen: boolean;
   serviceFormOpen: boolean;
-  editingNetworkIndex: number | null;
-  editingServiceType: "portproxy" | "socks5" | "rdp" | null;
+  editingLinkAlias: string | null;
   editingServiceIndex: number | null;
 
   setCurrentPage: (page: Page) => void;
   setActiveTab: (tab: MainTab) => void;
   setSelectedNetwork: (name: string | null) => void;
   setSelectedService: (id: number | null) => void;
-  openNetworkForm: (index?: number) => void;
-  closeNetworkForm: () => void;
-  openServiceForm: (type?: "portproxy" | "socks5" | "rdp", index?: number) => void;
+  openLinkForm: (alias?: string) => void;
+  closeLinkForm: () => void;
+  openServiceForm: (index?: number) => void;
   closeServiceForm: () => void;
 }
 
@@ -29,10 +28,9 @@ export const useUIStore = create<UIState>((set) => ({
   activeTab: "networks",
   selectedNetwork: null,
   selectedService: null,
-  networkFormOpen: false,
+  linkFormOpen: false,
   serviceFormOpen: false,
-  editingNetworkIndex: null,
-  editingServiceType: null,
+  editingLinkAlias: null,
   editingServiceIndex: null,
 
   setCurrentPage: (page) => set({ currentPage: page }),
@@ -40,24 +38,21 @@ export const useUIStore = create<UIState>((set) => ({
   setSelectedNetwork: (name) => set({ selectedNetwork: name }),
   setSelectedService: (id) => set({ selectedService: id }),
 
-  openNetworkForm: (index) =>
+  openLinkForm: (alias) =>
     set({
-      networkFormOpen: true,
-      editingNetworkIndex: index ?? null,
+      linkFormOpen: true,
+      editingLinkAlias: alias ?? null,
     }),
-  closeNetworkForm: () =>
-    set({ networkFormOpen: false, editingNetworkIndex: null }),
+  closeLinkForm: () => set({ linkFormOpen: false, editingLinkAlias: null }),
 
-  openServiceForm: (type, index) =>
+  openServiceForm: (index) =>
     set({
       serviceFormOpen: true,
-      editingServiceType: type ?? null,
       editingServiceIndex: index ?? null,
     }),
   closeServiceForm: () =>
     set({
       serviceFormOpen: false,
-      editingServiceType: null,
       editingServiceIndex: null,
     }),
 }));

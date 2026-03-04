@@ -7,7 +7,7 @@ import { useUIStore } from "@/stores/ui-store";
 
 export function NetworksTab() {
   const { networks } = useAgentStore();
-  const { selectedNetwork, openNetworkForm } = useUIStore();
+  const { selectedNetwork, openLinkForm } = useUIStore();
 
   const userNetworks = networks.filter((n) => n.protocol !== "");
 
@@ -19,9 +19,13 @@ export function NetworksTab() {
         </div>
         <div>
           <p className="text-sm font-medium mb-0.5">还没有网络</p>
-          <p className="text-xs text-muted-foreground">添加网络连接来开始使用</p>
+          <p className="text-xs text-muted-foreground">
+            添加网络连接来开始使用
+          </p>
         </div>
-        <Button size="sm" onClick={() => openNetworkForm()}>添加网络</Button>
+        <Button size="sm" onClick={() => openLinkForm()}>
+          添加网络
+        </Button>
       </div>
     );
   }
@@ -40,7 +44,7 @@ export function NetworksTab() {
             variant="ghost"
             size="sm"
             className="h-6 text-xs px-1.5"
-            onClick={() => openNetworkForm()}
+            onClick={() => openLinkForm()}
           >
             <Plus className="h-3.5 w-3.5" />
           </Button>

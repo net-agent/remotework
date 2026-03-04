@@ -56,7 +56,7 @@ interface ManualPingResult {
 
 export function NetworkDetail({ network }: { network: NetworkStateDTO }) {
   const { streams } = useAgentStore();
-  const { openNetworkForm } = useUIStore();
+  const { openLinkForm } = useUIStore();
   const { currentConfig } = useProfileStore();
 
   const [pingDomain, setPingDomain] = useState("");
@@ -70,9 +70,7 @@ export function NetworkDetail({ network }: { network: NetworkStateDTO }) {
     network.name === "tcp" ||
     network.name === "tcp4" ||
     network.name === "tcp6";
-  const configIndex = !isTcp
-    ? currentConfig.agents.findIndex((a) => a.name === network.name)
-    : -1;
+  const hasLink = !isTcp && network.name in (currentConfig.links ?? {});
 
   const networkStreams = streams.filter(
     (s) => s.network === network.name && !s.isClosed,
@@ -144,12 +142,12 @@ export function NetworkDetail({ network }: { network: NetworkStateDTO }) {
         <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground capitalize">
           {network.state}
         </span>
-        {!isTcp && configIndex >= 0 && (
+        {!isTcp && hasLink && (
           <Button
             variant="ghost"
             size="icon"
             className="h-6 w-6 ml-auto"
-            onClick={() => openNetworkForm(configIndex)}
+            onClick={() => openLinkForm(network.name)}
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>

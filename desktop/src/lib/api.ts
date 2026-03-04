@@ -5,7 +5,7 @@ import type {
   StreamStateDTO,
   PingResultDTO,
 } from "./types";
-import type { AgentInfo } from "./config-types";
+import type { TunnelInfo } from "./config-types";
 
 let baseUrl = "";
 
@@ -70,19 +70,18 @@ export async function stopAgent(): Promise<{ status: string }> {
   });
 }
 
-export async function addNetwork(info: AgentInfo): Promise<{ status: string; name: string }> {
-  return request("/api/v1/networks", {
+export async function addLink(alias: string, url: string): Promise<{ status: string; alias: string }> {
+  return request("/api/v1/links", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(info),
+    body: JSON.stringify({ alias, url }),
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function addService(type: string, info: any): Promise<{ status: string; name: string }> {
-  return request(`/api/v1/services/${type}`, {
+export async function addTunnel(tunnel: TunnelInfo): Promise<{ status: string; name: string; id: string }> {
+  return request("/api/v1/tunnels", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(info),
+    body: JSON.stringify(tunnel),
   });
 }

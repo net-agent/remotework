@@ -1,22 +1,27 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 
 	"time"
 
+	"github.com/net-agent/remotework/agent/configv2"
+	"github.com/net-agent/remotework/agent/vnet"
+	"github.com/net-agent/remotework/agent/vservice"
 	"github.com/net-agent/remotework/utils"
 )
 
 // HubEventListener 可选的事件监听器，用于接收 Hub 内部状态变化通知
 type HubEventListener interface {
 	OnNetworkStateChange(name, oldState, newState string)
-	OnServiceStatusChange(name string, oldStatus, newStatus ServiceStatus)
+	OnServiceStatusChange(name string, oldStatus, newStatus vservice.ServiceStatus)
 }
 
 // NetworkStateNotifier 网络状态变化通知接口
@@ -25,12 +30,13 @@ type NetworkStateNotifier interface {
 }
 
 type Hub struct {
-	log      *slog.Logger
-	networks *NetworkRegistry
-	services *ServiceManager
-	stopOnce sync.Once
-	done     chan struct{}
-	running  int32 // atomic: 0=stopped, 1=running
+	log        *slog.Logger
+	networks   *NetworkRegistry
+	registry   *vservice.ServiceRegistry
+	supervisor *vservice.ServiceSupervisor
+	stopOnce   sync.Once
+	done       chan struct{}
+	running    int32 // atomic: 0=stopped, 1=running
 
 	listenerMu sync.RWMutex
 	listeners  []HubEventListener
@@ -40,50 +46,49 @@ func NewHub(log *slog.Logger) *Hub {
 	if log == nil {
 		log = utils.NewModuleLogger("hub")
 	}
+	svcLog := log.With("module", "hub.svc")
+	registry := vservice.NewServiceRegistry(svcLog)
+	supervisor := vservice.NewServiceSupervisor(svcLog, registry)
 	hub := &Hub{
-		log:      log,
-		networks: NewNetworkRegistry(log.With("module", "hub.net")),
-		services: NewServiceManager(log.With("module", "hub.svc")),
-		done:     make(chan struct{}),
+		log:        log,
+		networks:   NewNetworkRegistry(log.With("module", "hub.net")),
+		registry:   registry,
+		supervisor: supervisor,
+		done:       make(chan struct{}),
 	}
-	hub.services.onStatusChange = func(name string, oldStatus, newStatus ServiceStatus) {
+	supervisor.OnStatusChange = func(name string, oldStatus, newStatus vservice.ServiceStatus) {
 		hub.notifyServiceStatusChange(name, oldStatus, newStatus)
+	}
+	supervisor.IsDependencyErr = func(err error) bool {
+		var depErr *vnet.ErrDependencyNotReady
+		return errors.As(err, &depErr)
 	}
 	return hub
 }
 
-func (hub *Hub) MountConfig(cfg *Config) error {
+// MountConfig loads a CanonicalConfig (already normalized and validated) into the hub.
+func (hub *Hub) MountConfig(cfg *CanonicalConfig) error {
 	var errs []string
 
-	for _, info := range cfg.Agents {
+	// 注册 link 网络
+	for alias, link := range cfg.Links {
+		if err := hub.mountLink(alias, link); err != nil {
+			hub.log.Warn("link mount failed", "alias", alias, "err", err)
+			errs = append(errs, fmt.Sprintf("link %s: %v", alias, err))
+		}
+	}
 
-		if err := hub.NewAgentNetwork(info); err != nil {
-			hub.log.Warn("network register failed", "err", err)
-			errs = append(errs, fmt.Sprintf("network: %v", err))
-		}
-	}
-	for _, info := range cfg.Portproxy {
-		if err := hub.services.Add(NewPortproxyService(hub.networks, hub.networks, info)); err != nil {
-			hub.log.Warn("service register failed", "err", err)
-			errs = append(errs, fmt.Sprintf("portproxy: %v", err))
-		}
-	}
-	for _, info := range cfg.Socks5 {
-		if err := hub.services.Add(NewSocks5Service(hub.networks, info)); err != nil {
-			hub.log.Warn("service register failed", "err", err)
-			errs = append(errs, fmt.Sprintf("socks5: %v", err))
-		}
-	}
-	for _, info := range cfg.RDP {
-		if err := hub.services.Add(NewRDPService(hub.networks, hub.networks, info)); err != nil {
-			hub.log.Warn("service register failed", "err", err)
-			errs = append(errs, fmt.Sprintf("rdp: %v", err))
+	// 注册 tunnel 服务
+	for i, tunnel := range cfg.Tunnels {
+		if err := hub.mountTunnel(tunnel); err != nil {
+			hub.log.Warn("tunnel mount failed", "index", i, "name", tunnel.Name, "err", err)
+			errs = append(errs, fmt.Sprintf("tunnel %s: %v", tunnel.Name, err))
 		}
 	}
 
 	// load config summary
 	hub.log.Info("registered networks", "names", strings.Join(hub.networks.Names(), ", "))
-	hub.log.Info("registered services", "names", strings.Join(hub.services.Names(), ", "))
+	hub.log.Info("registered services", "names", strings.Join(hub.registry.Names(), ", "))
 
 	if len(errs) > 0 {
 		return fmt.Errorf("mount config had %d error(s): %s", len(errs), strings.Join(errs, "; "))
@@ -91,13 +96,128 @@ func (hub *Hub) MountConfig(cfg *Config) error {
 	return nil
 }
 
+// mountLink creates a flex network from a link spec and registers it.
+func (hub *Hub) mountLink(alias string, link configv2.LinkSpec) error {
+	n, err := vnet.NewFlexNetworkFromLink(vnet.FlexLinkConfig{
+		Alias:    alias,
+		Scheme:   link.Scheme,
+		RelayURL: link.RelayURL,
+		Domain:   link.As,
+		Auth:     resolveAuth(link.Auth, link.AuthRef),
+	})
+	if err != nil {
+		return err
+	}
+	return hub.networks.Add(n)
+}
+
+// resolveAuth returns the auth value, preferring authRef (environment variable) over plain auth.
+func resolveAuth(auth, authRef string) string {
+	if authRef != "" {
+		// TODO: resolve from environment variable or secret manager
+		// For now, return authRef as-is (will be implemented properly)
+		return authRef
+	}
+	return auth
+}
+
+// mountTunnel creates a service from a tunnel spec and registers it.
+func (hub *Hub) mountTunnel(tunnel configv2.TunnelSpec) error {
+	// Each endpoint carries its own authcode via URL query.
+	// endpointToInternalURL injects ?authcode= for the registry's cipherconn handling.
+	listenURL := endpointToInternalURL(tunnel.Listen)
+	targetURL := endpointToInternalURL(tunnel.Target)
+
+	var svc *vservice.Service
+
+	switch tunnel.Target.Kind {
+	case configv2.EndpointBuiltin:
+		switch tunnel.Target.Scheme {
+		case "socks5":
+			svc = vservice.NewSocks5Service(
+				hub.networks, tunnel.Name, listenURL,
+				tunnel.Target.Username, tunnel.Target.Password,
+			)
+		default:
+			return fmt.Errorf("unsupported builtin service: %s", tunnel.Target.Scheme)
+		}
+	default:
+		svc = vservice.NewPortproxyService(
+			hub.networks, hub.networks,
+			tunnel.Name, listenURL, targetURL,
+		)
+	}
+
+	if svc == nil {
+		return fmt.Errorf("failed to create service for tunnel %s", tunnel.Name)
+	}
+
+	// Store tunnel ID in service for tracking
+	svc.TunnelID = tunnel.ID
+
+	return hub.registry.Add(svc)
+}
+
+// resolveAuthcode returns the authcode value, preferring authcodeRef over plain authcode.
+func resolveAuthcode(code, codeRef string) string {
+	if codeRef != "" {
+		// TODO: resolve from environment variable or secret manager
+		return codeRef
+	}
+	return code
+}
+
+// endpointToInternalURL converts an EndpointSpec to the internal URL format
+// that NetworkRegistry understands. For vtcp endpoints, authcode from the
+// EndpointSpec is appended as ?authcode= for cipherconn transport encryption.
+//
+// Mapping:
+//   - tcp://host:port            -> tcp://host:port (unchanged)
+//   - vtcp://vhost.alias:port    -> alias://vhost:port[?authcode=xxx]
+//   - socks5://...               -> socks5://... (unchanged)
+func endpointToInternalURL(ep configv2.EndpointSpec) string {
+	switch ep.Kind {
+	case configv2.EndpointVNet:
+		// vtcp://db.office:3306 -> office://db:3306[?authcode=xxx]
+		u := fmt.Sprintf("%s://%s:%s", ep.Alias, ep.VHostname, ep.Port)
+		authcode := resolveAuthcode(ep.Authcode, ep.AuthcodeRef)
+		if authcode != "" {
+			u += "?authcode=" + url.QueryEscape(authcode)
+		}
+		return u
+	case configv2.EndpointBuiltin:
+		return ep.RawURL
+	default:
+		// tcp://host:port -> tcp://host:port
+		return ep.RawURL
+	}
+}
+
 // Start 阻塞式启动所有服务，等待 Stop() 被调用后清理退出
 func (hub *Hub) Start() error {
 	atomic.StoreInt32(&hub.running, 1)
-	go hub.services.StartAll()
+	go hub.supervisor.StartAll()
 	<-hub.done
 	atomic.StoreInt32(&hub.running, 0)
 	hub.networks.StopAll()
+	return nil
+}
+
+// MountLink creates and registers a link network at runtime (for API use).
+func (hub *Hub) MountLink(alias string, link configv2.LinkSpec) error {
+	return hub.mountLink(alias, link)
+}
+
+// MountTunnel creates and starts a tunnel service at runtime (for API use).
+func (hub *Hub) MountTunnel(tunnel configv2.TunnelSpec) error {
+	if err := hub.mountTunnel(tunnel); err != nil {
+		return err
+	}
+	svc, err := hub.registry.Find(tunnel.Name)
+	if err != nil {
+		return err
+	}
+	hub.supervisor.Start(svc)
 	return nil
 }
 
@@ -105,18 +225,9 @@ func (hub *Hub) Start() error {
 func (hub *Hub) Stop() {
 	hub.stopOnce.Do(func() {
 		hub.log.Info("stopping hub...")
-		hub.services.StopAll()
+		hub.supervisor.StopAll()
 		close(hub.done)
 	})
-}
-
-// NewAgentNetwork 创建并注册一个 agent 网络，消除外部对 NewNetwork 的直接依赖
-func (hub *Hub) NewAgentNetwork(info AgentInfo) error {
-	vnet, err := NewNetwork(hub, info)
-	if err != nil {
-		return err
-	}
-	return hub.networks.Add(vnet)
 }
 
 // Dial 供 NetworkRegistry 使用
@@ -140,37 +251,24 @@ func (hub *Hub) URLDialer(raw string) (QuickDialer, error) {
 
 func (hub *Hub) AddNetwork(mnet Network) error               { return hub.networks.Add(mnet) }
 func (hub *Hub) FindNetwork(network string) (Network, error) { return hub.networks.Find(network) }
-func (hub *Hub) AddService(svc *Service) error               { return hub.services.Add(svc) }
+func (hub *Hub) AddService(svc *Service) error               { return hub.registry.Add(svc) }
 func (hub *Hub) AddAndStartService(svc *Service) error {
-	if err := hub.services.Add(svc); err != nil {
+	if err := hub.registry.Add(svc); err != nil {
 		return err
 	}
-	hub.services.Start(svc)
+	hub.supervisor.Start(svc)
 	return nil
 }
-func (hub *Hub) FindService(name string) (*Service, error) { return hub.services.Find(name) }
+func (hub *Hub) FindService(name string) (*Service, error) { return hub.registry.Find(name) }
 func (hub *Hub) IsRunning() bool                           { return atomic.LoadInt32(&hub.running) == 1 }
-func (hub *Hub) RangeAllService(fn func(svc *Service))     { hub.services.Range(fn) }
-
-//
-// Deprecated 方法，保持向后兼容
-//
-
-// Deprecated: Use Start()
-func (hub *Hub) StartServices() error { return hub.Start() }
-
-// Deprecated: Use Stop()
-func (hub *Hub) StopServices() { hub.Stop() }
-
-// Deprecated: Stop() 已包含网络清理
-func (hub *Hub) StopNetworks() { hub.networks.StopAll() }
+func (hub *Hub) RangeAllService(fn func(svc *Service))     { hub.registry.Range(fn) }
 
 //
 // 状态查询委托方法
 //
 
-func (hub *Hub) GetAllServiceState() ([]ServiceState, error)  { return hub.services.GetAllState() }
-func (hub *Hub) GetAllServiceStateString() string             { return hub.services.GetAllStateString() }
+func (hub *Hub) GetAllServiceState() ([]ServiceState, error)  { return hub.registry.GetAllState() }
+func (hub *Hub) GetAllServiceStateString() string             { return hub.registry.GetAllStateString() }
 func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error) { return hub.networks.GetAllState() }
 func (hub *Hub) GetAllNetworkStateString() string             { return hub.networks.GetAllStateString() }
 func (hub *Hub) GetAllDataStreamStateString() string {

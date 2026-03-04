@@ -34,7 +34,7 @@ func runAgent(configFile string) {
 	}
 	syslog.Info("read config", "path", resolved)
 
-	config, err := agent.NewConfig(resolved)
+	config, err := agent.NewCanonicalConfig(resolved)
 	if err != nil {
 		utils.Fatal(syslog, "load config failed: ", err)
 	}

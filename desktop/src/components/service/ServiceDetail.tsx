@@ -6,26 +6,20 @@ import { useProfileStore } from "@/stores/profile-store";
 import { Pencil } from "lucide-react";
 import type { ServiceStateDTO } from "@/lib/types";
 
-function findServiceConfigIndex(
-  config: ReturnType<typeof useProfileStore.getState>["currentConfig"],
-  service: ServiceStateDTO,
-): number {
-  const arr =
-    service.type === "portproxy"
-      ? config.portproxy
-      : service.type === "socks5"
-        ? config.socks5
-        : service.type === "rdp"
-          ? config.rdp
-          : [];
-  return arr.findIndex((item) => item.log === service.name);
-}
-
 export function ServiceDetail({ service }: { service: ServiceStateDTO }) {
   const { openServiceForm } = useUIStore();
   const { currentConfig } = useProfileStore();
 
-  const configIndex = findServiceConfigIndex(currentConfig, service);
+  // Find the tunnel index in config by tunnel ID or name match
+  const tunnels = currentConfig.tunnels ?? [];
+  let configIndex = -1;
+
+  if (service.tunnelId) {
+    configIndex = tunnels.findIndex((t) => t.id === service.tunnelId);
+  }
+  if (configIndex < 0) {
+    configIndex = tunnels.findIndex((t) => t.name === service.name);
+  }
 
   return (
     <div className="p-4 space-y-3 overflow-auto h-full text-xs">
@@ -40,12 +34,7 @@ export function ServiceDetail({ service }: { service: ServiceStateDTO }) {
             variant="ghost"
             size="icon"
             className="h-6 w-6 ml-auto"
-            onClick={() =>
-              openServiceForm(
-                service.type as "portproxy" | "socks5" | "rdp",
-                configIndex,
-              )
-            }
+            onClick={() => openServiceForm(configIndex)}
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -66,6 +55,9 @@ export function ServiceDetail({ service }: { service: ServiceStateDTO }) {
         )}
         <InfoRow label="活跃连接" value={String(service.actives)} />
         <InfoRow label="已完成" value={String(service.dones)} />
+        {service.tunnelId && (
+          <InfoRow label="隧道 ID" value={service.tunnelId} mono />
+        )}
       </div>
     </div>
   );

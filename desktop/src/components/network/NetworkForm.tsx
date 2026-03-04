@@ -9,178 +9,138 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUIStore } from "@/stores/ui-store";
 import { useProfileStore } from "@/stores/profile-store";
 import { useAgentStore } from "@/stores/agent-store";
-import { emptyAgentInfo, type AgentInfo } from "@/lib/config-types";
 import * as api from "@/lib/api";
 import { toast } from "sonner";
 
 export function NetworkForm() {
-  const { networkFormOpen, closeNetworkForm, editingNetworkIndex } = useUIStore();
-  const { currentConfig, setCurrentConfig, saveConfig, activeProfile } = useProfileStore();
+  const { linkFormOpen, closeLinkForm, editingLinkAlias } = useUIStore();
+  const { currentConfig, setCurrentConfig, saveConfig, activeProfile } =
+    useProfileStore();
   const { agentRunning } = useAgentStore();
-  const isEditing = editingNetworkIndex !== null;
+  const isEditing = editingLinkAlias !== null;
 
-  const [form, setForm] = useState<AgentInfo>(emptyAgentInfo());
+  const [alias, setAlias] = useState("");
+  const [url, setUrl] = useState("");
 
   useEffect(() => {
-    if (networkFormOpen) {
-      if (isEditing && currentConfig.agents[editingNetworkIndex!]) {
-        setForm({ ...currentConfig.agents[editingNetworkIndex!] });
+    if (linkFormOpen) {
+      if (isEditing && editingLinkAlias) {
+        setAlias(editingLinkAlias);
+        setUrl(currentConfig.links[editingLinkAlias] ?? "");
       } else {
-        setForm(emptyAgentInfo());
+        setAlias("");
+        setUrl("");
       }
     }
-  }, [networkFormOpen, isEditing, editingNetworkIndex, currentConfig.agents]);
-
-  const buildUrl = () => {
-    let url = `${form.protocol || "vtcp"}://`;
-    if (form.domain) {
-      url += form.domain;
-      if (form.password) url += `:${form.password}`;
-      url += "@";
-    }
-    url += form.address;
-    if (form.wsPath) url += form.wsPath;
-    return url;
-  };
+  }, [linkFormOpen, isEditing, editingLinkAlias, currentConfig.links]);
 
   const handleSave = async () => {
-    if (!form.name.trim()) {
-      toast.error("请输入网络名称");
+    const trimmedAlias = alias.trim();
+    if (!trimmedAlias) {
+      toast.error("请输入链路别名");
       return;
     }
-    if (!form.address.trim()) {
-      toast.error("请输入服务器地址");
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(trimmedAlias)) {
+      toast.error("别名仅允许字母开头，可包含字母、数字、下划线、短横线");
+      return;
+    }
+    if (!url.trim()) {
+      toast.error("请输入注册 URL");
       return;
     }
 
-    const agent: AgentInfo = {
-      ...form,
-      url: buildUrl(),
-    };
+    const newLinks = { ...currentConfig.links };
 
-    // Save to config
-    const agents = [...currentConfig.agents];
-    if (isEditing) {
-      agents[editingNetworkIndex!] = agent;
-    } else {
-      agents.push(agent);
+    // If renaming alias during edit, remove old key
+    if (isEditing && editingLinkAlias && editingLinkAlias !== trimmedAlias) {
+      delete newLinks[editingLinkAlias];
     }
-    const newConfig = { ...currentConfig, agents };
+
+    newLinks[trimmedAlias] = url.trim();
+    const newConfig = { ...currentConfig, links: newLinks };
     setCurrentConfig(newConfig);
     if (activeProfile) saveConfig(activeProfile, newConfig);
 
-    // Dynamically add to running agent (new only; edits require restart)
+    // Dynamically add to running agent (new links only)
     if (!isEditing && agentRunning) {
       try {
-        await api.addNetwork(agent);
-        toast.success("网络已添加并启动");
+        await api.addLink(trimmedAlias, url.trim());
+        toast.success("链路已添加并启动");
       } catch (e) {
         toast.warning(`已保存配置，但动态添加失败: ${e}`);
       }
     } else {
-      toast.success(isEditing ? "网络已更新，重启后生效" : "网络已添加");
+      toast.success(isEditing ? "链路已更新，重启后生效" : "链路已添加");
     }
 
-    closeNetworkForm();
+    closeLinkForm();
   };
 
   const handleDelete = () => {
-    if (!isEditing) return;
-    const agents = currentConfig.agents.filter((_, i) => i !== editingNetworkIndex);
-    const newConfig = { ...currentConfig, agents };
+    if (!isEditing || !editingLinkAlias) return;
+    const newLinks = { ...currentConfig.links };
+    delete newLinks[editingLinkAlias];
+    const newConfig = { ...currentConfig, links: newLinks };
     setCurrentConfig(newConfig);
     if (activeProfile) saveConfig(activeProfile, newConfig);
-    closeNetworkForm();
-    toast.success("网络已删除");
+    closeLinkForm();
+    toast.success("链路已删除");
   };
 
   return (
-    <Dialog open={networkFormOpen} onOpenChange={(open) => !open && closeNetworkForm()}>
+    <Dialog
+      open={linkFormOpen}
+      onOpenChange={(open) => !open && closeLinkForm()}
+    >
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "编辑网络" : "添加网络"}</DialogTitle>
+          <DialogTitle>
+            {isEditing ? "编辑链路" : "添加链路"}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div>
-            <Label htmlFor="net-name">名称</Label>
+            <Label htmlFor="link-alias">别名</Label>
             <Input
-              id="net-name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="例如：office-server"
+              id="link-alias"
+              value={alias}
+              onChange={(e) => setAlias(e.target.value)}
+              placeholder="例如：office-relay"
               className="mt-1.5"
+              disabled={isEditing}
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              链路的本地标识，隧道中 vtcp 端点通过此别名引用
+            </p>
           </div>
           <div>
-            <Label>协议</Label>
-            <Select
-              value={form.protocol || "vtcp"}
-              onValueChange={(v) => setForm({ ...form, protocol: v })}
-            >
-              <SelectTrigger className="mt-1.5">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="vtcp">vtcp (Flex 虚拟网络)</SelectItem>
-                <SelectItem value="ws">ws (WebSocket)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="net-address">服务器地址</Label>
+            <Label htmlFor="link-url">注册 URL</Label>
             <Input
-              id="net-address"
-              value={form.address}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
-              placeholder="example.com:8080"
-              className="mt-1.5"
+              id="link-url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="tcp://my-pc@relay.example.com:8080"
+              className="mt-1.5 font-mono text-xs"
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              格式：scheme://domain@address?as=hostname&auth=secret
+            </p>
           </div>
-          <div>
-            <Label htmlFor="net-domain">域名</Label>
-            <Input
-              id="net-domain"
-              value={form.domain}
-              onChange={(e) => setForm({ ...form, domain: e.target.value })}
-              placeholder="唯一标识，例如：my-pc"
-              className="mt-1.5"
-            />
-          </div>
-          <div>
-            <Label htmlFor="net-password">密码</Label>
-            <Input
-              id="net-password"
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder="连接密码（可选）"
-              className="mt-1.5"
-            />
-          </div>
-          {form.protocol === "ws" && (
-            <div>
-              <Label htmlFor="net-wspath">WebSocket 路径</Label>
-              <Input
-                id="net-wspath"
-                value={form.wsPath}
-                onChange={(e) => setForm({ ...form, wsPath: e.target.value })}
-                placeholder="/ws"
-                className="mt-1.5"
-              />
-            </div>
-          )}
         </div>
         <DialogFooter>
           {isEditing && (
-            <Button variant="destructive" onClick={handleDelete} className="mr-auto">
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              className="mr-auto"
+            >
               删除
             </Button>
           )}
-          <Button variant="outline" onClick={closeNetworkForm}>
+          <Button variant="outline" onClick={closeLinkForm}>
             取消
           </Button>
           <Button onClick={handleSave}>

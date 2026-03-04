@@ -9,6 +9,7 @@ import (
 
 type ServiceStateDTO struct {
 	ID        int32  `json:"id"`
+	TunnelID  string `json:"tunnelId,omitempty"`
 	Type      string `json:"type"`
 	Name      string `json:"name"`
 	Status    string `json:"status"`
@@ -53,6 +54,7 @@ type PingResultDTO struct {
 func toServiceDTO(s agent.ServiceState) ServiceStateDTO {
 	return ServiceStateDTO{
 		ID:        s.ID,
+		TunnelID:  s.TunnelID,
 		Type:      s.Type,
 		Name:      s.Name,
 		Status:    s.StatusString(),

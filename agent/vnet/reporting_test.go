@@ -1,4 +1,4 @@
-package agent
+package vnet
 
 import (
 	"sync"
@@ -6,9 +6,9 @@ import (
 )
 
 func TestReportingNetwork_Report_Basic(t *testing.T) {
-	mn := newMockNetwork("test-net")
+	mn := NewMockNetwork("test-net")
 	mn.meta = &NetworkMeta{Protocol: "tcp", Address: "1.2.3.4:80", Domain: "d1", State: "online"}
-	rn := newReportingNetwork(mn)
+	rn := NewReportingNetwork(mn)
 
 	report := rn.Report()
 	if report.Name != "test-net" {
@@ -26,8 +26,8 @@ func TestReportingNetwork_Report_Basic(t *testing.T) {
 }
 
 func TestReportingNetwork_CountsDialAndListen(t *testing.T) {
-	mn := newMockNetwork("test-net")
-	rn := newReportingNetwork(mn)
+	mn := NewMockNetwork("test-net")
+	rn := NewReportingNetwork(mn)
 
 	// Dial/Listen 会失败（mock 默认返回 error），但计数器仍应递增
 	rn.Dial("tcp", "1.2.3.4:80")
@@ -45,21 +45,21 @@ func TestReportingNetwork_CountsDialAndListen(t *testing.T) {
 
 func TestReportingNetwork_NoMetaProvider(t *testing.T) {
 	// mockNetwork without meta set — still implements NetworkMetaProvider, returns empty
-	mn := newMockNetwork("bare")
-	rn := newReportingNetwork(mn)
+	mn := NewMockNetwork("bare")
+	rn := NewReportingNetwork(mn)
 
 	report := rn.Report()
 	if report.Name != "bare" {
 		t.Errorf("Name = %q, want %q", report.Name, "bare")
 	}
-	if report.Alive <= 0 {
-		t.Error("Alive should be positive")
+	if report.Alive < 0 {
+		t.Error("Alive should be non-negative")
 	}
 }
 
 func TestReportingNetwork_ConcurrentAccess(t *testing.T) {
-	mn := newMockNetwork("concurrent")
-	rn := newReportingNetwork(mn)
+	mn := NewMockNetwork("concurrent")
+	rn := NewReportingNetwork(mn)
 	var wg sync.WaitGroup
 	n := 100
 

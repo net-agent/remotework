@@ -17,7 +17,7 @@ import (
 
 func (hub *Hub) GetPingState() ([]*PingReport, error) {
 	var svcs []*Service
-	hub.services.Range(func(svc *Service) {
+	hub.registry.Range(func(svc *Service) {
 		svcs = append(svcs, svc)
 	})
 

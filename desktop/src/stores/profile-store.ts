@@ -44,10 +44,8 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     const config: AgentConfig = {
       ...defaults,
       ...raw,
-      agents: raw.agents ?? defaults.agents,
-      portproxy: raw.portproxy ?? defaults.portproxy,
-      socks5: raw.socks5 ?? defaults.socks5,
-      rdp: raw.rdp ?? defaults.rdp,
+      links: raw.links ?? defaults.links,
+      tunnels: raw.tunnels ?? defaults.tunnels,
       pprof: raw.pprof ?? defaults.pprof,
       api: raw.api ?? defaults.api,
     };

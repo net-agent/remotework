@@ -1,4 +1,4 @@
-package agent
+package vnet
 
 import (
 	"net"
@@ -6,29 +6,29 @@ import (
 	"time"
 )
 
-// reportingNetwork 装饰器，包装 Network 统一追踪通用指标
-type reportingNetwork struct {
+// ReportingNetwork 装饰器，包装 Network 统一追踪通用指标
+type ReportingNetwork struct {
 	Network
 	start       time.Time
 	dialCount   atomic.Int32
 	listenCount atomic.Int32
 }
 
-func newReportingNetwork(n Network) *reportingNetwork {
-	return &reportingNetwork{Network: n, start: time.Now()}
+func NewReportingNetwork(n Network) *ReportingNetwork {
+	return &ReportingNetwork{Network: n, start: time.Now()}
 }
 
-func (r *reportingNetwork) Dial(network, addr string) (net.Conn, error) {
+func (r *ReportingNetwork) Dial(network, addr string) (net.Conn, error) {
 	r.dialCount.Add(1)
 	return r.Network.Dial(network, addr)
 }
 
-func (r *reportingNetwork) Listen(network, addr string) (net.Listener, error) {
+func (r *ReportingNetwork) Listen(network, addr string) (net.Listener, error) {
 	r.listenCount.Add(1)
 	return r.Network.Listen(network, addr)
 }
 
-func (r *reportingNetwork) Report() NetworkReport {
+func (r *ReportingNetwork) Report() NetworkReport {
 	report := NetworkReport{
 		Name:    r.GetName(),
 		Alive:   time.Since(r.start),
