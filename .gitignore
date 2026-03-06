@@ -12,3 +12,6 @@ desktop/src-tauri/remotework-*
 desktop/src-tauri/binaries/*
 
 __debug_bin*
+
+cmd/traces-logs/
+cmd/traces
