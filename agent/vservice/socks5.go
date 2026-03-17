@@ -40,7 +40,7 @@ func (s *Socks5Controller) Init() error {
 			s.log.Info("link stopped", "from", dialer, "alive", time.Since(start).Round(time.Second))
 		}()
 		s.log.Info("link created", "from", dialer)
-		return utils.LinkReadWriteCloser(a, b)
+		return utils.RelayConns(a, b)
 	})
 
 	var err error

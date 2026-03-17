@@ -9,7 +9,7 @@ type ClientFlags struct {
 }
 
 func (f *ClientFlags) Parse() {
-	flag.StringVar(&f.RunMode, "mode", "agent", "optional: agent/server")
+	flag.StringVar(&f.RunMode, "mode", "agent", "optional: agent/server/validate")
 	flag.StringVar(&f.HomePath, "home", "", "home path for files")
 	flag.StringVar(&f.ConfigFileName, "c", "./config.json", "default name of config file")
 	flag.Parse()

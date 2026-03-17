@@ -4,20 +4,28 @@ import { useAgentStore } from "@/stores/agent-store";
 import { useProfileStore } from "@/stores/profile-store";
 
 export function useSidecar() {
-  const { setAgentRunning, setApiBaseUrl, fetchAll, reset } = useAgentStore();
+  const { setAgentRunning, setApiBaseUrl, setStartError, fetchAll, reset } =
+    useAgentStore();
 
   const startAgent = useCallback(
     async (profileName: string) => {
-      const port = await invoke<number>("start_agent", {
-        profileName,
-      });
-      const url = `http://127.0.0.1:${port}`;
-      setApiBaseUrl(url);
-      setAgentRunning(true);
-      await fetchAll();
-      return port;
+      setStartError("");
+      try {
+        const port = await invoke<number>("start_agent", {
+          profileName,
+        });
+        const url = `http://127.0.0.1:${port}`;
+        setApiBaseUrl(url);
+        setAgentRunning(true);
+        await fetchAll();
+        return port;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setStartError(msg);
+        throw e;
+      }
     },
-    [setAgentRunning, setApiBaseUrl, fetchAll]
+    [setAgentRunning, setApiBaseUrl, setStartError, fetchAll],
   );
 
   const stopAgent = useCallback(async () => {
@@ -27,16 +35,23 @@ export function useSidecar() {
 
   const restartAgent = useCallback(
     async (profileName: string) => {
-      const port = await invoke<number>("restart_agent", {
-        profileName,
-      });
-      const url = `http://127.0.0.1:${port}`;
-      setApiBaseUrl(url);
-      setAgentRunning(true);
-      await fetchAll();
-      return port;
+      setStartError("");
+      try {
+        const port = await invoke<number>("restart_agent", {
+          profileName,
+        });
+        const url = `http://127.0.0.1:${port}`;
+        setApiBaseUrl(url);
+        setAgentRunning(true);
+        await fetchAll();
+        return port;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setStartError(msg);
+        throw e;
+      }
     },
-    [setAgentRunning, setApiBaseUrl, fetchAll]
+    [setAgentRunning, setApiBaseUrl, setStartError, fetchAll],
   );
 
   const isRunning = useCallback(async () => {
@@ -82,7 +97,15 @@ export function useStartup() {
     } catch (e) {
       console.error("Boot failed:", e);
     }
-  }, [loadProfiles, loadConfig, startAgent, isRunning, setAgentRunning, setApiBaseUrl, fetchAll]);
+  }, [
+    loadProfiles,
+    loadConfig,
+    startAgent,
+    isRunning,
+    setAgentRunning,
+    setApiBaseUrl,
+    fetchAll,
+  ]);
 
   return { boot };
 }

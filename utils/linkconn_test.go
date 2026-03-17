@@ -56,8 +56,8 @@ func newHalfClosePair() (*halfCloseConn, *halfCloseConn) {
 }
 
 type linkResult struct {
-	aWritten int64
-	bWritten int64
+	bytesToA int64
+	bytesToB int64
 	err      error
 }
 
@@ -92,8 +92,8 @@ func TestLinkReadWriteCloser_AllowsHalfCloseResponseFlow(t *testing.T) {
 
 	resultCh := make(chan linkResult, 1)
 	go func() {
-		aWritten, bWritten, err := LinkReadWriteCloser(linkA, linkB)
-		resultCh <- linkResult{aWritten: aWritten, bWritten: bWritten, err: err}
+		bytesToA, bytesToB, err := RelayConns(linkA, linkB)
+		resultCh <- linkResult{bytesToA: bytesToA, bytesToB: bytesToB, err: err}
 	}()
 
 	request := []byte("GET /resource HTTP/1.1\r\nHost: example.test\r\n\r\n")
@@ -167,11 +167,11 @@ func TestLinkReadWriteCloser_AllowsHalfCloseResponseFlow(t *testing.T) {
 		if result.err != nil {
 			t.Fatalf("link returned unexpected error: %v", result.err)
 		}
-		if result.aWritten != int64(len(response)) {
-			t.Fatalf("aWritten mismatch: got=%d want=%d", result.aWritten, len(response))
+		if result.bytesToA != int64(len(response)) {
+			t.Fatalf("bytesToA mismatch: got=%d want=%d", result.bytesToA, len(response))
 		}
-		if result.bWritten != int64(len(request)) {
-			t.Fatalf("bWritten mismatch: got=%d want=%d", result.bWritten, len(request))
+		if result.bytesToB != int64(len(request)) {
+			t.Fatalf("bytesToB mismatch: got=%d want=%d", result.bytesToB, len(request))
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("link result timeout")
@@ -189,8 +189,8 @@ func TestLinkReadWriteCloser_ReportsFirstErrorAndBytes(t *testing.T) {
 
 	resultCh := make(chan linkResult, 1)
 	go func() {
-		aWritten, bWritten, err := LinkReadWriteCloser(linkA, linkB)
-		resultCh <- linkResult{aWritten: aWritten, bWritten: bWritten, err: err}
+		bytesToA, bytesToB, err := RelayConns(linkA, linkB)
+		resultCh <- linkResult{bytesToA: bytesToA, bytesToB: bytesToB, err: err}
 	}()
 
 	if _, err := client.Write([]byte("hello")); err != nil {
@@ -205,11 +205,11 @@ func TestLinkReadWriteCloser_ReportsFirstErrorAndBytes(t *testing.T) {
 		if !errors.Is(result.err, sentinel) {
 			t.Fatalf("unexpected error: got=%v want=%v", result.err, sentinel)
 		}
-		if result.bWritten != 0 {
-			t.Fatalf("unexpected bWritten: got=%d want=0", result.bWritten)
+		if result.bytesToB != 0 {
+			t.Fatalf("unexpected bytesToB: got=%d want=0", result.bytesToB)
 		}
-		if result.aWritten != 0 {
-			t.Fatalf("unexpected aWritten: got=%d want=0", result.aWritten)
+		if result.bytesToA != 0 {
+			t.Fatalf("unexpected bytesToA: got=%d want=0", result.bytesToA)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("link result timeout")

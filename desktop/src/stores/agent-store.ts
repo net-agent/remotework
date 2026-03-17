@@ -14,6 +14,7 @@ interface AgentState {
   agentRunning: boolean;
   apiBaseUrl: string;
   wsConnected: boolean;
+  startError: string;
   networks: NetworkStateDTO[];
   services: ServiceStateDTO[];
   streams: StreamStateDTO[];
@@ -21,6 +22,7 @@ interface AgentState {
   setAgentRunning: (running: boolean) => void;
   setApiBaseUrl: (url: string) => void;
   setWsConnected: (connected: boolean) => void;
+  setStartError: (error: string) => void;
   fetchAll: () => Promise<void>;
   handleWsEvent: (event: WsEvent) => void;
   reset: () => void;
@@ -30,6 +32,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   agentRunning: false,
   apiBaseUrl: "",
   wsConnected: false,
+  startError: "",
   networks: [],
   services: [],
   streams: [],
@@ -40,6 +43,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set({ apiBaseUrl: url });
   },
   setWsConnected: (connected) => set({ wsConnected: connected }),
+  setStartError: (error) => set({ startError: error }),
 
   fetchAll: async () => {
     try {
@@ -64,24 +68,23 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     switch (event.type) {
       case "network.state": {
         const data = event.data as NetworkStateEvent;
-        const networks = state.networks.map((n) =>
-          n.name === data.name ? data.report : n
+        const mapped = state.networks.map((n) =>
+          n.name === data.name ? data.report : n,
         );
-        // If network not found, add it
-        if (!networks.find((n) => n.name === data.name)) {
-          networks.push(data.report);
-        }
+        const networks = mapped.find((n) => n.name === data.name)
+          ? mapped
+          : [...mapped, data.report];
         set({ networks });
         break;
       }
       case "service.status": {
         const data = event.data as ServiceStatusEvent;
-        const services = state.services.map((s) =>
-          s.name === data.name ? data.service : s
+        const mapped = state.services.map((s) =>
+          s.name === data.name ? data.service : s,
         );
-        if (!services.find((s) => s.name === data.name)) {
-          services.push(data.service);
-        }
+        const services = mapped.find((s) => s.name === data.name)
+          ? mapped
+          : [...mapped, data.service];
         set({ services });
         break;
       }
@@ -91,8 +94,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           (s) =>
             !data.closed.some(
               (c) =>
-                c.localAddr === s.localAddr && c.remoteAddr === s.remoteAddr
-            )
+                c.localAddr === s.localAddr && c.remoteAddr === s.remoteAddr,
+            ),
         );
         streams = [...streams, ...data.opened];
         set({ streams });
@@ -110,6 +113,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       agentRunning: false,
       apiBaseUrl: "",
       wsConnected: false,
+      startError: "",
       networks: [],
       services: [],
       streams: [],

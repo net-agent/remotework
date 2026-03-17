@@ -16,6 +16,7 @@ import { useProfileStore } from "@/stores/profile-store";
 import { useAgentStore } from "@/stores/agent-store";
 import { emptyTunnel, type TunnelInfo } from "@/lib/config-types";
 import * as api from "@/lib/api";
+import { validateTunnel } from "@/lib/config-validation";
 import { toast } from "sonner";
 
 const LISTEN_SCHEMES = ["tcp", "vtcp"];
@@ -24,8 +25,13 @@ const TARGET_SCHEMES = ["tcp", "vtcp", "socks5"];
 export function ServiceForm() {
   const { serviceFormOpen, closeServiceForm, editingServiceIndex } =
     useUIStore();
-  const { currentConfig, setCurrentConfig, saveConfig, activeProfile } =
-    useProfileStore();
+  const {
+    currentConfig,
+    setCurrentConfig,
+    saveConfig,
+    activeProfile,
+    setNeedsRestart,
+  } = useProfileStore();
   const runtimeNetworks = useAgentStore((s) => s.networks);
   const isEditing = editingServiceIndex !== null;
 
@@ -69,6 +75,12 @@ export function ServiceForm() {
       return;
     }
 
+    const tunnelErr = validateTunnel(tunnel, linkAliases);
+    if (tunnelErr) {
+      toast.error(tunnelErr);
+      return;
+    }
+
     const config = { ...currentConfig };
     const tunnels = [...(config.tunnels ?? [])];
     let isNew = false;
@@ -92,9 +104,13 @@ export function ServiceForm() {
         toast.success("隧道已添加并启动");
       } catch (e) {
         toast.warning(`已保存配置，但动态添加失败: ${e}`);
+        setNeedsRestart();
       }
+    } else if (isEditing && agentRunning) {
+      toast.success("隧道已更新，重启后生效");
+      setNeedsRestart();
     } else {
-      toast.success(isEditing ? "隧道已更新，重启后生效" : "隧道已添加");
+      toast.success(isEditing ? "隧道已更新" : "隧道已添加");
     }
 
     closeServiceForm();
@@ -108,8 +124,10 @@ export function ServiceForm() {
     );
     setCurrentConfig(config);
     if (activeProfile) saveConfig(activeProfile, config);
+    const agentRunning = useAgentStore.getState().agentRunning;
+    if (agentRunning) setNeedsRestart();
     closeServiceForm();
-    toast.success("隧道已删除");
+    toast.success(agentRunning ? "隧道已删除，重启后生效" : "隧道已删除");
   };
 
   return (

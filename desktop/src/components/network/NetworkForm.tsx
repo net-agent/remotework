@@ -13,12 +13,18 @@ import { useUIStore } from "@/stores/ui-store";
 import { useProfileStore } from "@/stores/profile-store";
 import { useAgentStore } from "@/stores/agent-store";
 import * as api from "@/lib/api";
+import { validateLinkURL } from "@/lib/config-validation";
 import { toast } from "sonner";
 
 export function NetworkForm() {
   const { linkFormOpen, closeLinkForm, editingLinkAlias } = useUIStore();
-  const { currentConfig, setCurrentConfig, saveConfig, activeProfile } =
-    useProfileStore();
+  const {
+    currentConfig,
+    setCurrentConfig,
+    saveConfig,
+    activeProfile,
+    setNeedsRestart,
+  } = useProfileStore();
   const { agentRunning } = useAgentStore();
   const isEditing = editingLinkAlias !== null;
 
@@ -52,6 +58,12 @@ export function NetworkForm() {
       return;
     }
 
+    const urlErr = validateLinkURL(url.trim());
+    if (urlErr) {
+      toast.error(urlErr);
+      return;
+    }
+
     const newLinks = { ...currentConfig.links };
 
     // If renaming alias during edit, remove old key
@@ -71,9 +83,13 @@ export function NetworkForm() {
         toast.success("链路已添加并启动");
       } catch (e) {
         toast.warning(`已保存配置，但动态添加失败: ${e}`);
+        setNeedsRestart();
       }
+    } else if (isEditing && agentRunning) {
+      toast.success("链路已更新，重启后生效");
+      setNeedsRestart();
     } else {
-      toast.success(isEditing ? "链路已更新，重启后生效" : "链路已添加");
+      toast.success(isEditing ? "链路已更新" : "链路已添加");
     }
 
     closeLinkForm();
@@ -86,8 +102,9 @@ export function NetworkForm() {
     const newConfig = { ...currentConfig, links: newLinks };
     setCurrentConfig(newConfig);
     if (activeProfile) saveConfig(activeProfile, newConfig);
+    if (agentRunning) setNeedsRestart();
     closeLinkForm();
-    toast.success("链路已删除");
+    toast.success(agentRunning ? "链路已删除，重启后生效" : "链路已删除");
   };
 
   return (
@@ -97,9 +114,7 @@ export function NetworkForm() {
     >
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>
-            {isEditing ? "编辑链路" : "添加链路"}
-          </DialogTitle>
+          <DialogTitle>{isEditing ? "编辑链路" : "添加链路"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div>
@@ -143,9 +158,7 @@ export function NetworkForm() {
           <Button variant="outline" onClick={closeLinkForm}>
             取消
           </Button>
-          <Button onClick={handleSave}>
-            {isEditing ? "保存" : "添加"}
-          </Button>
+          <Button onClick={handleSave}>{isEditing ? "保存" : "添加"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

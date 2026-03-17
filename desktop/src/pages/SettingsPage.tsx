@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ProfileManager } from "@/components/profile/ProfileManager";
@@ -15,7 +21,8 @@ export function SettingsPage() {
   const [logLevel, setLogLevel] = useState("info");
   const { setLogLevel: apiSetLogLevel } = useAgentApi();
   const { agentRunning } = useAgentStore();
-  const { activeProfile, dirty, needsRestart } = useProfileStore();
+  const { activeProfile, dirty, needsRestart, clearNeedsRestart } =
+    useProfileStore();
   const { restartAgent } = useSidecar();
 
   const handleLogLevelChange = async (level: string) => {
@@ -32,6 +39,7 @@ export function SettingsPage() {
     if (!activeProfile) return;
     try {
       await restartAgent(activeProfile);
+      clearNeedsRestart();
       toast.success("Agent 已重启");
     } catch (e) {
       toast.error(`重启失败: ${e}`);
@@ -66,7 +74,9 @@ export function SettingsPage() {
           </div>
           {(dirty || needsRestart) && (
             <div className="flex items-center justify-between">
-              <span className="text-sm text-amber-600">配置已修改，需要重启</span>
+              <span className="text-sm text-amber-600">
+                配置已修改，需要重启
+              </span>
               <Button size="sm" variant="outline" onClick={handleRestart}>
                 重启 Agent
               </Button>

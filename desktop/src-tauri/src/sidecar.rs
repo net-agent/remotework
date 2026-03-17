@@ -68,6 +68,24 @@ pub async fn start_agent(
     std::fs::write(&active_config_path, &json)
         .map_err(|e| format!("write active config '{}': {}", active_config_path.display(), e))?;
 
+    // Validate config before spawning agent (best-effort: skip if binary doesn't support validate mode)
+    if let Ok(validate_cmd) = app.shell().sidecar("remotework") {
+        if let Ok(validate_output) = validate_cmd
+            .args(["-mode", "validate", "-c", active_config_path.to_str().unwrap()])
+            .output()
+            .await
+        {
+            if validate_output.status.code() != Some(0) {
+                let stderr = String::from_utf8_lossy(&validate_output.stderr);
+                let stderr_str = stderr.trim();
+                // "invalid run-mode" means the binary is older and doesn't have validate mode — skip
+                if !stderr_str.contains("invalid run-mode") {
+                    return Err(format!("配置验证失败: {}", stderr_str));
+                }
+            }
+        }
+    }
+
     // Spawn sidecar
     let sidecar_cmd = app
         .shell()

@@ -23,6 +23,7 @@ interface ProfileState {
   setActiveProfile: (name: string) => Promise<void>;
   setCurrentConfig: (config: AgentConfig) => void;
   setDirty: (dirty: boolean) => void;
+  setNeedsRestart: () => void;
   clearNeedsRestart: () => void;
 }
 
@@ -54,7 +55,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
 
   saveConfig: async (name: string, config: AgentConfig) => {
     await invoke("save_profile", { name, config });
-    set({ currentConfig: config, dirty: false, needsRestart: true });
+    set({ currentConfig: config, dirty: false });
     await get().loadProfiles();
   },
 
@@ -81,5 +82,6 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
 
   setCurrentConfig: (config) => set({ currentConfig: config, dirty: true }),
   setDirty: (dirty) => set({ dirty }),
+  setNeedsRestart: () => set({ needsRestart: true }),
   clearNeedsRestart: () => set({ needsRestart: false }),
 }));

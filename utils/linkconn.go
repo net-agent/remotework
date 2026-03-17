@@ -14,11 +14,13 @@ var (
 	linkConnAutoID     uint64
 )
 
-type closeWriter interface {
+// writeHalfCloser 表示可以半关闭写端的连接（向对端发送 EOF）。
+type writeHalfCloser interface {
 	CloseWrite() error
 }
 
-type closeReader interface {
+// readHalfCloser 表示可以半关闭读端的连接（停止接收数据）。
+type readHalfCloser interface {
 	CloseRead() error
 }
 
@@ -29,9 +31,11 @@ func getLinkConnLogger() *slog.Logger {
 	return linkConnLogger
 }
 
-// LinkReadWriteCloser 双向链接两个可读写关闭的连接。
+// RelayConns 双向链接两个可读写关闭的连接。
 // 优先使用 half-close 传播单向 EOF，双向传输结束后再全关闭。
-func LinkReadWriteCloser(a, b io.ReadWriteCloser) (aWrittenBytes, bWrittenBytes int64, err error) {
+//
+// 返回值语义：bytesToA 是写入 a 的字节数（b→a 方向），bytesToB 同理。
+func RelayConns(a, b io.ReadWriteCloser) (bytesToA, bytesToB int64, err error) {
 	logger := getLinkConnLogger()
 	linkID := atomic.AddUint64(&linkConnAutoID, 1)
 
@@ -60,26 +64,28 @@ func LinkReadWriteCloser(a, b io.ReadWriteCloser) (aWrittenBytes, bWrittenBytes 
 		_ = b.Close()
 	}
 
-	copyPipe := func(src, dst io.ReadWriteCloser, direction string, written *int64) {
+	relayOneDir := func(src, dst io.ReadWriteCloser, direction string, written *int64) {
 		defer wg.Done()
 
 		n, copyErr := io.Copy(dst, src)
 		*written = n
 
-		logger.Debug("copy finished",
+		logger.Debug("relay finished",
 			"id", linkID,
 			"dir", direction,
 			"bytes", n,
 			"err", copyErr,
 		)
 
-		if copyErr != nil && copyErr != io.EOF {
+		if copyErr != nil {
 			setFirstErr(copyErr)
 			closeOnce.Do(func() { closeConns("copy_error:" + direction) })
 			return
 		}
 
-		if cw, ok := dst.(closeWriter); ok {
+		// CloseWrite 失败 → 触发全关闭：无法通知对端 EOF 是致命问题，
+		// 对端会永远阻塞在读取上。
+		if cw, ok := dst.(writeHalfCloser); ok {
 			if e := cw.CloseWrite(); e != nil {
 				logger.Debug("close write failed", "id", linkID, "dir", direction, "err", e)
 				setFirstErr(e)
@@ -93,7 +99,9 @@ func LinkReadWriteCloser(a, b io.ReadWriteCloser) (aWrittenBytes, bWrittenBytes 
 			return
 		}
 
-		if cr, ok := src.(closeReader); ok {
+		// CloseRead 失败 → 仅记录，不触发全关闭：此方向数据已读完，
+		// 读端关闭失败不影响另一方向的正常传输。
+		if cr, ok := src.(readHalfCloser); ok {
 			if e := cr.CloseRead(); e != nil {
 				logger.Debug("close read failed", "id", linkID, "dir", direction, "err", e)
 				setFirstErr(e)
@@ -110,18 +118,18 @@ func LinkReadWriteCloser(a, b io.ReadWriteCloser) (aWrittenBytes, bWrittenBytes 
 	)
 
 	wg.Add(2)
-	go copyPipe(a, b, "a->b", &bWrittenBytes)
-	go copyPipe(b, a, "b->a", &aWrittenBytes)
+	go relayOneDir(a, b, "a->b", &bytesToB)
+	go relayOneDir(b, a, "b->a", &bytesToA)
 	wg.Wait()
 
 	closeOnce.Do(func() { closeConns("both_done") })
 
 	logger.Debug("link finished",
 		"id", linkID,
-		"a_written", aWrittenBytes,
-		"b_written", bWrittenBytes,
+		"bytes_to_a", bytesToA,
+		"bytes_to_b", bytesToB,
 		"err", firstErr,
 	)
 
-	return aWrittenBytes, bWrittenBytes, firstErr
+	return bytesToA, bytesToB, firstErr
 }
