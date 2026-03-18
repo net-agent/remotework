@@ -10,7 +10,7 @@ pub fn create_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
     TrayIconBuilder::new()
-        .icon(tauri::include_image!("icons/32x32.png"))
+        .icon(tauri::include_image!("icons/tray-icon.png"))
         .menu(&menu)
         .tooltip("Remotework")
         .on_menu_event(|app, event| match event.id.as_ref() {
