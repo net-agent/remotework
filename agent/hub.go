@@ -104,6 +104,9 @@ func (hub *Hub) mountLink(alias string, link configv2.LinkSpec) error {
 		RelayURL: link.RelayURL,
 		Domain:   link.As,
 		Auth:     resolveAuth(link.Auth, link.AuthRef),
+		OnStateChange: func(oldState, newState string) {
+			hub.NotifyNetworkStateChange(alias, oldState, newState)
+		},
 	})
 	if err != nil {
 		return err

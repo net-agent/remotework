@@ -42,6 +42,7 @@ func (r *ReportingNetwork) Report() NetworkReport {
 		report.Domain = meta.Domain
 		report.State = meta.State
 		report.LastErr = meta.LastErr
+		report.Kind = meta.Kind
 	}
 	return report
 }

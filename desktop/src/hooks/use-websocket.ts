@@ -3,7 +3,7 @@ import { AgentWebSocket } from "@/lib/ws";
 import { useAgentStore } from "@/stores/agent-store";
 
 export function useWebSocket() {
-  const { apiBaseUrl, agentRunning, handleWsEvent, setWsConnected } =
+  const { apiBaseUrl, agentRunning, handleWsEvent, setWsConnected, fetchAll } =
     useAgentStore();
   const wsRef = useRef<AgentWebSocket | null>(null);
 
@@ -17,9 +17,16 @@ export function useWebSocket() {
       return;
     }
 
-    const ws = new AgentWebSocket((event) => {
-      handleWsEvent(event);
-    });
+    const ws = new AgentWebSocket(
+      (event) => {
+        handleWsEvent(event);
+      },
+      () => {
+        // 每次 WebSocket（重新）连接后刷新全量状态
+        fetchAll();
+        setWsConnected(true);
+      },
+    );
 
     // Track connection state via polling (simple approach)
     const interval = setInterval(() => {
@@ -28,7 +35,6 @@ export function useWebSocket() {
 
     ws.connect(apiBaseUrl);
     wsRef.current = ws;
-    setWsConnected(true);
 
     return () => {
       clearInterval(interval);
@@ -36,5 +42,5 @@ export function useWebSocket() {
       wsRef.current = null;
       setWsConnected(false);
     };
-  }, [apiBaseUrl, agentRunning, handleWsEvent, setWsConnected]);
+  }, [apiBaseUrl, agentRunning, handleWsEvent, setWsConnected, fetchAll]);
 }

@@ -28,6 +28,7 @@ func (tcp *tcpNetwork) Meta() NetworkMeta {
 		Address:  "-",
 		Domain:   "-",
 		State:    "online",
+		Kind:     "local",
 	}
 }
 func (tcp *tcpNetwork) Stop() {}

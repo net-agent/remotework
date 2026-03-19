@@ -8,7 +8,16 @@ import (
 	"github.com/net-agent/remotework/agent"
 )
 
+// svcSnapshot 记录单个 service 的上次状态快照
+type svcSnapshot struct {
+	status  string
+	actives int32
+	dones   int32
+	lastErr string
+}
+
 // StatePoller 后台轮询数据流变化，通过差异检测广播事件
+// 注意：network 状态已通过 Session 回调链实时推送，不再轮询
 type StatePoller struct {
 	hub      *agent.Hub
 	wsHub    *WSHub
@@ -16,18 +25,20 @@ type StatePoller struct {
 	stopCh   chan struct{}
 
 	// 上次快照
-	lastStreams map[string]map[string]bool // network -> "localAddr->remoteAddr" set
-	lastRunning bool
+	lastStreams    map[string]map[string]bool // network -> "localAddr->remoteAddr" set
+	lastRunning   bool
+	lastSvcStates map[string]svcSnapshot
 }
 
 func NewStatePoller(hub *agent.Hub, wsHub *WSHub, interval time.Duration) *StatePoller {
 	return &StatePoller{
-		hub:         hub,
-		wsHub:       wsHub,
-		interval:    interval,
-		stopCh:      make(chan struct{}),
-		lastStreams: make(map[string]map[string]bool),
-		lastRunning: true,
+		hub:           hub,
+		wsHub:         wsHub,
+		interval:      interval,
+		stopCh:        make(chan struct{}),
+		lastStreams:    make(map[string]map[string]bool),
+		lastRunning:   true,
+		lastSvcStates: make(map[string]svcSnapshot),
 	}
 }
 
@@ -61,7 +72,10 @@ func (p *StatePoller) poll() {
 	}
 	p.lastRunning = running
 
-	// 获取所有网络
+	// 轮询 service 状态变化
+	p.pollServices()
+
+	// 获取网络名称列表用于 stream 轮询
 	reports, err := p.hub.GetAllNetworkState()
 	if err != nil {
 		return
@@ -125,4 +139,37 @@ func (p *StatePoller) poll() {
 
 func streamKeyFromState(st *stream.State) string {
 	return fmt.Sprintf("%s:%s->%s:%s", st.LocalDomain, st.LocalAddr.String(), st.RemoteDomain, st.RemoteAddr.String())
+}
+
+// pollServices 检测 service 状态变化并广播事件
+func (p *StatePoller) pollServices() {
+	states, err := p.hub.GetAllServiceState()
+	if err != nil {
+		return
+	}
+
+	for _, s := range states {
+		prev, exists := p.lastSvcStates[s.Name]
+		curr := svcSnapshot{
+			status:  s.StatusString(),
+			actives: s.GetActiveCount(),
+			dones:   s.GetDoneCount(),
+			lastErr: s.LastErr,
+		}
+
+		if !exists || prev != curr {
+			oldStatus := prev.status
+			if !exists {
+				oldStatus = ""
+			}
+			dto := toServiceDTO(s)
+			p.wsHub.Broadcast("service.status", map[string]interface{}{
+				"name":      s.Name,
+				"oldStatus": oldStatus,
+				"newStatus": curr.status,
+				"service":   dto,
+			})
+			p.lastSvcStates[s.Name] = curr
+		}
+	}
 }

@@ -29,6 +29,7 @@ type NetworkMeta struct {
 	Domain   string
 	State    string
 	LastErr  string
+	Kind     string // "local" or "virtual"
 }
 
 type NetworkReport struct {
@@ -42,6 +43,7 @@ type NetworkReport struct {
 	Dials    int32
 	State    string
 	LastErr  string
+	Kind     string // "local" or "virtual"
 }
 
 type PingReport struct {

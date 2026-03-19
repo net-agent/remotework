@@ -25,7 +25,8 @@ type FlexLinkConfig struct {
 	RelayURL string // full relay URL (without query params)
 	Domain   string // node identity in virtual network (the "as" value)
 	Auth     string // authentication secret
-	// Keepalive is available for future use
+	// OnStateChange 可选回调，Session 状态变更时触发（参数为状态字符串）
+	OnStateChange func(oldState, newState string)
 }
 
 type flexNetwork struct {
@@ -61,6 +62,13 @@ func NewFlexNetworkFromLink(cfg FlexLinkConfig) (Network, error) {
 	}
 
 	sess := node.NewSession(connector, sessCfg)
+
+	if cfg.OnStateChange != nil {
+		sess.OnStateChange(func(old, new_ node.SessionState) {
+			cfg.OnStateChange(old.String(), new_.String())
+		})
+	}
+
 	go sess.Serve()
 
 	return &flexNetwork{
@@ -142,14 +150,12 @@ func (fnet *flexNetwork) Ping(domain string, timeout time.Duration) (time.Durati
 }
 
 func (fnet *flexNetwork) Meta() NetworkMeta {
-	state := "connecting"
-	if fnet.session.GetNode() != nil {
-		state = "online"
-	}
 	return NetworkMeta{
 		Protocol: fnet.meta.scheme,
 		Address:  fnet.meta.address,
 		Domain:   fnet.meta.domain,
-		State:    state,
+		State:    fnet.session.GetState().String(),
+		LastErr:  fnet.session.GetLastErr(),
+		Kind:     "virtual",
 	}
 }

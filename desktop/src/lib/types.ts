@@ -15,6 +15,7 @@ export interface ServiceStateDTO {
 
 export interface NetworkStateDTO {
   name: string;
+  kind: string; // "local" or "virtual"
   protocol: string;
   address: string;
   domain: string;

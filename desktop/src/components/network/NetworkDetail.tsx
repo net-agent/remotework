@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusDot } from "@/components/shared/StatusDot";
@@ -11,12 +11,82 @@ import * as api from "@/lib/api";
 import type { NetworkStateDTO, PingResultDTO } from "@/lib/types";
 
 const PING_INTERVAL = 15_000;
+const COUNTDOWN_TICK = 100;
+const ONLINE_DURATION_TICK = 1_000;
 const MAX_MANUAL_RESULTS = 10;
 
-function formatLatency(ms: number): string {
+function PingCountdownRing({
+  durationMs,
+  remainingMs,
+  refreshing,
+}: {
+  durationMs: number;
+  remainingMs: number;
+  refreshing: boolean;
+}) {
+  const size = 14;
+  const viewBoxSize = 18;
+  const center = viewBoxSize / 2;
+  const strokeWidth = 1.75;
+  const radius = 7;
+  const circumference = 2 * Math.PI * radius;
+  const progress = Math.min(Math.max(remainingMs / durationMs, 0), 1);
+  const dashOffset = circumference * (1 - progress);
+  const seconds = Math.max(1, Math.ceil(remainingMs / 1000));
+
+  return (
+    <div
+      className={`text-muted-foreground/60 transition-opacity duration-200 ${refreshing ? "animate-pulse opacity-100" : "opacity-80"}`}
+      title={`距离下次刷新还有 ${seconds}s`}
+    >
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${viewBoxSize} ${viewBoxSize}`}
+      >
+        <circle
+          cx={center}
+          cy={center}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          className="opacity-20"
+        />
+        <circle
+          cx={center}
+          cy={center}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={-dashOffset}
+          className="-rotate-90 origin-center transition-[stroke-dashoffset] duration-100 ease-linear"
+        />
+      </svg>
+    </div>
+  );
+}
+
+function formatOnlineDuration(ms: number): string {
   if (ms <= 0) return "-";
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+
+  return `${seconds}s`;
 }
 
 function formatBytes(bytes: number): string {
@@ -27,8 +97,9 @@ function formatBytes(bytes: number): string {
 
 /** 解析延迟字符串为毫秒数，失败返回 -1 */
 function parseLatencyMs(result: string): number {
-  const msMatch = result.match(/^([\d.]+)ms$/);
-  if (msMatch) return parseFloat(msMatch[1]);
+  if (result === "<1ms") return 0.5;
+  const msMatch = result.match(/^(\d+)ms$/);
+  if (msMatch) return parseInt(msMatch[1], 10);
   const sMatch = result.match(/^([\d.]+)s$/);
   if (sMatch) return parseFloat(sMatch[1]) * 1000;
   return -1;
@@ -64,50 +135,86 @@ export function NetworkDetail({ network }: { network: NetworkStateDTO }) {
   const [manualResults, setManualResults] = useState<ManualPingResult[]>([]);
   const [autoResults, setAutoResults] = useState<PingResultDTO[]>([]);
   const [autoLoading, setAutoLoading] = useState(false);
+  const [remainingMs, setRemainingMs] = useState(PING_INTERVAL);
+  const [onlineDurationMs, setOnlineDurationMs] = useState(network.aliveMs);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
+  const countdownRef = useRef<ReturnType<typeof setInterval>>();
+  const onlineDurationRef = useRef<ReturnType<typeof setInterval>>();
+  const nextRefreshAtRef = useRef<number>(Date.now() + PING_INTERVAL);
 
+  const isOnline = network.state === "online";
   const isTcp =
     network.name === "tcp" ||
     network.name === "tcp4" ||
     network.name === "tcp6";
+  const showPingCountdown = !isTcp && autoResults.length > 0;
   const hasLink = !isTcp && network.name in (currentConfig.links ?? {});
 
   const networkStreams = streams.filter(
     (s) => s.network === network.name && !s.isClosed,
   );
 
-  // 自动 Ping：从服务依赖中发现 domain，定时刷新
-  const fetchAutoPing = useCallback(async () => {
-    setAutoLoading(true);
-    try {
-      const all = await api.ping();
-      const LOCAL_DOMAINS = new Set([
-        "localhost",
-        "127.0.0.1",
-        "0.0.0.0",
-        "::1",
-      ]);
-      setAutoResults(
-        all.filter(
-          (r) =>
-            r.network === network.name &&
-            !LOCAL_DOMAINS.has(r.domain) &&
-            r.domain !== network.domain,
-        ),
-      );
-    } catch {
-      // 静默失败，保留上次结果
-    } finally {
-      setAutoLoading(false);
+  useEffect(() => {
+    clearInterval(onlineDurationRef.current);
+    setOnlineDurationMs(network.aliveMs);
+
+    if (!isOnline || network.aliveMs <= 0) {
+      return;
     }
-  }, [network.name]);
+
+    onlineDurationRef.current = setInterval(() => {
+      setOnlineDurationMs((prev) => prev + ONLINE_DURATION_TICK);
+    }, ONLINE_DURATION_TICK);
+
+    return () => {
+      clearInterval(onlineDurationRef.current);
+    };
+  }, [isOnline, network.aliveMs]);
 
   useEffect(() => {
     if (isTcp) return;
+
+    let active = true;
+    const LOCAL_DOMAINS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
+
+    const fetchAutoPing = async () => {
+      if (!active) return;
+      setAutoLoading(true);
+      try {
+        const all = await api.ping();
+        if (!active) return;
+        setAutoResults(
+          all.filter(
+            (r) =>
+              r.network === network.name &&
+              !LOCAL_DOMAINS.has(r.domain) &&
+              r.domain !== network.domain,
+          ),
+        );
+      } catch {
+        // 静默失败，保留上次结果
+      } finally {
+        if (!active) return;
+        nextRefreshAtRef.current = Date.now() + PING_INTERVAL;
+        setRemainingMs(PING_INTERVAL);
+        setAutoLoading(false);
+      }
+    };
+
+    nextRefreshAtRef.current = Date.now() + PING_INTERVAL;
+    setRemainingMs(PING_INTERVAL);
     fetchAutoPing();
     timerRef.current = setInterval(fetchAutoPing, PING_INTERVAL);
-    return () => clearInterval(timerRef.current);
-  }, [isTcp, fetchAutoPing]);
+    countdownRef.current = setInterval(() => {
+      if (!active) return;
+      setRemainingMs(Math.max(0, nextRefreshAtRef.current - Date.now()));
+    }, COUNTDOWN_TICK);
+    return () => {
+      active = false;
+      clearInterval(timerRef.current);
+      clearInterval(countdownRef.current);
+    };
+  }, [isTcp, network.name, network.domain]);
 
   // 手动 Ping
   const handlePing = async () => {
@@ -164,7 +271,10 @@ export function NetworkDetail({ network }: { network: NetworkStateDTO }) {
         <InfoRow label="协议" value={network.protocol} mono />
         <InfoRow label="地址" value={network.address} mono />
         {network.domain && <InfoRow label="域名" value={network.domain} mono />}
-        <InfoRow label="延迟" value={formatLatency(network.aliveMs)} />
+        <InfoRow
+          label="在线时长"
+          value={formatOnlineDuration(onlineDurationMs)}
+        />
         <InfoRow label="监听" value={String(network.listens)} />
         <InfoRow label="拨号" value={String(network.dials)} />
       </div>
@@ -179,9 +289,13 @@ export function NetworkDetail({ network }: { network: NetworkStateDTO }) {
                 <Loader2 className="inline h-3 w-3 animate-spin ml-1.5 align-text-bottom" />
               )}
             </span>
-            <span className="text-muted-foreground/60">
-              每 {PING_INTERVAL / 1000}s 刷新
-            </span>
+            {showPingCountdown && (
+              <PingCountdownRing
+                durationMs={PING_INTERVAL}
+                remainingMs={remainingMs}
+                refreshing={autoLoading}
+              />
+            )}
           </div>
           {autoResults.length > 0 ? (
             autoResults.map((r) => (

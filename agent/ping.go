@@ -49,7 +49,7 @@ func (hub *Hub) GetPingState() ([]*PingReport, error) {
 			continue
 		}
 
-		report.PingResult = fmt.Sprintf("%v", dur)
+		report.PingResult = formatPingDuration(dur)
 	}
 
 	return reports, nil
@@ -76,6 +76,19 @@ func (hub *Hub) GetPingStateString() string {
 		},
 	)
 	return buf.String()
+}
+
+// formatPingDuration 格式化 ping 延迟，最小单位为 ms。
+// 低于 1ms 显示为 "<1ms"，低于 1s 显示整数 ms，否则显示保留一位小数的秒。
+func formatPingDuration(dur time.Duration) string {
+	ms := dur.Milliseconds()
+	if ms < 1 {
+		return "<1ms"
+	}
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	return fmt.Sprintf("%.1fs", dur.Seconds())
 }
 
 //

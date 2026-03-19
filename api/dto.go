@@ -22,6 +22,7 @@ type ServiceStateDTO struct {
 
 type NetworkStateDTO struct {
 	Name     string `json:"name"`
+	Kind     string `json:"kind"`
 	Protocol string `json:"protocol"`
 	Address  string `json:"address"`
 	Domain   string `json:"domain"`
@@ -69,6 +70,7 @@ func toServiceDTO(s agent.ServiceState) ServiceStateDTO {
 func toNetworkDTO(r agent.NetworkReport) NetworkStateDTO {
 	return NetworkStateDTO{
 		Name:     r.Name,
+		Kind:     r.Kind,
 		Protocol: r.Protocol,
 		Address:  r.Address,
 		Domain:   r.Domain,

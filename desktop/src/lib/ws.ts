@@ -9,12 +9,14 @@ export class AgentWebSocket {
   private ws: WebSocket | null = null;
   private url = "";
   private handler: EventHandler;
+  private onConnect: (() => void) | null;
   private reconnectDelay = RECONNECT_BASE;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
 
-  constructor(handler: EventHandler) {
+  constructor(handler: EventHandler, onConnect?: () => void) {
     this.handler = handler;
+    this.onConnect = onConnect ?? null;
   }
 
   connect(apiBaseUrl: string) {
@@ -54,9 +56,16 @@ export class AgentWebSocket {
       this.ws?.send(
         JSON.stringify({
           action: "subscribe",
-          events: ["network.state", "service.status", "stream.update", "hub.stopped"],
-        })
+          events: [
+            "network.state",
+            "service.status",
+            "stream.update",
+            "hub.stopped",
+          ],
+        }),
       );
+      // 每次连接（包括重连）后触发回调，刷新全量状态
+      this.onConnect?.();
     };
 
     this.ws.onmessage = (ev) => {

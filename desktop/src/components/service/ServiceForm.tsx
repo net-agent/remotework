@@ -38,11 +38,28 @@ export function ServiceForm() {
   const [tunnel, setTunnel] = useState<TunnelInfo>(emptyTunnel());
   const [localAddresses, setLocalAddresses] = useState<string[]>([]);
 
-  // Build available link aliases for vtcp scheme hints
-  const linkAliases = Object.keys(currentConfig.links ?? {});
-  for (const n of runtimeNetworks) {
-    if (n.name && !linkAliases.includes(n.name)) linkAliases.push(n.name);
+  // Build available link aliases and their domains for vtcp scheme
+  const configLinks = currentConfig.links ?? {};
+  const linkDomains: Record<string, string> = {};
+
+  // 从配置 URL 中解析 as 参数作为 domain
+  for (const [alias, url] of Object.entries(configLinks)) {
+    if (!alias) continue;
+    try {
+      const asParam = new URL(url).searchParams.get("as");
+      if (asParam) linkDomains[alias] = asParam;
+    } catch {
+      // ignore invalid URLs
+    }
   }
+
+  // 运行时 virtual networks 优先覆盖（更准确）
+  for (const n of runtimeNetworks) {
+    if (n.name && n.domain && n.kind === "virtual")
+      linkDomains[n.name] = n.domain;
+  }
+
+  const linkAliases = Object.keys(linkDomains);
 
   useEffect(() => {
     if (serviceFormOpen) {
@@ -158,6 +175,8 @@ export function ServiceForm() {
             onChange={(v) => setTunnel({ ...tunnel, listen: v })}
             networks={LISTEN_SCHEMES}
             localAddresses={localAddresses}
+            linkAliases={linkAliases}
+            linkDomains={linkDomains}
             isListen
           />
 
@@ -166,6 +185,7 @@ export function ServiceForm() {
             value={tunnel.target}
             onChange={(v) => setTunnel({ ...tunnel, target: v })}
             networks={TARGET_SCHEMES}
+            linkAliases={linkAliases}
           />
 
           <p className="text-xs text-muted-foreground font-mono">
