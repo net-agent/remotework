@@ -17,7 +17,12 @@ import { validateLinkURL } from "@/lib/config-validation";
 import { toast } from "sonner";
 
 export function NetworkForm() {
-  const { linkFormOpen, closeLinkForm, editingLinkAlias } = useUIStore();
+  const {
+    linkFormOpen,
+    closeLinkForm,
+    editingLinkAlias,
+    setSelectedSimpleShareLinkAlias,
+  } = useUIStore();
   const {
     currentConfig,
     setCurrentConfig,
@@ -74,7 +79,10 @@ export function NetworkForm() {
     newLinks[trimmedAlias] = url.trim();
     const newConfig = { ...currentConfig, links: newLinks };
     setCurrentConfig(newConfig);
-    if (activeProfile) saveConfig(activeProfile, newConfig);
+    if (activeProfile) {
+      await saveConfig(activeProfile, newConfig);
+    }
+    setSelectedSimpleShareLinkAlias(trimmedAlias);
 
     // Dynamically add to running agent (new links only)
     if (!isEditing && agentRunning) {
@@ -95,13 +103,16 @@ export function NetworkForm() {
     closeLinkForm();
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!isEditing || !editingLinkAlias) return;
     const newLinks = { ...currentConfig.links };
     delete newLinks[editingLinkAlias];
     const newConfig = { ...currentConfig, links: newLinks };
     setCurrentConfig(newConfig);
-    if (activeProfile) saveConfig(activeProfile, newConfig);
+    if (activeProfile) {
+      await saveConfig(activeProfile, newConfig);
+    }
+    setSelectedSimpleShareLinkAlias(null);
     if (agentRunning) setNeedsRestart();
     closeLinkForm();
     toast.success(agentRunning ? "链路已删除，重启后生效" : "链路已删除");

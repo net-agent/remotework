@@ -45,6 +45,13 @@ export interface PingResultDTO {
   usedServices: string[];
 }
 
+export interface ListeningPortDTO {
+  port: number;
+  protocol: string;
+  pid?: number;
+  processName?: string;
+}
+
 // API response wrapper
 export interface ApiResponse<T> {
   ErrCode: number;

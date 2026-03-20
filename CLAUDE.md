@@ -72,3 +72,8 @@ Supports JSON (with `//` line comments) and TOML. Key sections: `agent` (network
 ## Language
 
 Code comments and documentation are primarily in Chinese.
+
+## UI Workflow Rules
+
+- In simple mode, after the user selects an existing share link, the primary next step must advance the main user path (for example, moving toward opening/configuring a share service) rather than leaving the user on the same page.
+- Avoid redundant actions in the same panel that both effectively navigate to advanced mode; each primary/secondary action in simple mode should have a distinct user-facing purpose.

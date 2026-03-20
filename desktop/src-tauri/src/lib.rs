@@ -35,6 +35,7 @@ pub fn run() {
             config::import_profile,
             config::export_profile,
             config::get_network_interfaces,
+            config::get_windows_rdp_port,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

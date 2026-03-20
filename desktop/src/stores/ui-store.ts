@@ -1,22 +1,35 @@
 import { create } from "zustand";
 
 type Page = "main" | "settings";
-type MainTab = "networks" | "services" | "logs";
+type UIMode = "simple" | "advanced";
+type SimpleTask = "share" | "connect";
+type AdvancedTab = "networks" | "services" | "logs" | "config";
+export type SimpleShareDialogType = "socks5" | "local-port";
 
 interface UIState {
   currentPage: Page;
-  activeTab: MainTab;
+  uiMode: UIMode;
+  simpleTask: SimpleTask;
+  advancedTab: AdvancedTab;
   selectedNetwork: string | null;
   selectedService: number | null;
+  selectedSimpleShareLinkAlias: string | null;
+  simpleShareDialogType: SimpleShareDialogType | null;
+  simpleShareDialogOpen: boolean;
   linkFormOpen: boolean;
   serviceFormOpen: boolean;
   editingLinkAlias: string | null;
   editingServiceIndex: number | null;
 
   setCurrentPage: (page: Page) => void;
-  setActiveTab: (tab: MainTab) => void;
+  setUIMode: (mode: UIMode) => void;
+  setSimpleTask: (task: SimpleTask) => void;
+  setAdvancedTab: (tab: AdvancedTab) => void;
   setSelectedNetwork: (name: string | null) => void;
   setSelectedService: (id: number | null) => void;
+  setSelectedSimpleShareLinkAlias: (alias: string | null) => void;
+  openSimpleShareDialog: (type: SimpleShareDialogType) => void;
+  closeSimpleShareDialog: () => void;
   openLinkForm: (alias?: string) => void;
   closeLinkForm: () => void;
   openServiceForm: (index?: number) => void;
@@ -25,18 +38,59 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set) => ({
   currentPage: "main",
-  activeTab: "networks",
+  uiMode: "simple",
+  simpleTask: "share",
+  advancedTab: "networks",
   selectedNetwork: null,
   selectedService: null,
+  selectedSimpleShareLinkAlias: null,
+  simpleShareDialogType: null,
+  simpleShareDialogOpen: false,
   linkFormOpen: false,
   serviceFormOpen: false,
   editingLinkAlias: null,
   editingServiceIndex: null,
 
   setCurrentPage: (page) => set({ currentPage: page }),
-  setActiveTab: (tab) => set({ activeTab: tab }),
+  setUIMode: (mode) =>
+    set({
+      uiMode: mode,
+      ...(mode === "advanced"
+        ? {
+            simpleShareDialogType: null,
+            simpleShareDialogOpen: false,
+          }
+        : {}),
+    }),
+  setSimpleTask: (task) =>
+    set({
+      simpleTask: task,
+      ...(task === "share"
+        ? {}
+        : {
+            simpleShareDialogType: null,
+            simpleShareDialogOpen: false,
+          }),
+    }),
+  setAdvancedTab: (tab) => set({ advancedTab: tab }),
   setSelectedNetwork: (name) => set({ selectedNetwork: name }),
   setSelectedService: (id) => set({ selectedService: id }),
+  setSelectedSimpleShareLinkAlias: (alias) =>
+    set({
+      selectedSimpleShareLinkAlias: alias,
+      simpleShareDialogType: null,
+      simpleShareDialogOpen: false,
+    }),
+  openSimpleShareDialog: (type) =>
+    set({
+      simpleShareDialogType: type,
+      simpleShareDialogOpen: true,
+    }),
+  closeSimpleShareDialog: () =>
+    set({
+      simpleShareDialogOpen: false,
+      simpleShareDialogType: null,
+    }),
 
   openLinkForm: (alias) =>
     set({

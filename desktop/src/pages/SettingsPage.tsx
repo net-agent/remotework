@@ -15,6 +15,7 @@ import { useAgentApi } from "@/hooks/use-agent-api";
 import { useAgentStore } from "@/stores/agent-store";
 import { useProfileStore } from "@/stores/profile-store";
 import { useSidecar } from "@/hooks/use-sidecar";
+import { useUIStore } from "@/stores/ui-store";
 import { toast } from "sonner";
 
 export function SettingsPage() {
@@ -23,6 +24,7 @@ export function SettingsPage() {
   const { agentRunning } = useAgentStore();
   const { activeProfile, dirty, needsRestart, clearNeedsRestart } =
     useProfileStore();
+  const { uiMode, setUIMode } = useUIStore();
   const { restartAgent } = useSidecar();
 
   const handleLogLevelChange = async (level: string) => {
@@ -30,8 +32,8 @@ export function SettingsPage() {
       await apiSetLogLevel(level);
       setLogLevel(level);
       toast.success(`日志级别已设为 ${level}`);
-    } catch (e) {
-      toast.error(`设置失败: ${e}`);
+    } catch (error) {
+      toast.error(`设置失败: ${error}`);
     }
   };
 
@@ -41,14 +43,38 @@ export function SettingsPage() {
       await restartAgent(activeProfile);
       clearNeedsRestart();
       toast.success("Agent 已重启");
-    } catch (e) {
-      toast.error(`重启失败: ${e}`);
+    } catch (error) {
+      toast.error(`重启失败: ${error}`);
     }
   };
 
   return (
     <div className="p-4 space-y-4">
-      {/* Agent Control */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm">使用模式</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">默认推荐普通模式</p>
+              <p className="text-xs text-muted-foreground">
+                普通模式围绕共享与连接组织界面；高级模式保留完整配置、日志与诊断能力。
+              </p>
+            </div>
+            <Select value={uiMode} onValueChange={(value) => setUIMode(value as "simple" | "advanced")}>
+              <SelectTrigger className="w-32 h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="simple">普通模式</SelectItem>
+                <SelectItem value="advanced">高级模式</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">Agent</CardTitle>
@@ -74,9 +100,7 @@ export function SettingsPage() {
           </div>
           {(dirty || needsRestart) && (
             <div className="flex items-center justify-between">
-              <span className="text-sm text-amber-600">
-                配置已修改，需要重启
-              </span>
+              <span className="text-sm text-amber-600">配置已修改，需要重启</span>
               <Button size="sm" variant="outline" onClick={handleRestart}>
                 重启 Agent
               </Button>
@@ -86,21 +110,15 @@ export function SettingsPage() {
       </Card>
 
       <Separator />
-
-      {/* Profile Management */}
       <ProfileManager />
-
       <Separator />
 
-      {/* About */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">关于</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Remotework Desktop v0.1.0
-          </p>
+          <p className="text-sm text-muted-foreground">Remotework Desktop v0.1.0</p>
         </CardContent>
       </Card>
     </div>

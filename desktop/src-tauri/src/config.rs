@@ -161,7 +161,6 @@ pub fn import_profile(
     name: String,
     content: String,
 ) -> Result<(), String> {
-    // Strip // comments from JSON
     let cleaned: String = content
         .lines()
         .map(|line| {
@@ -213,6 +212,26 @@ pub fn get_network_interfaces() -> Result<Vec<String>, String> {
         }
     }
     Ok(addrs)
+}
+
+#[tauri::command]
+pub fn get_windows_rdp_port() -> Result<Option<u16>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        use winreg::RegKey;
+
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let path = "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp";
+        let key = hklm.open_subkey(path).map_err(|e| e.to_string())?;
+        let port: u32 = key.get_value("PortNumber").map_err(|e| e.to_string())?;
+        return Ok(u16::try_from(port).ok());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(None)
+    }
 }
 
 fn sanitize_filename(name: &str) -> String {

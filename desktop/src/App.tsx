@@ -10,6 +10,7 @@ import { useStartup } from "@/hooks/use-sidecar";
 import { useSidecarLogs } from "@/hooks/use-sidecar-logs";
 import { NetworkForm } from "@/components/network/NetworkForm";
 import { ServiceForm } from "@/components/service/ServiceForm";
+import { SimpleSharePresetForm } from "@/components/simple/SimpleSharePresetForm";
 
 function App() {
   const { currentPage } = useUIStore();
@@ -30,6 +31,7 @@ function App() {
       </AppShell>
       <NetworkForm />
       <ServiceForm />
+      <SimpleSharePresetForm />
       <Toaster position="bottom-center" />
     </TooltipProvider>
   );

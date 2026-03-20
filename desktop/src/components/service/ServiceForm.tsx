@@ -15,9 +15,8 @@ import { useUIStore } from "@/stores/ui-store";
 import { useProfileStore } from "@/stores/profile-store";
 import { useAgentStore } from "@/stores/agent-store";
 import { emptyTunnel, type TunnelInfo } from "@/lib/config-types";
-import * as api from "@/lib/api";
-import { validateTunnel } from "@/lib/config-validation";
 import { toast } from "sonner";
+import { saveTunnelConfig, removeTunnelConfig } from "@/lib/tunnel-save";
 
 const LISTEN_SCHEMES = ["tcp", "vtcp"];
 const TARGET_SCHEMES = ["tcp", "vtcp", "socks5"];
@@ -38,11 +37,9 @@ export function ServiceForm() {
   const [tunnel, setTunnel] = useState<TunnelInfo>(emptyTunnel());
   const [localAddresses, setLocalAddresses] = useState<string[]>([]);
 
-  // Build available link aliases and their domains for vtcp scheme
   const configLinks = currentConfig.links ?? {};
   const linkDomains: Record<string, string> = {};
 
-  // 从配置 URL 中解析 as 参数作为 domain
   for (const [alias, url] of Object.entries(configLinks)) {
     if (!alias) continue;
     try {
@@ -53,10 +50,10 @@ export function ServiceForm() {
     }
   }
 
-  // 运行时 virtual networks 优先覆盖（更准确）
   for (const n of runtimeNetworks) {
-    if (n.name && n.domain && n.kind === "virtual")
+    if (n.name && n.domain && n.kind === "virtual") {
       linkDomains[n.name] = n.domain;
+    }
   }
 
   const linkAliases = Object.keys(linkDomains);
@@ -92,59 +89,38 @@ export function ServiceForm() {
       return;
     }
 
-    const tunnelErr = validateTunnel(tunnel, linkAliases);
-    if (tunnelErr) {
-      toast.error(tunnelErr);
-      return;
+    const saved = await saveTunnelConfig({
+      tunnel,
+      context: {
+        currentConfig,
+        setCurrentConfig,
+        saveConfig,
+        activeProfile,
+        setNeedsRestart,
+      },
+      editingServiceIndex,
+    });
+
+    if (saved) {
+      closeServiceForm();
     }
-
-    const config = { ...currentConfig };
-    const tunnels = [...(config.tunnels ?? [])];
-    let isNew = false;
-
-    if (isEditing && editingServiceIndex !== null) {
-      tunnels[editingServiceIndex] = tunnel;
-    } else {
-      tunnels.push(tunnel);
-      isNew = true;
-    }
-    config.tunnels = tunnels;
-
-    setCurrentConfig(config);
-    if (activeProfile) saveConfig(activeProfile, config);
-
-    // Dynamically add to running agent (new tunnels only)
-    const agentRunning = useAgentStore.getState().agentRunning;
-    if (isNew && agentRunning) {
-      try {
-        await api.addTunnel(tunnel);
-        toast.success("隧道已添加并启动");
-      } catch (e) {
-        toast.warning(`已保存配置，但动态添加失败: ${e}`);
-        setNeedsRestart();
-      }
-    } else if (isEditing && agentRunning) {
-      toast.success("隧道已更新，重启后生效");
-      setNeedsRestart();
-    } else {
-      toast.success(isEditing ? "隧道已更新" : "隧道已添加");
-    }
-
-    closeServiceForm();
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!isEditing || editingServiceIndex === null) return;
-    const config = { ...currentConfig };
-    config.tunnels = (config.tunnels ?? []).filter(
-      (_, i) => i !== editingServiceIndex,
-    );
-    setCurrentConfig(config);
-    if (activeProfile) saveConfig(activeProfile, config);
-    const agentRunning = useAgentStore.getState().agentRunning;
-    if (agentRunning) setNeedsRestart();
-    closeServiceForm();
-    toast.success(agentRunning ? "隧道已删除，重启后生效" : "隧道已删除");
+    const removed = await removeTunnelConfig({
+      context: {
+        currentConfig,
+        setCurrentConfig,
+        saveConfig,
+        activeProfile,
+        setNeedsRestart,
+      },
+      configIndex: editingServiceIndex,
+    });
+    if (removed) {
+      closeServiceForm();
+    }
   };
 
   return (

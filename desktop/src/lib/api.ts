@@ -1,5 +1,6 @@
 import type {
   ApiResponse,
+  ListeningPortDTO,
   NetworkStateDTO,
   ServiceStateDTO,
   StreamStateDTO,
@@ -41,7 +42,14 @@ export async function getServices(): Promise<ServiceStateDTO[]> {
   return request("/api/v1/services");
 }
 
-export async function getStreams(limit = 50, network?: string): Promise<StreamStateDTO[]> {
+export async function getListeningPorts(): Promise<ListeningPortDTO[]> {
+  return request("/api/v1/system/listening-ports");
+}
+
+export async function getStreams(
+  limit = 50,
+  network?: string,
+): Promise<StreamStateDTO[]> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (network) params.set("network", network);
   return request(`/api/v1/streams?${params}`);
@@ -51,8 +59,14 @@ export async function ping(): Promise<PingResultDTO[]> {
   return request("/api/v1/ping", { method: "POST" });
 }
 
-export async function pingSingle(network: string, domain: string): Promise<{ network: string; domain: string; result: string }> {
-  return request(`/api/v1/ping/${encodeURIComponent(network)}/${encodeURIComponent(domain)}`, { method: "POST" });
+export async function pingSingle(
+  network: string,
+  domain: string,
+): Promise<{ network: string; domain: string; result: string }> {
+  return request(
+    `/api/v1/ping/${encodeURIComponent(network)}/${encodeURIComponent(domain)}`,
+    { method: "POST" },
+  );
 }
 
 export async function setLogLevel(level: string): Promise<{ level: string }> {
@@ -70,7 +84,10 @@ export async function stopAgent(): Promise<{ status: string }> {
   });
 }
 
-export async function addLink(alias: string, url: string): Promise<{ status: string; alias: string }> {
+export async function addLink(
+  alias: string,
+  url: string,
+): Promise<{ status: string; alias: string }> {
   return request("/api/v1/links", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -78,7 +95,9 @@ export async function addLink(alias: string, url: string): Promise<{ status: str
   });
 }
 
-export async function addTunnel(tunnel: TunnelInfo): Promise<{ status: string; name: string; id: string }> {
+export async function addTunnel(
+  tunnel: TunnelInfo,
+): Promise<{ status: string; name: string; id: string }> {
   return request("/api/v1/tunnels", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
