@@ -52,6 +52,13 @@ type PingResultDTO struct {
 	UsedServices []string `json:"usedServices"`
 }
 
+type ListeningPortDTO struct {
+	Port        uint16 `json:"port"`
+	Protocol    string `json:"protocol"`
+	PID         uint32 `json:"pid,omitempty"`
+	ProcessName string `json:"processName,omitempty"`
+}
+
 func toServiceDTO(s agent.ServiceState) ServiceStateDTO {
 	return ServiceStateDTO{
 		ID:        s.ID,

@@ -46,6 +46,24 @@ func (s *Server) handleServices(w http.ResponseWriter, r *http.Request) {
 	utils.WriteJSON(w, nil, dtos)
 }
 
+func (s *Server) handleListeningPorts(w http.ResponseWriter, r *http.Request) {
+	ports, err := utils.ListListeningPorts()
+	if err != nil {
+		utils.WriteJSON(w, err, nil)
+		return
+	}
+	dtos := make([]ListeningPortDTO, 0, len(ports))
+	for _, port := range ports {
+		dtos = append(dtos, ListeningPortDTO{
+			Port:        port.Port,
+			Protocol:    port.Protocol,
+			PID:         port.PID,
+			ProcessName: port.ProcessName,
+		})
+	}
+	utils.WriteJSON(w, nil, dtos)
+}
+
 func (s *Server) handleStreams(w http.ResponseWriter, r *http.Request) {
 	limitStr := r.URL.Query().Get("limit")
 	limit := 50

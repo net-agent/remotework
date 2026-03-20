@@ -73,6 +73,7 @@ func (s *Server) registerRoutes() {
 	r.HandleFunc("/status", s.handleStatus).Methods("GET")
 	r.HandleFunc("/networks", s.handleNetworks).Methods("GET")
 	r.HandleFunc("/services", s.handleServices).Methods("GET")
+	r.HandleFunc("/system/listening-ports", s.handleListeningPorts).Methods("GET")
 	r.HandleFunc("/streams", s.handleStreams).Methods("GET")
 	r.HandleFunc("/ping", s.handlePingAll).Methods("POST")
 	r.HandleFunc("/ping/{network}/{domain}", s.handlePingSingle).Methods("POST")
