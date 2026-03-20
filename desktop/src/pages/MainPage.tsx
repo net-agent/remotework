@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { NetworksTab } from "@/components/tabs/NetworksTab";
 import { ServicesTab } from "@/components/tabs/ServicesTab";
 import { LogsTab } from "@/components/tabs/LogsTab";
@@ -9,26 +10,13 @@ import { Button } from "@/components/ui/button";
 import { useAgentStore } from "@/stores/agent-store";
 import { useProfileStore } from "@/stores/profile-store";
 import { useUIStore } from "@/stores/ui-store";
-import { useSidecar } from "@/hooks/use-sidecar";
 import { useSimpleActions } from "@/lib/view-model/simple-actions";
 import { buildSimpleSessionVM } from "@/lib/view-model/simple-session-vm";
 import { RotateCw, Play, AlertTriangle } from "lucide-react";
-import { toast } from "sonner";
 
 function RestartBanner() {
-  const { needsRestart, activeProfile, clearNeedsRestart } = useProfileStore();
-  const { restartAgent } = useSidecar();
-
-  const handleRestart = async () => {
-    if (!activeProfile) return;
-    try {
-      await restartAgent(activeProfile);
-      clearNeedsRestart();
-      toast.success("Agent 已重启");
-    } catch (error) {
-      toast.error(`重启失败: ${error}`);
-    }
-  };
+  const { needsRestart } = useProfileStore();
+  const actions = useSimpleActions();
 
   if (!needsRestart) {
     return null;
@@ -41,7 +29,7 @@ function RestartBanner() {
         variant="ghost"
         size="sm"
         className="h-5 text-xs px-1.5 text-amber-700 dark:text-amber-400 hover:text-amber-900"
-        onClick={handleRestart}
+        onClick={() => void actions.restart()}
       >
         <RotateCw className="h-3 w-3 mr-1" />
         重启
@@ -67,11 +55,14 @@ function AdvancedMainPage() {
 }
 
 function SimpleMainPage() {
-  const { simpleTask, selectedSimpleShareLinkAlias } = useUIStore();
+  const {
+    simpleTask,
+    selectedSimpleShareLinkAlias,
+    setSelectedSimpleShareLinkAlias,
+  } = useUIStore();
   const { agentRunning, wsConnected, networks, services, streams, startError } =
     useAgentStore();
   const { currentConfig, needsRestart, activeProfile } = useProfileStore();
-  const { startAgent } = useSidecar();
   const actions = useSimpleActions();
 
   const session = buildSimpleSessionVM({
@@ -84,16 +75,17 @@ function SimpleMainPage() {
     needsRestart,
     selectedShareLinkAlias: selectedSimpleShareLinkAlias,
   });
+  const resolvedSelectedAlias = session.selectedShareLink?.alias ?? null;
 
-  const handleStart = async () => {
-    if (!activeProfile) return;
-    try {
-      await startAgent(activeProfile);
-      toast.success("Agent 已启动");
-    } catch (error) {
-      toast.error(`启动失败: ${error}`);
+  useEffect(() => {
+    if (resolvedSelectedAlias !== selectedSimpleShareLinkAlias) {
+      setSelectedSimpleShareLinkAlias(resolvedSelectedAlias);
     }
-  };
+  }, [
+    resolvedSelectedAlias,
+    selectedSimpleShareLinkAlias,
+    setSelectedSimpleShareLinkAlias,
+  ]);
 
   return (
     <div className="flex flex-col h-full">
@@ -120,7 +112,11 @@ function SimpleMainPage() {
           <span className="text-xs text-muted-foreground">
             当前配置方案未运行，启动后才能进入共享或连接流程
           </span>
-          <Button size="sm" className="h-7 text-xs" onClick={handleStart}>
+          <Button
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => void actions.start()}
+          >
             <Play className="h-3 w-3 mr-1" />
             启动
           </Button>
@@ -138,7 +134,6 @@ function SimpleMainPage() {
               links={session.availableShareLinks}
               selectedAlias={session.selectedShareLink?.alias ?? null}
               hint={session.shareLinkHint}
-              onSelect={actions.selectShareLink}
               onCreate={actions.createShareLink}
               onEdit={actions.editShareLink}
             />

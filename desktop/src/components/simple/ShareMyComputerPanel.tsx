@@ -3,6 +3,7 @@ import { SimpleShareServiceRowCard } from "@/components/simple/SimpleShareServic
 import type { SimpleSessionVM } from "@/lib/view-model/simple-session-vm";
 import { useSimpleActions } from "@/lib/view-model/simple-actions";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 function getSummaryTone(state: SimpleSessionVM["shareState"]) {
   switch (state) {
@@ -23,6 +24,15 @@ function getSummaryText(state: SimpleSessionVM["shareState"]) {
       return "共享配置存在异常";
     default:
       return "请选择连接信息并开放服务";
+  }
+}
+
+async function copyAddress(listenURL: string) {
+  try {
+    await navigator.clipboard.writeText(listenURL);
+    toast.success("已复制虚拟地址");
+  } catch (error) {
+    toast.error(`复制失败: ${String(error)}`);
   }
 }
 
@@ -107,13 +117,14 @@ export function ShareMyComputerPanel({
               disabled={!selectedAlias}
               onOpen={() => actions.openSimpleShareServiceDialog(row.key)}
               onClose={() =>
-                row.closeAction === "manage"
+                row.primaryActionKind === "manage"
                   ? actions.openSimpleShareServiceDialog(row.key)
                   : actions.closeSimpleShareService({
                       tunnelId: row.tunnelId ?? undefined,
                       configIndex: row.configIndex ?? undefined,
                     })
               }
+              onCopyAddress={(listenURL) => void copyAddress(listenURL)}
               onCloseItem={(input) => actions.closeSimpleShareService(input)}
             />
           ))}

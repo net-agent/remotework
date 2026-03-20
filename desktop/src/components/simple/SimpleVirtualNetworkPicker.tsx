@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import type { SimpleLinkOption } from "@/lib/view-model/simple-config-vm";
 
@@ -6,25 +5,17 @@ export function SimpleVirtualNetworkPicker({
   links,
   selectedAlias,
   hint,
-  onSelect,
   onCreate,
   onEdit,
 }: {
   links: SimpleLinkOption[];
   selectedAlias: string | null;
   hint: string;
-  onSelect: (alias: string) => void;
   onCreate: () => void;
   onEdit: (alias: string) => void;
 }) {
   const currentLink =
-    links.find((link) => link.alias === selectedAlias) ?? links[0] ?? null;
-
-  useEffect(() => {
-    if (!selectedAlias && currentLink) {
-      onSelect(currentLink.alias);
-    }
-  }, [currentLink, onSelect, selectedAlias]);
+    links.find((link) => link.alias === selectedAlias) ?? null;
 
   return (
     <div className="rounded-xl border bg-card p-4 shadow-sm">

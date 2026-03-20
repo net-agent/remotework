@@ -5,26 +5,9 @@ import { removeTunnelConfig } from "@/lib/tunnel-save";
 import { useProfileStore } from "@/stores/profile-store";
 import { useUIStore, type SimpleShareDialogType } from "@/stores/ui-store";
 
-export function useSimpleActions() {
+function useSimpleRuntimeActions() {
   const { startAgent, restartAgent } = useSidecar();
-  const {
-    activeProfile,
-    clearNeedsRestart,
-    currentConfig,
-    saveConfig,
-    setCurrentConfig,
-    setNeedsRestart,
-  } = useProfileStore();
-  const {
-    setUIMode,
-    setAdvancedTab,
-    setSimpleTask,
-    openLinkForm,
-    openServiceForm,
-    setSelectedSimpleShareLinkAlias,
-    openSimpleShareDialog,
-    closeSimpleShareDialog,
-  } = useUIStore();
+  const { activeProfile, clearNeedsRestart } = useProfileStore();
 
   const start = useCallback(async () => {
     if (!activeProfile) {
@@ -54,6 +37,21 @@ export function useSimpleActions() {
       toast.error(`重启失败: ${error}`);
     }
   }, [activeProfile, clearNeedsRestart, restartAgent]);
+
+  return { start, restart };
+}
+
+function useSimpleNavigationActions() {
+  const {
+    setUIMode,
+    setAdvancedTab,
+    setSimpleTask,
+    openLinkForm,
+    openServiceForm,
+    setSelectedSimpleShareLinkAlias,
+    openSimpleShareDialog,
+    closeSimpleShareDialog,
+  } = useUIStore();
 
   const createShareLink = useCallback(() => {
     setSimpleTask("share");
@@ -95,6 +93,51 @@ export function useSimpleActions() {
     closeSimpleShareDialog();
   }, [closeSimpleShareDialog]);
 
+  const openShareServiceForm = useCallback(() => {
+    openServiceForm();
+  }, [openServiceForm]);
+
+  const openAdvancedNetworks = useCallback(() => {
+    setUIMode("advanced");
+    setAdvancedTab("networks");
+  }, [setAdvancedTab, setUIMode]);
+
+  const openAdvancedServices = useCallback(() => {
+    setUIMode("advanced");
+    setAdvancedTab("services");
+  }, [setAdvancedTab, setUIMode]);
+
+  const openAdvancedConfig = useCallback(() => {
+    setUIMode("advanced");
+    setAdvancedTab("config");
+  }, [setAdvancedTab, setUIMode]);
+
+  return {
+    configureShare,
+    createShareLink,
+    editShareLink,
+    selectShareLink,
+    configureConnect,
+    openSimpleShareServiceDialog,
+    closeSimpleShareServiceDialog,
+    openShareServiceForm,
+    openAdvancedNetworks,
+    openAdvancedServices,
+    openAdvancedConfig,
+  };
+}
+
+export function useSimpleActions() {
+  const runtimeActions = useSimpleRuntimeActions();
+  const navigationActions = useSimpleNavigationActions();
+  const {
+    activeProfile,
+    currentConfig,
+    saveConfig,
+    setCurrentConfig,
+    setNeedsRestart,
+  } = useProfileStore();
+
   const closeSimpleShareService = useCallback(
     async (input: { tunnelId?: string; configIndex?: number }) => {
       const removed = await removeTunnelConfig({
@@ -120,39 +163,9 @@ export function useSimpleActions() {
     ],
   );
 
-  const openShareServiceForm = useCallback(() => {
-    openServiceForm();
-  }, [openServiceForm]);
-
-  const openAdvancedNetworks = useCallback(() => {
-    setUIMode("advanced");
-    setAdvancedTab("networks");
-  }, [setAdvancedTab, setUIMode]);
-
-  const openAdvancedServices = useCallback(() => {
-    setUIMode("advanced");
-    setAdvancedTab("services");
-  }, [setAdvancedTab, setUIMode]);
-
-  const openAdvancedConfig = useCallback(() => {
-    setUIMode("advanced");
-    setAdvancedTab("config");
-  }, [setAdvancedTab, setUIMode]);
-
   return {
-    start,
-    restart,
-    configureShare,
-    createShareLink,
-    editShareLink,
-    selectShareLink,
-    configureConnect,
-    openSimpleShareServiceDialog,
-    closeSimpleShareServiceDialog,
+    ...runtimeActions,
+    ...navigationActions,
     closeSimpleShareService,
-    openShareServiceForm,
-    openAdvancedNetworks,
-    openAdvancedServices,
-    openAdvancedConfig,
   };
 }

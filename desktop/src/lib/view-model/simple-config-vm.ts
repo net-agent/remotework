@@ -1,6 +1,7 @@
 import type { AgentConfig, TunnelInfo } from "@/lib/config-types";
 import { validateLinkURL, validateTunnel } from "@/lib/config-validation";
-import type { NetworkStateDTO } from "@/lib/types";
+import { buildValidatedLinkOptions } from "@/lib/simple-domain/link-rules";
+import type { SimpleLinkOption } from "@/lib/simple-domain/link-rules";
 
 export interface SimpleConfigSummaryItem {
   title: string;
@@ -8,12 +9,7 @@ export interface SimpleConfigSummaryItem {
   tone?: "default" | "warning";
 }
 
-export interface SimpleLinkOption {
-  alias: string;
-  url: string;
-  status: "usable" | "saved_needs_check";
-  statusText: string;
-}
+export type { SimpleLinkOption };
 
 export interface SimpleConfigVM {
   hasShareConfig: boolean;
@@ -44,58 +40,9 @@ function hasTargetRole(tunnel: TunnelInfo) {
   return tunnel.target.trim().length > 0;
 }
 
-function isUsableNetworkState(state: string) {
-  return ["online", "connected", "running", "pending", "starting", "init", "connecting"].includes(
-    state.toLowerCase(),
-  );
-}
-
-function buildLinkProjections(
-  config: AgentConfig,
-  networks: NetworkStateDTO[],
-  sidecarReady: boolean,
-) {
-  const runtimeAliases = new Set(
-    networks
-      .filter((network) => network.protocol !== "" && isUsableNetworkState(network.state))
-      .map((network) => network.name),
-  );
-
-  const allLinks = getLinkEntries(config).map(([alias, url]) => {
-    const error = validateLinkURL(url);
-    const isRuntimeUsable = runtimeAliases.has(alias);
-    const status = error
-      ? "saved_needs_check"
-      : !sidecarReady || isRuntimeUsable
-        ? "usable"
-        : "saved_needs_check";
-
-    return {
-      alias,
-      url,
-      status,
-      statusText: status === "usable" ? "当前可用" : "需检查",
-    } satisfies SimpleLinkOption;
-  });
-
-  const validLinks = allLinks.filter((item) => validateLinkURL(item.url) === null);
-  const usableLinks = allLinks.filter((item) => item.status === "usable");
-
-  return {
-    allLinks,
-    validLinks,
-    usableLinks,
-  };
-}
-
 export function buildSimpleConfigVM(
   config: AgentConfig,
   requiresRestart: boolean,
-  runtime?: {
-    networks: NetworkStateDTO[];
-    wsConnected: boolean;
-    agentRunning: boolean;
-  },
 ): SimpleConfigVM {
   const linkEntries = getLinkEntries(config);
   const tunnels = getTunnels(config);
@@ -111,28 +58,25 @@ export function buildSimpleConfigVM(
 
   const shareTunnels = tunnels.filter(hasListenRole);
   const connectTunnels = tunnels.filter(hasTargetRole);
-  const sidecarReady = Boolean(runtime?.agentRunning && runtime?.wsConnected);
-  const { allLinks, validLinks, usableLinks } = buildLinkProjections(
-    config,
-    runtime?.networks ?? [],
-    sidecarReady,
-  );
-
+  const { allLinks, validLinks } = buildValidatedLinkOptions(config);
+  const savedNeedsCheckCount = allLinks.length - validLinks.length;
   const hasShareConfig = linkEntries.length > 0 || shareTunnels.length > 0;
   const hasConnectConfig = connectTunnels.length > 0;
 
   const missingItems = [
     ...(linkEntries.length === 0 ? ["还没有填写共享所需的连接信息"] : []),
     ...(shareTunnels.length === 0 ? ["还没有设置可被访问的共享入口"] : []),
-    ...(connectTunnels.length === 0 ? ["还没有设置连接他人电脑所需的访问入口"] : []),
+    ...(connectTunnels.length === 0
+      ? ["还没有设置连接他人电脑所需的访问入口"]
+      : []),
   ];
 
   const invalidItems = [
     ...invalidLinks.map((item) => `连接信息“${item.alias}”存在格式问题`),
-    ...invalidTunnels.map((item) => `入口“${item.tunnel.name || "未命名"}”配置无效`),
+    ...invalidTunnels.map(
+      (item) => `入口“${item.tunnel.name || "未命名"}”配置无效`,
+    ),
   ];
-
-  const savedNeedsCheckCount = allLinks.length - usableLinks.length;
 
   return {
     hasShareConfig,
@@ -142,10 +86,10 @@ export function buildSimpleConfigVM(
     invalidItems,
     allLinks,
     validLinks,
-    usableLinks,
+    usableLinks: validLinks,
     shareSummary: [
       { title: "已保存连接信息", value: `${allLinks.length} 项` },
-      { title: "当前可用连接信息", value: `${usableLinks.length} 项` },
+      { title: "当前可用连接信息", value: `${validLinks.length} 项` },
       { title: "共享入口", value: `${shareTunnels.length} 项` },
       {
         title: "配置状态",
@@ -156,7 +100,9 @@ export function buildSimpleConfigVM(
               ? "基本就绪"
               : "尚未完成",
         tone:
-          invalidLinks.length > 0 || invalidTunnels.length > 0 ? "warning" : "default",
+          invalidLinks.length > 0 || invalidTunnels.length > 0
+            ? "warning"
+            : "default",
       },
       ...(savedNeedsCheckCount > 0
         ? [
