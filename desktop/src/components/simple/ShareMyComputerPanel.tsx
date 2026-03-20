@@ -16,15 +16,22 @@ function getSummaryTone(state: SimpleSessionVM["shareState"]) {
   }
 }
 
-function getSummaryText(state: SimpleSessionVM["shareState"]) {
-  switch (state) {
-    case "ready":
-      return "已基本可共享";
-    case "degraded":
-      return "共享配置存在异常";
-    default:
-      return "请选择连接信息并开放服务";
+function getSummaryText(input: {
+  shareState: SimpleSessionVM["shareState"];
+  openCount: number;
+  activeConnectionCount: number;
+}) {
+  if (input.shareState === "ready") {
+    return input.activeConnectionCount > 0
+      ? `当前可共享，已开放 ${input.openCount} 项服务，当前 ${input.activeConnectionCount} 个会话`
+      : `当前可共享，已开放 ${input.openCount} 项服务`;
   }
+
+  if (input.shareState === "degraded") {
+    return "共享配置存在异常";
+  }
+
+  return "请选择连接信息并开放服务";
 }
 
 async function copyAddress(listenURL: string) {
@@ -43,62 +50,39 @@ export function ShareMyComputerPanel({
 }) {
   const actions = useSimpleActions();
   const selectedAlias = session.selectedShareLink?.alias ?? null;
-  const savedNeedsCheckCount =
-    session.config.allLinks.length - session.availableShareLinks.length;
+  const openCount = session.shareServiceRows.filter((row) => row.isOpen).length;
 
   return (
-    <div className="space-y-4 p-4">
-      <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">当前状态</span>
+    <div className="space-y-4">
+      <div className="rounded-xl border bg-card p-4 shadow-sm">
+        <div className="flex flex-col gap-3 border-b pb-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <div className="text-xs">
               <span
                 className={cn(
                   "font-medium",
                   getSummaryTone(session.shareState),
                 )}
               >
-                {getSummaryText(session.shareState)}
+                {getSummaryText({
+                  shareState: session.shareState,
+                  openCount,
+                  activeConnectionCount: session.activeConnectionCount,
+                })}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">已开放服务</span>
-              <span className="font-medium">
-                {session.shareServiceRows.filter((row) => row.isOpen).length} 项
-              </span>
-            </div>
-            {session.activeConnectionCount > 0 ? (
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">当前会话</span>
-                <span className="font-medium">
-                  {session.activeConnectionCount} 个
-                </span>
-              </div>
-            ) : null}
-            {savedNeedsCheckCount > 0 ? (
-              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
-                <span>另有连接信息需检查，请到设置或高级模式处理</span>
-              </div>
-            ) : null}
-          </div>
-          {session.requiresRestart ? (
-            <Button size="sm" variant="outline" onClick={actions.restart}>
-              重启后生效
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="rounded-xl border bg-card p-4 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
-            <h3 className="text-sm font-medium">核心共享服务</h3>
-            <p className="text-xs text-muted-foreground">
-              在一个面板里直接管理最常用的 2 类共享能力。
-            </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {!selectedAlias ? (
+              <Button size="sm" onClick={actions.createShareLink}>
+                输入连接信息
+              </Button>
+            ) : null}
+            {session.requiresRestart ? (
+              <Button size="sm" variant="outline" onClick={actions.restart}>
+                重启后生效
+              </Button>
+            ) : null}
             <Button
               size="sm"
               variant="outline"
@@ -109,7 +93,13 @@ export function ShareMyComputerPanel({
           </div>
         </div>
 
-        <div className="mt-4 divide-y">
+        {!selectedAlias ? (
+          <div className="pt-3 text-xs text-muted-foreground">
+            先选择连接信息，再开放或管理共享服务。
+          </div>
+        ) : null}
+
+        <div className="mt-1 divide-y pt-3">
           {session.shareServiceRows.map((row) => (
             <SimpleShareServiceRowCard
               key={row.key}
@@ -133,24 +123,23 @@ export function ShareMyComputerPanel({
 
       {session.userFacingHints.length > 0 ? (
         <div className="rounded-xl border border-dashed bg-muted/20 px-4 py-3">
-          <div className="space-y-1">
-            <h3 className="text-sm font-medium">排查提示</h3>
-            <p className="text-xs text-muted-foreground">
-              共享不稳定时，可先查看这些提示，或
-              <button
-                type="button"
-                className="mx-1 inline font-medium text-foreground underline underline-offset-2"
-                onClick={actions.openAdvancedNetworks}
-              >
-                进入高级模式
-              </button>
-              处理。
-            </p>
-            <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
-              {session.userFacingHints.slice(0, 3).map((hint) => (
-                <li key={hint}>{hint}</li>
-              ))}
-            </ul>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium">处理提示</h3>
+              <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                {session.userFacingHints.slice(0, 3).map((hint) => (
+                  <li key={hint}>{hint}</li>
+                ))}
+              </ul>
+            </div>
+            <Button
+              size="sm"
+              type="button"
+              variant="ghost"
+              onClick={actions.openAdvancedNetworks}
+            >
+              进入高级模式
+            </Button>
           </div>
         </div>
       ) : null}

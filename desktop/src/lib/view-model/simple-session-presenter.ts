@@ -18,13 +18,13 @@ export function buildShareLinkHint(input: {
 }) {
   if (input.mustCreateNewShareLink) {
     return input.allLinkCount === 0
-      ? "当前还没有可用连接信息，请先输入新的连接信息。"
-      : `已保存 ${input.allLinkCount} 条连接信息，但当前都需检查，请先修正或重新输入。`;
+      ? "先输入连接信息，才能继续。"
+      : "当前连接需检查，请先修正或重新输入。";
   }
 
   return input.savedNeedsCheckCount > 0
-    ? `已检测到 ${input.availableLinkCount} 条可用连接信息，另有 ${input.savedNeedsCheckCount} 条需检查。`
-    : `已检测到 ${input.availableLinkCount} 条可用连接信息，可直接选择使用。`;
+    ? `当前使用 1 条连接，另有 ${input.savedNeedsCheckCount} 条待检查。`
+    : "当前连接已就绪。";
 }
 
 export function buildUserFacingHints(input: {

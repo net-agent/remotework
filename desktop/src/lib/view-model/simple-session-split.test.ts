@@ -101,7 +101,7 @@ describe("simple-session split", () => {
     expect(facts.mustCreateNewShareLink).toBe(false);
   });
 
-  it("builds hint text for mixed available and needs-check links", () => {
+  it("builds short hint text for mixed available and needs-check links", () => {
     expect(
       buildShareLinkHint({
         allLinkCount: 3,
@@ -109,7 +109,18 @@ describe("simple-session split", () => {
         mustCreateNewShareLink: false,
         savedNeedsCheckCount: 1,
       }),
-    ).toBe("已检测到 2 条可用连接信息，另有 1 条需检查。");
+    ).toBe("当前使用 1 条连接，另有 1 条待检查。");
+  });
+
+  it("builds create hint when no links exist", () => {
+    expect(
+      buildShareLinkHint({
+        allLinkCount: 0,
+        availableLinkCount: 0,
+        mustCreateNewShareLink: true,
+        savedNeedsCheckCount: 0,
+      }),
+    ).toBe("先输入连接信息，才能继续。");
   });
 
   it("builds closed rows when no alias is selected", () => {
@@ -127,7 +138,7 @@ describe("simple-session split", () => {
     expect(rows[0]?.primaryActionKind).toBe("open");
   });
 
-  it("builds local-port manage row with aggregated status", () => {
+  it("keeps local-port row in manage mode after ports are saved", () => {
     const config = emptyConfig();
     config.tunnels = [
       {
@@ -157,6 +168,44 @@ describe("simple-session split", () => {
     expect(localPortRow?.primaryActionKind).toBe("manage");
     expect(localPortRow?.primaryActionLabel).toBe("开放");
     expect(localPortRow?.statusText).toBe("已保存 2 个端口，等待生效");
+  });
+
+  it("keeps local-port row in manage mode when only one port is open", () => {
+    const config = emptyConfig();
+    config.tunnels = [
+      {
+        id: "1",
+        name: "本地端口 8080",
+        listen: "vtcp://relay.demo:8080?authcode=ABC123",
+        target: "tcp://127.0.0.1:8080",
+      },
+    ];
+
+    const rows = buildShareServiceRows(
+      buildSimpleShareServiceRowFacts({
+        selectedAlias: "demo",
+        currentConfig: config,
+        services: [
+          {
+            id: 1,
+            tunnelId: "1",
+            type: "proxy",
+            name: "本地端口 8080",
+            status: "running",
+            listenURL: "vtcp://relay.demo:8080?authcode=ABC123",
+            targetURL: "tcp://127.0.0.1:8080",
+            actives: 0,
+            dones: 0,
+          },
+        ],
+      }),
+      "demo",
+    );
+
+    const localPortRow = rows.find((row) => row.key === "local-port");
+    expect(localPortRow?.primaryActionKind).toBe("manage");
+    expect(localPortRow?.primaryActionLabel).toBe("开放");
+    expect(localPortRow?.statusText).toBe("已开放");
   });
 
   it("builds socks5 close action when runtime reports open", () => {

@@ -51,42 +51,57 @@ export function ConnectOtherComputerPanel({
   const connectText = getConnectText(session.connectState);
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="space-y-4">
       <SimpleStatusCard
         title={connectText.title}
         description={connectText.description}
         tone={getConnectTone(session.connectState)}
+        extra={
+          session.runtime.overallState === "stopped" ? (
+            <Button size="sm" variant="outline" onClick={actions.start}>
+              启动服务
+            </Button>
+          ) : undefined
+        }
       />
 
       <SimpleActionCard
-        title="下一步"
+        title="连接他人电脑"
         description={
           session.selectedShareLink
-            ? `当前将使用“${session.selectedShareLink.alias}”作为连接信息。请先补全访问入口，再连接他人的电脑。`
-            : "请先填写连接信息，再补全访问入口并开始连接。"
+            ? `当前使用“${session.selectedShareLink.alias}”作为连接信息。下一步去配置访问入口。`
+            : "请先填写连接信息，再继续配置访问入口。"
         }
-        primaryLabel={session.selectedShareLink ? "配置访问入口" : "填写连接信息"}
+        primaryLabel={
+          session.selectedShareLink ? "配置访问入口" : "填写连接信息"
+        }
         secondaryLabel={
-          session.runtime.overallState === "stopped" ? "启动服务" : "查看高级状态"
+          session.runtime.overallState === "stopped"
+            ? undefined
+            : "查看高级状态"
         }
         onPrimaryClick={
-          session.selectedShareLink ? actions.configureConnect : actions.createShareLink
+          session.selectedShareLink
+            ? actions.configureConnect
+            : actions.createShareLink
         }
         onSecondaryClick={
           session.runtime.overallState === "stopped"
-            ? actions.start
+            ? undefined
             : actions.openAdvancedServices
         }
       />
 
       {session.userFacingHints.length > 0 ? (
-        <div className="rounded-xl border bg-card p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-medium">连接提示</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                若无法连接，优先检查当前连接信息、访问入口以及当前服务状态。
-              </p>
+        <div className="rounded-xl border border-dashed bg-muted/20 px-4 py-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium">处理提示</h3>
+              <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                {session.userFacingHints.slice(0, 3).map((hint) => (
+                  <li key={hint}>{hint}</li>
+                ))}
+              </ul>
             </div>
             <Button
               size="sm"
@@ -96,11 +111,6 @@ export function ConnectOtherComputerPanel({
               查看详细信息
             </Button>
           </div>
-          <ul className="mt-4 list-disc space-y-2 pl-4 text-xs text-muted-foreground">
-            {session.userFacingHints.map((hint) => (
-              <li key={hint}>{hint}</li>
-            ))}
-          </ul>
         </div>
       ) : null}
     </div>
