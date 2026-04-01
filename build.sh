@@ -40,8 +40,12 @@ for os in ${GOOS_LIST[@]}; do
   # 根据不同的操作系统，设置需要编译的架构列表
   target_archs=()
   case "$os" in
-    "windows" | "linux")
-      # windows和linux只编译amd64
+    "linux")
+      # linux编译amd64和arm64
+      target_archs=("amd64" "arm64")
+      ;;
+    "windows")
+      # windows只编译amd64
       target_archs=("amd64")
       ;;
     "darwin")
