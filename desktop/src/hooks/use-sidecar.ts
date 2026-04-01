@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { platform } from "@/lib/platform";
 import { useAgentStore } from "@/stores/agent-store";
 import { useProfileStore } from "@/stores/profile-store";
 
@@ -11,9 +11,7 @@ export function useSidecar() {
     async (profileName: string) => {
       setStartError("");
       try {
-        const port = await invoke<number>("start_agent", {
-          profileName,
-        });
+        const port = await platform.startAgent(profileName);
         const url = `http://127.0.0.1:${port}`;
         setApiBaseUrl(url);
         setAgentRunning(true);
@@ -29,7 +27,7 @@ export function useSidecar() {
   );
 
   const stopAgent = useCallback(async () => {
-    await invoke("stop_agent");
+    await platform.stopAgent();
     reset();
   }, [reset]);
 
@@ -37,9 +35,7 @@ export function useSidecar() {
     async (profileName: string) => {
       setStartError("");
       try {
-        const port = await invoke<number>("restart_agent", {
-          profileName,
-        });
+        const port = await platform.restartAgent(profileName);
         const url = `http://127.0.0.1:${port}`;
         setApiBaseUrl(url);
         setAgentRunning(true);
@@ -55,7 +51,7 @@ export function useSidecar() {
   );
 
   const isRunning = useCallback(async () => {
-    return invoke<boolean>("agent_running");
+    return platform.agentRunning();
   }, []);
 
   return { startAgent, stopAgent, restartAgent, isRunning };
@@ -74,7 +70,7 @@ export function useStartup() {
       // If agent is already running (e.g. UI reload), just reconnect
       const running = await isRunning();
       if (running) {
-        const port = await invoke<number>("get_agent_port");
+        const port = await platform.getAgentPort();
         if (port > 0) {
           const url = `http://127.0.0.1:${port}`;
           setApiBaseUrl(url);

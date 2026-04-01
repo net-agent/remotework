@@ -114,6 +114,33 @@
     --sidebar-ring: oklch(0.65 0.17 250);
 }
 
+@keyframes dot-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}
+
+@keyframes dot-breathe-fast {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes dot-breathe-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@layer utilities {
+  .animate-dot-blink {
+    animation: dot-blink 0.7s ease-in-out infinite;
+  }
+  .animate-dot-breathe-fast {
+    animation: dot-breathe-fast 1.4s ease-in-out infinite;
+  }
+  .animate-dot-breathe-slow {
+    animation: dot-breathe-slow 2.8s ease-in-out infinite;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

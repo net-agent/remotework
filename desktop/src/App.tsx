@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { platform } from "@/lib/platform";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/AppShell";
@@ -10,10 +11,10 @@ import { useStartup } from "@/hooks/use-sidecar";
 import { useSidecarLogs } from "@/hooks/use-sidecar-logs";
 import { NetworkForm } from "@/components/network/NetworkForm";
 import { ServiceForm } from "@/components/service/ServiceForm";
-import { SimpleSharePresetForm } from "@/components/simple/SimpleSharePresetForm";
+import { SharePresetDialog } from "@/components/simple/SharePresetDialog";
 
 function App() {
-  const { currentPage } = useUIStore();
+  const { currentPage, uiMode } = useUIStore();
   const { boot } = useStartup();
 
   useWebSocket();
@@ -23,6 +24,19 @@ function App() {
     boot();
   }, [boot]);
 
+  useEffect(() => {
+    const unsubscribe = platform.onTrayToggleUIMode(() => {
+      const { uiMode: currentMode, setUIMode } = useUIStore.getState();
+      setUIMode(currentMode === "advanced" ? "simple" : "advanced");
+    });
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    void platform.emitUIModeChanged(uiMode);
+  }, [uiMode]);
+
   return (
     <TooltipProvider>
       <AppShell>
@@ -31,7 +45,7 @@ function App() {
       </AppShell>
       <NetworkForm />
       <ServiceForm />
-      <SimpleSharePresetForm />
+      <SharePresetDialog />
       <Toaster position="bottom-center" />
     </TooltipProvider>
   );

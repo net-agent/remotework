@@ -40,11 +40,13 @@ export function ConfigTab() {
             {linkEntries.map(([alias, url]) => (
               <div
                 key={alias}
-                className="flex items-center justify-between px-3 py-2 rounded-md border bg-card hover:bg-accent/50 cursor-pointer"
+                className="flex items-center px-3 py-2 rounded-md border bg-card hover:bg-accent/50 cursor-pointer gap-3"
                 onClick={() => openLinkForm(alias)}
               >
-                <span className="text-sm font-medium">{alias}</span>
-                <span className="text-xs text-muted-foreground font-mono truncate ml-4 max-w-[60%]">
+                <span className="text-sm font-medium shrink-0 w-[15em] truncate">
+                  {alias}
+                </span>
+                <span className="text-xs text-muted-foreground font-mono truncate min-w-0">
                   {url}
                 </span>
               </div>
@@ -77,13 +79,29 @@ export function ConfigTab() {
             {tunnels.map((tunnel, index) => (
               <div
                 key={tunnel.id}
-                className="flex items-center justify-between px-3 py-2 rounded-md border bg-card hover:bg-accent/50 cursor-pointer"
+                className="flex items-center px-3 py-2 rounded-md border bg-card hover:bg-accent/50 cursor-pointer gap-3"
                 onClick={() => openServiceForm(index)}
               >
-                <span className="text-sm font-medium">{tunnel.name || "(未命名)"}</span>
-                <div className="text-xs text-muted-foreground font-mono text-right">
-                  <div className="truncate max-w-[200px]">{tunnel.listen}</div>
-                  <div className="truncate max-w-[200px]">{tunnel.target}</div>
+                <span className="text-sm font-medium shrink-0 w-[15em] truncate">
+                  {tunnel.name || "(未命名)"}
+                </span>
+                <div className="text-xs font-mono space-y-0.5 min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="shrink-0 text-[10px] font-sans text-sky-600 dark:text-sky-400">
+                      监听
+                    </span>
+                    <span className="truncate text-muted-foreground">
+                      {tunnel.listen}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="shrink-0 text-[10px] font-sans text-amber-600 dark:text-amber-400">
+                      目标
+                    </span>
+                    <span className="truncate text-muted-foreground">
+                      {tunnel.target}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}

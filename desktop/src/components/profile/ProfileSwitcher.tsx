@@ -18,15 +18,21 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { invoke } from "@tauri-apps/api/core";
+import { platform } from "@/lib/platform";
 import { useProfileStore } from "@/stores/profile-store";
 import { useAgentStore } from "@/stores/agent-store";
 import { useSidecar } from "@/hooks/use-sidecar";
 import { toast } from "sonner";
 
 export function ProfileSwitcher() {
-  const { profiles, activeProfile, setActiveProfile, createProfile, loadConfig, loadProfiles } =
-    useProfileStore();
+  const {
+    profiles,
+    activeProfile,
+    setActiveProfile,
+    createProfile,
+    loadConfig,
+    loadProfiles,
+  } = useProfileStore();
   const { agentRunning } = useAgentStore();
   const { startAgent, stopAgent } = useSidecar();
   const [newDialogOpen, setNewDialogOpen] = useState(false);
@@ -51,7 +57,7 @@ export function ProfileSwitcher() {
     if (!name) return;
     try {
       if (newConfig.trim()) {
-        await invoke("import_profile", { name, content: newConfig });
+        await platform.importProfile(name, newConfig);
         await loadProfiles();
       } else {
         await createProfile(name);
@@ -83,7 +89,9 @@ export function ProfileSwitcher() {
             >
               {p.name}
               {p.name === activeProfile && (
-                <span className="ml-auto text-xs text-primary font-medium">当前</span>
+                <span className="ml-auto text-xs text-primary font-medium">
+                  当前
+                </span>
               )}
             </DropdownMenuItem>
           ))}
@@ -95,10 +103,16 @@ export function ProfileSwitcher() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={newDialogOpen} onOpenChange={(open) => {
-        setNewDialogOpen(open);
-        if (!open) { setNewName(""); setNewConfig(""); }
-      }}>
+      <Dialog
+        open={newDialogOpen}
+        onOpenChange={(open) => {
+          setNewDialogOpen(open);
+          if (!open) {
+            setNewName("");
+            setNewConfig("");
+          }
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>新建 Profile</DialogTitle>
@@ -112,7 +126,9 @@ export function ProfileSwitcher() {
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="例如：办公室"
                 className="mt-1.5"
-                onKeyDown={(e) => e.key === "Enter" && !newConfig && handleCreate()}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && !newConfig && handleCreate()
+                }
               />
             </div>
             <div>

@@ -2,73 +2,13 @@ import { useState } from "react";
 import { useAgentStore } from "@/stores/agent-store";
 import { useProfileStore } from "@/stores/profile-store";
 import { useUIStore } from "@/stores/ui-store";
+import { buildSimpleRuntimeVM } from "@/lib/view-model/simple-runtime-vm";
 import { buildSimpleSessionVM } from "@/lib/view-model/simple-session-vm";
 import { useSimpleActions } from "@/lib/view-model/simple-actions";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
-function AdvancedStatusBar() {
-  const { agentRunning, wsConnected, networks, services, streams } =
-    useAgentStore();
-
-  const activeStreams = streams.filter((stream) => !stream.isClosed).length;
-  const userNetworks = networks.filter((network) => network.protocol !== "");
-  const onlineNetworks = userNetworks.filter((network) =>
-    ["online", "connected", "running"].includes(network.state.toLowerCase()),
-  ).length;
-  const runningServices = services.filter((service) =>
-    ["running", "online", "connected"].includes(service.status.toLowerCase()),
-  ).length;
-  const pendingServices = services.filter((service) =>
-    ["pending", "starting", "init", "connecting"].includes(
-      service.status.toLowerCase(),
-    ),
-  ).length;
-
-  return (
-    <div className="flex items-center gap-3 border-t bg-card px-3 py-1 text-xs text-muted-foreground shrink-0">
-      <div className="flex items-center gap-1.5">
-        <span
-          className={`inline-block h-1.5 w-1.5 rounded-full ${
-            agentRunning
-              ? wsConnected
-                ? "bg-primary"
-                : "bg-emerald-500"
-              : "bg-zinc-400"
-          }`}
-        />
-        <span className={agentRunning && wsConnected ? "text-primary" : ""}>
-          {agentRunning ? (wsConnected ? "已连接" : "已启动") : "未运行"}
-        </span>
-      </div>
-
-      {agentRunning && (
-        <>
-          <span className="text-border">|</span>
-          <span className="tabular-nums">
-            网络 {onlineNetworks}/{userNetworks.length}
-          </span>
-          <span className="text-border">|</span>
-          <span className="tabular-nums">
-            服务 {runningServices}
-            {pendingServices > 0 && `/${pendingServices} pending`}/
-            {services.length}
-          </span>
-          {activeStreams > 0 && (
-            <>
-              <span className="text-border">|</span>
-              <span className="tabular-nums text-primary/80">
-                {activeStreams} 连接
-              </span>
-            </>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-function SimpleConnectionStatusChip() {
+function ShareLinkChip() {
   const [open, setOpen] = useState(false);
   const { agentRunning, wsConnected, networks, services, streams } =
     useAgentStore();
@@ -86,10 +26,7 @@ function SimpleConnectionStatusChip() {
   });
 
   const link = session.selectedShareLink;
-
-  if (!link) {
-    return null;
-  }
+  if (!link) return null;
 
   const handleCopy = async () => {
     try {
@@ -100,14 +37,22 @@ function SimpleConnectionStatusChip() {
     }
   };
 
+  const statusColorClass =
+    session.runtime.overallState === "degraded"
+      ? "text-amber-600 dark:text-amber-400"
+      : session.runtime.overallState === "recovering" ||
+          session.runtime.overallState === "connecting"
+        ? "text-sky-600 dark:text-sky-400"
+        : "text-emerald-600 dark:text-emerald-400";
+
   return (
     <>
       <button
         type="button"
-        className="flex items-center gap-1.5 rounded-md border border-transparent px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-background hover:text-foreground"
+        className="rounded-md border border-transparent px-2 py-0.5 text-xs font-medium text-foreground transition-colors hover:border-border hover:bg-background"
         onClick={() => setOpen(true)}
       >
-        <span className="font-medium text-foreground">{link.alias}</span>
+        {link.alias}
       </button>
 
       {open ? (
@@ -118,7 +63,7 @@ function SimpleConnectionStatusChip() {
               <div className="text-sm font-medium text-foreground">
                 {link.alias}
               </div>
-              <div className="text-xs text-emerald-600 dark:text-emerald-400">
+              <div className={`text-xs ${statusColorClass}`}>
                 {link.statusText}
               </div>
             </div>
@@ -128,9 +73,7 @@ function SimpleConnectionStatusChip() {
           </div>
 
           <div className="mt-3 rounded-lg border bg-background px-3 py-3">
-            <div className="text-[11px] text-muted-foreground">
-              完整连接信息
-            </div>
+            <div className="text-[11px] text-muted-foreground">完整连接信息</div>
             <div className="mt-1 break-all font-mono text-xs text-foreground">
               {link.url}
             </div>
@@ -154,72 +97,94 @@ function SimpleConnectionStatusChip() {
   );
 }
 
-function SimpleStatusBar() {
+export function StatusBar() {
   const { agentRunning, wsConnected, networks, services, streams } =
     useAgentStore();
-  const { currentConfig, needsRestart } = useProfileStore();
+  const { needsRestart } = useProfileStore();
+  const { uiMode } = useUIStore();
 
-  const session = buildSimpleSessionVM({
+  const runtime = buildSimpleRuntimeVM({
     agentRunning,
     wsConnected,
     networks,
     services,
     streams,
-    currentConfig,
-    needsRestart,
   });
 
-  const statusText = !agentRunning
-    ? "未运行"
-    : session.runtime.overallState === "recovering"
-      ? "正在恢复"
-      : session.runtime.overallState === "connecting"
-        ? "连接中"
-        : session.shareState === "ready" || session.connectState === "connected"
-          ? "可连接"
-          : session.shareState === "degraded" ||
-              session.connectState === "error"
-            ? "有问题待处理"
-            : "待配置";
+  const {
+    overallState,
+    onlineNetworkCount,
+    configuredNetworkCount,
+    runningServiceCount,
+    totalServiceCount,
+    activeConnectionCount,
+  } = runtime;
 
-  const secondaryText = session.requiresRestart
-    ? "新配置需重启后生效"
-    : session.activeConnectionCount > 0
-      ? `当前 ${session.activeConnectionCount} 个连接`
-      : undefined;
+  const dotColor =
+    overallState === "stopped"
+      ? "bg-zinc-400"
+      : overallState === "degraded"
+        ? "bg-amber-500"
+        : overallState === "ready"
+          ? "bg-primary"
+          : "bg-sky-500";
+
+  const dotAnimation =
+    overallState === "stopped"
+      ? ""
+      : overallState === "connecting" || overallState === "recovering"
+        ? "animate-dot-blink"
+        : overallState === "degraded"
+          ? "animate-dot-breathe-fast"
+          : "animate-dot-breathe-slow";
+
+  const primaryText =
+    overallState === "stopped"
+      ? "未运行"
+      : overallState === "recovering"
+        ? "重连中"
+        : overallState === "connecting"
+          ? "初始化"
+          : overallState === "degraded"
+            ? "有异常"
+            : "就绪";
+
+  let secondaryText: string | undefined;
+  if (overallState === "connecting") {
+    if (onlineNetworkCount < configuredNetworkCount) {
+      secondaryText = `网络 ${onlineNetworkCount}/${configuredNetworkCount}`;
+    } else if (runningServiceCount < totalServiceCount) {
+      secondaryText = `服务 ${runningServiceCount}/${totalServiceCount}`;
+    }
+  } else if (overallState === "ready") {
+    if (needsRestart) {
+      secondaryText = "配置待重启";
+    } else if (activeConnectionCount > 0) {
+      secondaryText = `${activeConnectionCount} 个连接`;
+    }
+  }
 
   return (
     <div className="relative flex items-center gap-3 border-t bg-card px-3 py-1 text-xs text-muted-foreground shrink-0">
       <div className="flex items-center gap-1.5">
         <span
-          className={`inline-block h-1.5 w-1.5 rounded-full ${
-            !agentRunning
-              ? "bg-zinc-400"
-              : session.runtime.overallState === "degraded"
-                ? "bg-amber-500"
-                : session.runtime.overallState === "recovering"
-                  ? "bg-sky-500"
-                  : "bg-primary"
-          }`}
+          className={`inline-block h-1.5 w-1.5 rounded-full ${dotColor} ${dotAnimation}`}
         />
-        <span className={agentRunning ? "text-foreground" : ""}>
-          {statusText}
+        <span className={overallState !== "stopped" ? "text-foreground" : ""}>
+          {primaryText}
         </span>
       </div>
       {secondaryText ? (
         <>
-          <span className="text-border">|</span>
+          <span className="text-border">·</span>
           <span className="truncate">{secondaryText}</span>
         </>
       ) : null}
-      <div className="ml-auto">
-        <SimpleConnectionStatusChip />
-      </div>
+      {uiMode === "simple" && (
+        <div className="ml-auto">
+          <ShareLinkChip />
+        </div>
+      )}
     </div>
   );
-}
-
-export function StatusBar() {
-  const { uiMode } = useUIStore();
-  return uiMode === "advanced" ? <AdvancedStatusBar /> : <SimpleStatusBar />;
 }

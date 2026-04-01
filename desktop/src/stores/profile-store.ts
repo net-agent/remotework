@@ -1,10 +1,6 @@
 import { create } from "zustand";
-import { invoke } from "@tauri-apps/api/core";
-import type {
-  AgentConfig,
-  ProfileMeta,
-  ProfilesIndex,
-} from "@/lib/config-types";
+import { platform } from "@/lib/platform";
+import type { AgentConfig, ProfileMeta } from "@/lib/config-types";
 import { emptyConfig } from "@/lib/config-types";
 
 interface ProfileState {
@@ -35,12 +31,12 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   needsRestart: false,
 
   loadProfiles: async () => {
-    const index = await invoke<ProfilesIndex>("list_profiles");
+    const index = await platform.listProfiles();
     set({ profiles: index.profiles, activeProfile: index.active });
   },
 
   loadConfig: async (name: string) => {
-    const raw = await invoke<Partial<AgentConfig>>("get_profile", { name });
+    const raw = await platform.getProfile(name);
     const defaults = emptyConfig();
     const config: AgentConfig = {
       ...defaults,
@@ -54,29 +50,29 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   },
 
   saveConfig: async (name: string, config: AgentConfig) => {
-    await invoke("save_profile", { name, config });
+    await platform.saveProfile(name, config);
     set({ currentConfig: config, dirty: false });
     await get().loadProfiles();
   },
 
   createProfile: async (name: string) => {
     const config = emptyConfig();
-    await invoke("save_profile", { name, config });
+    await platform.saveProfile(name, config);
     await get().loadProfiles();
   },
 
   deleteProfile: async (name: string) => {
-    await invoke("delete_profile", { name });
+    await platform.deleteProfile(name);
     await get().loadProfiles();
   },
 
   renameProfile: async (oldName: string, newName: string) => {
-    await invoke("rename_profile", { oldName, newName });
+    await platform.renameProfile(oldName, newName);
     await get().loadProfiles();
   },
 
   setActiveProfile: async (name: string) => {
-    await invoke("set_active_profile", { name });
+    await platform.setActiveProfile(name);
     set({ activeProfile: name });
   },
 

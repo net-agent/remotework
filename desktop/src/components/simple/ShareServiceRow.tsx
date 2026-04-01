@@ -1,11 +1,32 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Copy, ChevronDown, X } from "lucide-react";
-import type {
-  SimpleShareServiceItem,
-  SimpleShareServiceRow,
-} from "@/lib/view-model/simple-session-vm";
+import { ChevronDown } from "lucide-react";
+import type { SimpleShareServiceRow } from "@/lib/view-model/simple-session-vm";
+import { LocalPortMappingTable } from "@/components/simple/LocalPortMappingTable";
+
+function getRowFrameClass(
+  key: SimpleShareServiceRow["key"],
+  state: SimpleShareServiceRow["state"],
+) {
+  if (state === "closed") {
+    return "border-zinc-300 bg-zinc-50/70 dark:border-zinc-700/80 dark:bg-zinc-950/30";
+  }
+
+  if (key === "local-port") {
+    return "border-sky-300 bg-sky-50/70 dark:border-sky-700/80 dark:bg-sky-950/30";
+  }
+
+  return "border-violet-300 bg-violet-50/70 dark:border-violet-700/80 dark:bg-violet-950/30";
+}
+
+function getOpenButtonClass(key: SimpleShareServiceRow["key"]) {
+  if (key === "local-port") {
+    return "bg-sky-600 text-white hover:bg-sky-500 dark:bg-sky-600 dark:hover:bg-sky-500";
+  }
+
+  return "bg-violet-600 text-white hover:bg-violet-500 dark:bg-violet-600 dark:hover:bg-violet-500";
+}
 
 function getToneClass(state: SimpleShareServiceRow["state"]) {
   switch (state) {
@@ -18,77 +39,6 @@ function getToneClass(state: SimpleShareServiceRow["state"]) {
     default:
       return "text-muted-foreground";
   }
-}
-
-function LocalPortMappingTable({
-  items,
-  onCopyAddress,
-  onCloseItem,
-}: {
-  items: SimpleShareServiceItem[];
-  onCopyAddress: (listenURL: string) => void;
-  onCloseItem: (input: { tunnelId?: string; configIndex?: number }) => void;
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg border bg-background">
-      <div className="grid grid-cols-[72px_minmax(0,1fr)_112px] gap-2 border-b px-2.5 py-2 text-[11px] text-muted-foreground">
-        <div>端口</div>
-        <div>映射地址</div>
-        <div className="text-right">操作</div>
-      </div>
-      <div className="divide-y">
-        {items.map((item) => (
-          <div
-            key={`${item.listenURL}-${item.tunnelId ?? item.configIndex ?? "unknown"}`}
-            className="grid grid-cols-[72px_minmax(0,1fr)_112px] gap-2 px-2.5 py-2 text-xs"
-          >
-            <div className="font-medium text-foreground">
-              {item.port ? `:${item.port}` : "未知端口"}
-            </div>
-            <div className="min-w-0 space-y-1">
-              <button
-                type="button"
-                className="break-all font-mono text-left text-foreground underline-offset-2 hover:underline"
-                onClick={() => onCopyAddress(item.listenURL)}
-              >
-                {item.listenURL}
-              </button>
-              {item.lastErr ? (
-                <div className="text-[11px] text-destructive">
-                  {item.lastErr}
-                </div>
-              ) : null}
-            </div>
-            <div className="flex justify-end gap-1">
-              <button
-                type="button"
-                className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
-                onClick={() => onCopyAddress(item.listenURL)}
-                aria-label="复制虚拟地址"
-                title="复制虚拟地址"
-              >
-                <Copy className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground transition-colors hover:text-destructive"
-                onClick={() =>
-                  onCloseItem({
-                    tunnelId: item.tunnelId ?? undefined,
-                    configIndex: item.configIndex ?? undefined,
-                  })
-                }
-                aria-label="关闭映射"
-                title="关闭映射"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function ShareServiceAddressBlock({
@@ -124,7 +74,7 @@ function ShareServiceAddressBlock({
   );
 }
 
-export function SimpleShareServiceRowCard({
+export function ShareServiceRowCard({
   row,
   disabled,
   onOpen,
@@ -139,15 +89,20 @@ export function SimpleShareServiceRowCard({
   onCopyAddress: (listenURL: string) => void;
   onCloseItem: (input: { tunnelId?: string; configIndex?: number }) => void;
 }) {
-  const [showLocalPortDetails, setShowLocalPortDetails] = useState(false);
+  const [showLocalPortDetails, setShowLocalPortDetails] = useState(true);
   const hasDetails = Boolean(row.listenURL) && row.key !== "local-port";
   const localPortPreview = row.previewPorts
     .map((port) => `:${port}`)
     .join("、");
 
   return (
-    <div className="py-2 first:pt-0 last:pb-0">
-      <div className="flex flex-col gap-3 rounded-lg border bg-background px-3 py-3 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-2">
+      <div
+        className={cn(
+          "flex flex-col gap-2 rounded-lg border px-3 py-3 md:flex-row md:items-center md:justify-between",
+          getRowFrameClass(row.key, row.state),
+        )}
+      >
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <h4 className="text-sm font-medium">{row.title}</h4>
@@ -201,7 +156,12 @@ export function SimpleShareServiceRowCard({
             </Button>
           ) : null}
           {row.primaryActionKind === "open" ? (
-            <Button size="sm" onClick={onOpen} disabled={disabled}>
+            <Button
+              size="sm"
+              onClick={onOpen}
+              disabled={disabled}
+              className={getOpenButtonClass(row.key)}
+            >
               {row.primaryActionLabel}
             </Button>
           ) : (
@@ -215,23 +175,20 @@ export function SimpleShareServiceRowCard({
       {row.key === "local-port" &&
       row.items.length > 0 &&
       showLocalPortDetails ? (
-        <div className="mt-2">
-          <LocalPortMappingTable
-            items={row.items}
-            onCopyAddress={onCopyAddress}
-            onCloseItem={onCloseItem}
-          />
-        </div>
+        <LocalPortMappingTable
+          items={row.items}
+          isActive={row.state !== "closed"}
+          onCopyAddress={onCopyAddress}
+          onCloseItem={onCloseItem}
+        />
       ) : null}
 
       {row.key !== "local-port" && row.listenURL ? (
-        <div className="mt-2">
-          <ShareServiceAddressBlock
-            listenURL={row.listenURL}
-            targetURL={row.targetURL}
-            onCopyAddress={onCopyAddress}
-          />
-        </div>
+        <ShareServiceAddressBlock
+          listenURL={row.listenURL}
+          targetURL={row.targetURL}
+          onCopyAddress={onCopyAddress}
+        />
       ) : null}
     </div>
   );

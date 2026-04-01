@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { platform } from "@/lib/platform";
 import {
   Dialog,
   DialogContent,
@@ -60,7 +60,8 @@ export function ServiceForm() {
 
   useEffect(() => {
     if (serviceFormOpen) {
-      invoke<string[]>("get_network_interfaces")
+      platform
+        .getNetworkInterfaces()
         .then(setLocalAddresses)
         .catch(() => setLocalAddresses(["0.0.0.0", "127.0.0.1"]));
     }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { platform } from "@/lib/platform";
 import * as api from "@/lib/api";
 import {
   Dialog,
@@ -10,12 +10,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useUIStore } from "@/stores/ui-store";
-import { useProfileStore } from "@/stores/profile-store";
 import { useAgentStore } from "@/stores/agent-store";
-import { saveTunnelConfig, saveTunnelConfigsBatch } from "@/lib/tunnel-save";
+import { saveTunnelConfigsBatch } from "@/lib/tunnel-save";
 import type { ListeningPortDTO } from "@/lib/types";
 import { toast } from "sonner";
 import {
@@ -27,35 +33,35 @@ import {
 } from "@/lib/simple-domain/local-port-input-rules";
 import {
   buildLocalPortTunnel,
-  buildPresetTunnel,
   DEFAULT_LOCAL_PORT,
   ensureLinkAuthcode,
   getDefaultName,
   getPresetMeta,
-  hasPartialCredentials,
-  type SimpleSharePresetType,
-  validatePortInput,
 } from "@/lib/simple-domain/share-preset-rules";
 import { sortListeningPorts } from "@/lib/simple-domain/local-port-rules";
 import { Socks5PresetFields } from "@/components/simple/share-preset/Socks5PresetFields";
 import { LocalPortPresetFields } from "@/components/simple/share-preset/LocalPortPresetFields";
+import {
+  saveSocks5Preset,
+  useTunnelSaveContext,
+} from "@/components/simple/share-preset/socks5-preset-save";
 
-export function SimpleSharePresetForm() {
+export function SharePresetDialog() {
   const {
     simpleShareDialogOpen,
     simpleShareDialogType,
     selectedSimpleShareLinkAlias,
     closeSimpleShareDialog,
   } = useUIStore();
+  const saveContext = useTunnelSaveContext();
   const {
     currentConfig,
     setCurrentConfig,
     saveConfig,
     activeProfile,
     setNeedsRestart,
-  } = useProfileStore();
+  } = saveContext;
   const [name, setName] = useState("");
-  const [port, setPort] = useState(DEFAULT_LOCAL_PORT);
   const [localAddresses, setLocalAddresses] = useState<string[]>([]);
   const [localAddress, setLocalAddress] = useState("127.0.0.1");
   const [username, setUsername] = useState("");
@@ -68,6 +74,9 @@ export function SimpleSharePresetForm() {
   const [filterText, setFilterText] = useState("");
   const [selectedPorts, setSelectedPorts] = useState<Set<number>>(new Set());
   const [manualPortsText, setManualPortsText] = useState("");
+  const [localPortInputMode, setLocalPortInputMode] = useState<
+    "list" | "manual"
+  >("list");
 
   const preset =
     simpleShareDialogType === "socks5" || simpleShareDialogType === "local-port"
@@ -109,6 +118,21 @@ export function SimpleSharePresetForm() {
     [selectedPorts],
   );
 
+  const manualPortList = useMemo(() => {
+    try {
+      return buildCombinedPorts({
+        selectedPortList: [],
+        manualPortsText,
+      }).combinedPorts;
+    } catch {
+      return [];
+    }
+  }, [manualPortsText]);
+
+  const portsToOpenPreview = useMemo(() => {
+    return localPortInputMode === "manual" ? manualPortList : selectedPortList;
+  }, [localPortInputMode, manualPortList, selectedPortList]);
+
   useEffect(() => {
     if (!simpleShareDialogOpen || !preset || !meta) {
       return;
@@ -123,8 +147,10 @@ export function SimpleSharePresetForm() {
     setFilterText("");
     setSelectedPorts(new Set());
     setManualPortsText("");
+    setLocalPortInputMode("list");
 
-    invoke<string[]>("get_network_interfaces")
+    platform
+      .getNetworkInterfaces()
       .then((addresses) => {
         const nextAddresses =
           addresses.length > 0 ? addresses : ["0.0.0.0", "127.0.0.1"];
@@ -153,7 +179,6 @@ export function SimpleSharePresetForm() {
         );
       }, 1500);
 
-      setPort(DEFAULT_LOCAL_PORT);
       setName(getDefaultName(preset, DEFAULT_LOCAL_PORT));
       setIsLoadingListeningPorts(true);
 
@@ -195,7 +220,7 @@ export function SimpleSharePresetForm() {
       };
     }
 
-    setPort(DEFAULT_LOCAL_PORT);
+    return undefined;
   }, [meta, preset, simpleShareDialogOpen]);
 
   const toggleSelectedPort = (nextPort: number) => {
@@ -229,17 +254,28 @@ export function SimpleSharePresetForm() {
   const saveLocalPortPreset = async (selectedAlias: string) => {
     let combinedPorts: number[];
     try {
-      ({ combinedPorts } = buildCombinedPorts({
-        selectedPortList,
-        manualPortsText,
-      }));
+      if (localPortInputMode === "manual") {
+        ({ combinedPorts } = buildCombinedPorts({
+          selectedPortList: [],
+          manualPortsText,
+        }));
+      } else {
+        ({ combinedPorts } = buildCombinedPorts({
+          selectedPortList,
+          manualPortsText: "",
+        }));
+      }
     } catch (error) {
       toast.error(String(error));
       return;
     }
 
     if (combinedPorts.length === 0) {
-      toast.error("请至少选择一个端口，或在手动输入中填写端口");
+      toast.error(
+        localPortInputMode === "manual"
+          ? "请在手动输入中填写至少一个端口"
+          : "请至少选择一个端口",
+      );
       return;
     }
 
@@ -285,54 +321,6 @@ export function SimpleSharePresetForm() {
     }
   };
 
-  const saveSocks5Preset = async (
-    selectedAlias: string,
-    currentPreset: SimpleSharePresetType,
-  ) => {
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      toast.error("请填写开放名称");
-      return;
-    }
-
-    const trimmedUsername = username.trim();
-    if (hasPartialCredentials(trimmedUsername, password)) {
-      toast.error("用户名和密码需要同时填写，或同时留空以匿名开放");
-      return;
-    }
-
-    const portError = validatePortInput(port);
-    if (portError) {
-      toast.error(portError);
-      return;
-    }
-
-    const tunnel = buildPresetTunnel({
-      preset: currentPreset,
-      alias: selectedAlias,
-      name: trimmedName,
-      port: port.trim() || DEFAULT_LOCAL_PORT,
-      localAddress,
-      username: trimmedUsername,
-      password,
-    });
-
-    const saved = await saveTunnelConfig({
-      tunnel,
-      context: {
-        currentConfig,
-        setCurrentConfig,
-        saveConfig,
-        activeProfile,
-        setNeedsRestart,
-      },
-    });
-
-    if (saved) {
-      closeSimpleShareDialog();
-    }
-  };
-
   const handleSave = async () => {
     if (!preset || !meta) {
       toast.error("请选择开放方式");
@@ -349,7 +337,15 @@ export function SimpleSharePresetForm() {
       return;
     }
 
-    await saveSocks5Preset(resolvedAlias, preset);
+    await saveSocks5Preset({
+      selectedAlias: resolvedAlias,
+      name,
+      username,
+      password,
+      localAddress,
+      context: saveContext,
+      onSaved: closeSimpleShareDialog,
+    });
   };
 
   return (
@@ -357,7 +353,9 @@ export function SimpleSharePresetForm() {
       open={simpleShareDialogOpen}
       onOpenChange={(open) => !open && closeSimpleShareDialog()}
     >
-      <DialogContent className={preset === "local-port" ? "max-w-2xl" : "max-w-sm"}>
+      <DialogContent
+        className={preset === "local-port" ? "max-w-2xl" : "max-w-sm"}
+      >
         <DialogHeader>
           <DialogTitle>{meta?.title ?? "开放方式"}</DialogTitle>
           <DialogDescription>
@@ -367,23 +365,49 @@ export function SimpleSharePresetForm() {
 
         <div className="space-y-4">
           {preset === "local-port" ? (
-            <LocalPortPresetFields
-              resolvedAlias={resolvedAlias}
-              requiresExplicitAliasSelection={requiresExplicitAliasSelection}
-              filterText={filterText}
-              onFilterTextChange={setFilterText}
-              listeningPorts={listeningPorts}
-              filteredListeningPorts={filteredListeningPorts}
-              selectedPorts={selectedPorts}
-              openPortSet={openPortSet}
-              isLoadingListeningPorts={isLoadingListeningPorts}
-              listeningPortsError={listeningPortsError}
-              onToggleSelectedPort={toggleSelectedPort}
-              onSelectFilteredPorts={selectFilteredPorts}
-              onClearSelectedPorts={clearSelectedPorts}
-              manualPortsText={manualPortsText}
-              onManualPortsTextChange={setManualPortsText}
-            />
+            <>
+              <LocalPortPresetFields
+                requiresExplicitAliasSelection={requiresExplicitAliasSelection}
+                filterText={filterText}
+                onFilterTextChange={setFilterText}
+                listeningPorts={listeningPorts}
+                filteredListeningPorts={filteredListeningPorts}
+                selectedPorts={selectedPorts}
+                openPortSet={openPortSet}
+                isLoadingListeningPorts={isLoadingListeningPorts}
+                listeningPortsError={listeningPortsError}
+                onToggleSelectedPort={toggleSelectedPort}
+                onSelectFilteredPorts={selectFilteredPorts}
+                onClearSelectedPorts={clearSelectedPorts}
+                manualPortsText={manualPortsText}
+                onManualPortsTextChange={setManualPortsText}
+                localPortInputMode={localPortInputMode}
+                onLocalPortInputModeChange={setLocalPortInputMode}
+              />
+
+              <div className="rounded-lg border bg-muted/20 px-3 py-2">
+                <div className="text-xs font-medium text-muted-foreground">
+                  本次开放端口
+                </div>
+                {portsToOpenPreview.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {portsToOpenPreview.map((targetPort) => (
+                      <Badge
+                        key={targetPort}
+                        variant="secondary"
+                        className="font-mono"
+                      >
+                        {targetPort}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    尚未选择端口
+                  </div>
+                )}
+              </div>
+            </>
           ) : preset === "socks5" ? (
             <Socks5PresetFields
               resolvedAlias={resolvedAlias}
@@ -423,11 +447,18 @@ export function SimpleSharePresetForm() {
           <Button variant="outline" onClick={closeSimpleShareDialog}>
             取消
           </Button>
-          <Button onClick={handleSave} disabled={requiresExplicitAliasSelection}>
+          <Button
+            onClick={handleSave}
+            disabled={requiresExplicitAliasSelection}
+          >
             {preset === "local-port"
               ? buildLocalPortSaveLabel({
-                  selectedPortCount: selectedPortList.length,
-                  manualPortsText,
+                  selectedPortCount:
+                    localPortInputMode === "manual"
+                      ? manualPortList.length
+                      : selectedPortList.length,
+                  manualPortsText:
+                    localPortInputMode === "manual" ? manualPortsText : "",
                 })
               : (meta?.saveLabel ?? "保存")}
           </Button>

@@ -64,6 +64,13 @@ func NewFlexNetworkFromLink(cfg FlexLinkConfig) (Network, error) {
 	sess := node.NewSession(connector, sessCfg)
 
 	if cfg.OnStateChange != nil {
+		// SessionState 枚举定义见 github.com/net-agent/flex/v3/node/session.go
+		// 状态流转: Ready → Idle → Connecting → Online ↔ Connecting → Closed
+		//   Ready      — Session 已创建，Serve 尚未启动
+		//   Idle       — 已进入 Serve loop，等待首次 Listen/Dial 触发
+		//   Connecting — 连接中或断线重连中
+		//   Online     — 已成功连接，Node 可用
+		//   Closed     — Session 已永久关闭
 		sess.OnStateChange(func(old, new_ node.SessionState) {
 			cfg.OnStateChange(old.String(), new_.String())
 		})

@@ -1,4 +1,8 @@
-import { emptyTunnel, type AgentConfig, type TunnelInfo } from "@/lib/config-types";
+import {
+  emptyTunnel,
+  type AgentConfig,
+  type TunnelInfo,
+} from "@/lib/config-types";
 
 export const DEFAULT_LOCAL_PORT = "8080";
 const AUTHCODE_LENGTH = 6;
@@ -6,8 +10,14 @@ const AUTHCODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 export type SimpleSharePresetType = "socks5" | "local-port";
 
-export function buildShareListen(alias: string, port: string) {
-  return `vtcp://share.${alias}:${port}`;
+export function buildShareListen(
+  alias: string,
+  asValue: string,
+  port: string,
+  authcode?: string,
+) {
+  const base = `vtcp://${asValue}.${alias}:${port}`;
+  return authcode ? `${base}?authcode=${authcode}` : base;
 }
 
 export function buildLocalPortListen(input: {
@@ -32,20 +42,32 @@ export function buildSocks5Target(username: string, password: string) {
 export function buildPresetTunnel(input: {
   preset: SimpleSharePresetType;
   alias: string;
+  asValue: string;
   name: string;
   port: string;
   localAddress: string;
   username: string;
   password: string;
+  authcode?: string;
 }): TunnelInfo {
-  const { preset, alias, name, port, localAddress, username, password } = input;
+  const {
+    preset,
+    alias,
+    asValue,
+    name,
+    port,
+    localAddress,
+    username,
+    password,
+    authcode,
+  } = input;
   const tunnel = emptyTunnel();
 
   if (preset === "socks5") {
     return {
       ...tunnel,
       name,
-      listen: buildShareListen(alias, DEFAULT_LOCAL_PORT),
+      listen: buildShareListen(alias, asValue, DEFAULT_LOCAL_PORT, authcode),
       target: buildSocks5Target(username, password),
     };
   }
@@ -53,7 +75,7 @@ export function buildPresetTunnel(input: {
   return {
     ...tunnel,
     name,
-    listen: buildShareListen(alias, port),
+    listen: buildShareListen(alias, asValue, port),
     target: `tcp://${localAddress}:${port}`,
   };
 }
@@ -90,8 +112,8 @@ export function getPresetMeta(preset: SimpleSharePresetType) {
       };
     default:
       return {
-        title: "开放本地端口",
-        description: "筛选本机监听端口，支持多选并批量开放。",
+        title: "选择共享端口",
+        description: "通过列表选择或手动输入要共享的本地端口。",
         defaultName: "本地端口",
         saveLabel: "开放选中端口",
       };
@@ -127,7 +149,7 @@ export function validatePortInput(port: string) {
   return null;
 }
 
-function generateRandomAuthcode() {
+export function generateRandomAuthcode() {
   return Array.from({ length: AUTHCODE_LENGTH }, () => {
     const index = Math.floor(Math.random() * AUTHCODE_ALPHABET.length);
     return AUTHCODE_ALPHABET[index] ?? "A";

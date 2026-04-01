@@ -28,9 +28,14 @@ function isOnlineState(value: string) {
 }
 
 function isPendingState(value: string) {
-  return ["pending", "starting", "init", "connecting"].includes(
-    value.toLowerCase(),
-  );
+  return [
+    "pending",
+    "starting",
+    "init",
+    "connecting",
+    "ready",
+    "idle",
+  ].includes(value.toLowerCase());
 }
 
 function isErrorState(value: string) {
@@ -44,9 +49,15 @@ export function buildSimpleRuntimeVM(input: {
   services: ServiceStateDTO[];
   streams: StreamStateDTO[];
 }): SimpleRuntimeVM {
-  const userNetworks = input.networks.filter((network) => network.protocol !== "");
-  const onlineNetworks = userNetworks.filter((network) => isOnlineState(network.state));
-  const pendingNetworks = userNetworks.filter((network) => isPendingState(network.state));
+  const userNetworks = input.networks.filter(
+    (network) => network.protocol !== "",
+  );
+  const onlineNetworks = userNetworks.filter((network) =>
+    isOnlineState(network.state),
+  );
+  const pendingNetworks = userNetworks.filter((network) =>
+    isPendingState(network.state),
+  );
   const failedNetworks = userNetworks.filter(
     (network) => network.lastErr || isErrorState(network.state),
   );
@@ -61,14 +72,24 @@ export function buildSimpleRuntimeVM(input: {
     (service) => service.lastErr || isErrorState(service.status),
   );
 
-  const activeConnectionCount = input.streams.filter((stream) => !stream.isClosed).length;
+  const activeConnectionCount = input.streams.filter(
+    (stream) => !stream.isClosed,
+  ).length;
 
   const userFacingHints = [
     ...(!input.agentRunning ? ["当前服务未启动，请先启动后再共享或连接"] : []),
-    ...(input.agentRunning && !input.wsConnected ? ["正在恢复实时状态，请稍候"] : []),
-    ...(failedNetworks.length > 0 ? ["部分连接信息异常，可能影响连接稳定性"] : []),
-    ...(failedServices.length > 0 ? ["部分访问入口异常，请检查配置或重试"] : []),
-    ...(activeConnectionCount > 0 ? [`当前有 ${activeConnectionCount} 个会话正在传输`] : []),
+    ...(input.agentRunning && !input.wsConnected
+      ? ["正在恢复实时状态，请稍候"]
+      : []),
+    ...(failedNetworks.length > 0
+      ? ["部分连接信息异常，可能影响连接稳定性"]
+      : []),
+    ...(failedServices.length > 0
+      ? ["部分访问入口异常，请检查配置或重试"]
+      : []),
+    ...(activeConnectionCount > 0
+      ? [`当前有 ${activeConnectionCount} 个会话正在传输`]
+      : []),
   ];
 
   const overallState: SimpleRuntimeState = !input.agentRunning

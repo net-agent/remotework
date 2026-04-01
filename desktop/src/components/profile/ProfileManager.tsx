@@ -4,14 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useProfileStore } from "@/stores/profile-store";
-import { invoke } from "@tauri-apps/api/core";
-import { save, open } from "@tauri-apps/plugin-dialog";
+import { platform } from "@/lib/platform";
 import { Pencil, Trash2, Download, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 export function ProfileManager() {
-  const { profiles, activeProfile, deleteProfile, renameProfile, loadProfiles } =
-    useProfileStore();
+  const {
+    profiles,
+    activeProfile,
+    deleteProfile,
+    renameProfile,
+    loadProfiles,
+  } = useProfileStore();
   const [renamingProfile, setRenamingProfile] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -40,8 +44,8 @@ export function ProfileManager() {
 
   const handleExport = async (name: string) => {
     try {
-      const content = await invoke<string>("export_profile", { name });
-      const path = await save({
+      const content = await platform.exportProfile(name);
+      const path = await platform.showSaveDialog({
         defaultPath: `${name}.json`,
         filters: [{ name: "JSON", extensions: ["json"] }],
       });
@@ -66,21 +70,33 @@ export function ProfileManager() {
 
   const handleImport = async () => {
     try {
-      const file = await open({
+      const fileContent = await platform.showOpenDialog({
         filters: [{ name: "Config", extensions: ["json", "toml"] }],
-        multiple: false,
       });
-      if (!file) return;
+      if (!fileContent) return;
 
-      // Read file content via fetch (file:// protocol)
-      const resp = await fetch(`asset://localhost/${file}`);
-      const content = await resp.text();
+      // In Tauri mode, fileContent is a file path; in mock mode, it's the file text
+      let content: string;
+      let fileName: string;
+      if (
+        fileContent.startsWith("{") ||
+        fileContent.startsWith("[") ||
+        fileContent.includes("=")
+      ) {
+        // File content (mock mode)
+        content = fileContent;
+        fileName = "imported";
+      } else {
+        // File path (Tauri mode)
+        const resp = await fetch(`asset://localhost/${fileContent}`);
+        content = await resp.text();
+        fileName =
+          fileContent.split("/").pop()?.split("\\").pop() ?? "imported";
+      }
 
-      // Use filename without extension as profile name
-      const fileName = file.split("/").pop()?.split("\\").pop() ?? "imported";
       const name = fileName.replace(/\.(json|toml)$/, "");
 
-      await invoke("import_profile", { name, content });
+      await platform.importProfile(name, content);
       await loadProfiles();
       toast.success(`已导入 "${name}"`);
     } catch (e) {
@@ -93,7 +109,12 @@ export function ProfileManager() {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm">Profile 管理</CardTitle>
-          <Button variant="ghost" size="sm" className="h-7 text-sm" onClick={handleImport}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-sm"
+            onClick={handleImport}
+          >
             <Upload className="h-3.5 w-3.5 mr-1" />
             导入
           </Button>

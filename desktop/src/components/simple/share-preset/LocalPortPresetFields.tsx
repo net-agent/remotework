@@ -1,10 +1,10 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SimpleListeningPortPicker } from "@/components/simple/SimpleListeningPortPicker";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ListeningPortPicker } from "@/components/simple/ListeningPortPicker";
 import type { ListeningPortDTO } from "@/lib/types";
 
 export function LocalPortPresetFields({
-  resolvedAlias,
   requiresExplicitAliasSelection,
   filterText,
   onFilterTextChange,
@@ -19,8 +19,9 @@ export function LocalPortPresetFields({
   onClearSelectedPorts,
   manualPortsText,
   onManualPortsTextChange,
+  localPortInputMode,
+  onLocalPortInputModeChange,
 }: {
-  resolvedAlias: string | null;
   requiresExplicitAliasSelection: boolean;
   filterText: string;
   onFilterTextChange: (value: string) => void;
@@ -35,6 +36,8 @@ export function LocalPortPresetFields({
   onClearSelectedPorts: () => void;
   manualPortsText: string;
   onManualPortsTextChange: (value: string) => void;
+  localPortInputMode: "list" | "manual";
+  onLocalPortInputModeChange: (value: "list" | "manual") => void;
 }) {
   return (
     <>
@@ -44,33 +47,49 @@ export function LocalPortPresetFields({
         </div>
       ) : null}
 
-      <SimpleListeningPortPicker
-        alias={resolvedAlias}
-        filterText={filterText}
-        onFilterTextChange={onFilterTextChange}
-        listeningPorts={listeningPorts}
-        filteredListeningPorts={filteredListeningPorts}
-        selectedPorts={selectedPorts}
-        disabledPorts={openPortSet}
-        isLoading={isLoadingListeningPorts}
-        error={listeningPortsError}
-        onTogglePort={onToggleSelectedPort}
-        onSelectFiltered={onSelectFilteredPorts}
-        onClearSelection={onClearSelectedPorts}
-      />
+      <Tabs
+        value={localPortInputMode}
+        onValueChange={(value) =>
+          onLocalPortInputModeChange(value === "manual" ? "manual" : "list")
+        }
+        className="space-y-3"
+      >
+        <TabsList className="w-full grid-cols-2" variant="default">
+          <TabsTrigger value="list">列表选择</TabsTrigger>
+          <TabsTrigger value="manual">手动输入</TabsTrigger>
+        </TabsList>
 
-      <div className="space-y-2 rounded-lg border bg-muted/20 px-3 py-3">
-        <Label htmlFor="simple-share-manual-ports">手动输入端口</Label>
-        <Input
-          id="simple-share-manual-ports"
-          value={manualPortsText}
-          onChange={(event) => onManualPortsTextChange(event.target.value)}
-          placeholder="例如：8080, 3000 9222"
-        />
-        <div className="text-xs text-muted-foreground">
-          也可直接输入多个端口，使用空格或逗号分隔。
-        </div>
-      </div>
+        <TabsContent value="list" className="space-y-0">
+          <ListeningPortPicker
+            filterText={filterText}
+            onFilterTextChange={onFilterTextChange}
+            listeningPorts={listeningPorts}
+            filteredListeningPorts={filteredListeningPorts}
+            selectedPorts={selectedPorts}
+            disabledPorts={openPortSet}
+            isLoading={isLoadingListeningPorts}
+            error={listeningPortsError}
+            onTogglePort={onToggleSelectedPort}
+            onSelectFiltered={onSelectFilteredPorts}
+            onClearSelection={onClearSelectedPorts}
+          />
+        </TabsContent>
+
+        <TabsContent value="manual" className="space-y-0">
+          <div className="space-y-2 rounded-lg border bg-muted/20 px-3 py-3">
+            <Label htmlFor="simple-share-manual-ports">手动输入端口</Label>
+            <Input
+              id="simple-share-manual-ports"
+              value={manualPortsText}
+              onChange={(event) => onManualPortsTextChange(event.target.value)}
+              placeholder="例如：8080, 3000 9222"
+            />
+            <div className="text-xs text-muted-foreground">
+              支持多个端口，使用空格或逗号分隔。
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </>
   );
 }

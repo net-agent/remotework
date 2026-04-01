@@ -1,7 +1,7 @@
 import type { ListeningPortDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export function SimpleListeningPortList({
+export function ListeningPortList({
   ports,
   selectedPorts,
   disabledPorts,
@@ -41,7 +41,9 @@ export function SimpleListeningPortList({
                   onChange={() => onToggle(item.port)}
                   className="h-4 w-4 rounded border-input"
                 />
-                <span className="font-medium text-foreground">:{item.port}</span>
+                <span className="font-medium text-foreground">
+                  :{item.port}
+                </span>
                 <span className="min-w-0 truncate text-muted-foreground">
                   {item.processName?.trim() || "未知进程"}
                 </span>

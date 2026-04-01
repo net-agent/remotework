@@ -34,6 +34,7 @@ describe("share-preset-rules", () => {
     const socksTunnel = buildPresetTunnel({
       preset: "socks5",
       alias: "demo",
+      asValue: "mynode",
       name: "本地网络",
       port: "8080",
       localAddress: "127.0.0.1",
@@ -41,12 +42,13 @@ describe("share-preset-rules", () => {
       password: "",
     });
 
-    expect(socksTunnel.listen).toBe("vtcp://share.demo:8080");
+    expect(socksTunnel.listen).toBe("vtcp://mynode.demo:8080");
     expect(socksTunnel.target).toBe("socks5://local");
 
     const portTunnel = buildPresetTunnel({
       preset: "local-port",
       alias: "demo",
+      asValue: "mynode",
       name: "本地端口 3000",
       port: "3000",
       localAddress: "127.0.0.1",
@@ -54,7 +56,7 @@ describe("share-preset-rules", () => {
       password: "",
     });
 
-    expect(portTunnel.listen).toBe("vtcp://share.demo:3000");
+    expect(portTunnel.listen).toBe("vtcp://mynode.demo:3000");
     expect(portTunnel.target).toBe("tcp://127.0.0.1:3000");
   });
 

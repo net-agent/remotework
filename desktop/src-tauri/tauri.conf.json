@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Remotework",
-        "width": 680,
-        "height": 520,
+        "width": 960,
+        "height": 800,
         "minWidth": 680,
         "minHeight": 520
       }
