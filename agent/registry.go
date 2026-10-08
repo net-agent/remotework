@@ -13,6 +13,7 @@ import (
 	"github.com/net-agent/cipherconn"
 	"github.com/net-agent/flex/v3/stream"
 	"github.com/net-agent/remotework/agent/vnet"
+	"github.com/net-agent/remotework/agent/vservice"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -43,7 +44,7 @@ func NewNetworkRegistry(log *slog.Logger) *NetworkRegistry {
 }
 
 // Add 在注册表中增加network，自动包装为 reportingNetwork
-func (nr *NetworkRegistry) Add(mnet Network) error {
+func (nr *NetworkRegistry) Add(mnet vnet.Network) error {
 	name := mnet.GetName()
 	if name == "" {
 		return errors.New("invalid network name=''")
@@ -59,7 +60,7 @@ func (nr *NetworkRegistry) Add(mnet Network) error {
 }
 
 // Find 获取网络
-func (nr *NetworkRegistry) Find(network string) (Network, error) {
+func (nr *NetworkRegistry) Find(network string) (vnet.Network, error) {
 	if network == "" {
 		return nil, errors.New("invalid network name=''")
 	}
@@ -133,7 +134,7 @@ func (nr *NetworkRegistry) ListenURL(raw string) (net.Listener, error) {
 	l, err := nr.Listen(u.Scheme, u.Host)
 	if err != nil {
 		if !nr.isBuiltinNetwork(u.Scheme) {
-			return nil, &ErrDependencyNotReady{Network: u.Scheme}
+			return nil, &vnet.ErrDependencyNotReady{Network: u.Scheme}
 		}
 		return nil, err
 	}
@@ -148,7 +149,7 @@ func (nr *NetworkRegistry) ListenURL(raw string) (net.Listener, error) {
 }
 
 // URLDialer 对URL进行预处理，在调用时快速创建连接，实现 DialerFactory 接口
-func (nr *NetworkRegistry) URLDialer(raw string) (QuickDialer, error) {
+func (nr *NetworkRegistry) URLDialer(raw string) (vservice.QuickDialer, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
@@ -156,7 +157,7 @@ func (nr *NetworkRegistry) URLDialer(raw string) (QuickDialer, error) {
 
 	// 预��查网络是否存在，对非内置网络返回依赖未就绪错误
 	if _, err := nr.Find(u.Scheme); err != nil && !nr.isBuiltinNetwork(u.Scheme) {
-		return nil, &ErrDependencyNotReady{Network: u.Scheme}
+		return nil, &vnet.ErrDependencyNotReady{Network: u.Scheme}
 	}
 
 	return func() (net.Conn, error) {
@@ -215,7 +216,7 @@ func (nr *NetworkRegistry) Names() []string {
 // NetworkRegistry 状态报告方法
 //
 
-func (nr *NetworkRegistry) GetAllState() ([]NetworkReport, error) {
+func (nr *NetworkRegistry) GetAllState() ([]vnet.NetworkReport, error) {
 	nr.mut.RLock()
 	defer nr.mut.RUnlock()
 
@@ -223,7 +224,7 @@ func (nr *NetworkRegistry) GetAllState() ([]NetworkReport, error) {
 		return nil, errors.New("NO NETWORKS")
 	}
 
-	var reports []NetworkReport
+	var reports []vnet.NetworkReport
 	for _, nt := range nr.nets {
 		reports = append(reports, nt.Report())
 	}
@@ -240,7 +241,7 @@ func (nr *NetworkRegistry) GetAllStateString() string {
 	utils.RenderAsciiTable(buf, reports,
 		[]string{"index", "name", "addr", "domain", "lsn", "dial"},
 		func(d interface{}, index int) []string {
-			s := d.(NetworkReport)
+			s := d.(vnet.NetworkReport)
 			return []string{
 				fmt.Sprintf("%v", index),
 				s.Name,
@@ -259,7 +260,7 @@ type streamStateProvider interface {
 	GetStreamStates() (actives, closeds []*stream.State)
 }
 
-func getDataStreamStateByNetwork(mnet Network) (actives, closeds []*stream.State) {
+func getDataStreamStateByNetwork(mnet vnet.Network) (actives, closeds []*stream.State) {
 	// 穿透装饰器访问内部 Network
 	inner := mnet
 	if rn, ok := mnet.(*vnet.ReportingNetwork); ok {

@@ -161,7 +161,7 @@ hub.Start() // 阻塞
 
 `api.New()` 接收三个参数：
 - `*agent.Hub` — Hub 实例（必须）
-- `agent.APIInfo` — 配置信息
+- `configv2.APIInfo` — 配置信息
 - `*slog.Logger` — 日志器，传 `nil` 使用默认
 
 ---

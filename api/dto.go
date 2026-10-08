@@ -4,7 +4,8 @@ import (
 	"time"
 
 	"github.com/net-agent/flex/v3/stream"
-	"github.com/net-agent/remotework/agent"
+	"github.com/net-agent/remotework/agent/vnet"
+	"github.com/net-agent/remotework/agent/vservice"
 )
 
 type ServiceStateDTO struct {
@@ -59,7 +60,7 @@ type ListeningPortDTO struct {
 	ProcessName string `json:"processName,omitempty"`
 }
 
-func toServiceDTO(s agent.ServiceState) ServiceStateDTO {
+func toServiceDTO(s vservice.ServiceState) ServiceStateDTO {
 	return ServiceStateDTO{
 		ID:        s.ID,
 		TunnelID:  s.TunnelID,
@@ -74,7 +75,7 @@ func toServiceDTO(s agent.ServiceState) ServiceStateDTO {
 	}
 }
 
-func toNetworkDTO(r agent.NetworkReport) NetworkStateDTO {
+func toNetworkDTO(r vnet.NetworkReport) NetworkStateDTO {
 	return NetworkStateDTO{
 		Name:     r.Name,
 		Kind:     r.Kind,
@@ -107,7 +108,7 @@ func toStreamDTO(network string, s *stream.State) StreamStateDTO {
 	}
 }
 
-func toPingDTO(r *agent.PingReport) PingResultDTO {
+func toPingDTO(r *vnet.PingReport) PingResultDTO {
 	return PingResultDTO{
 		Network:      r.Network,
 		Domain:       r.Domain,

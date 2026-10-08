@@ -38,7 +38,7 @@ func runAgent(configFile string) {
 	}
 	syslog.Info("read config", "path", resolved)
 
-	config, err := agent.NewCanonicalConfig(resolved)
+	config, err := configv2.LoadAndNormalize(resolved)
 	if err != nil {
 		syslog.Error("config has errors, starting in degraded mode", "err", err)
 		runDegradedAgent(resolved)
@@ -78,7 +78,7 @@ func runAgent(configFile string) {
 // server running, so the UI can still connect and the user can fix the config.
 func runDegradedAgent(configPath string) {
 	// Try to extract API config from the raw file (even if normalization failed)
-	apiInfo := agent.APIInfo{Enable: true, Listen: "127.0.0.1:8080"}
+	apiInfo := configv2.APIInfo{Enable: true, Listen: "127.0.0.1:8080"}
 	if raw, err := configv2.LoadFile(configPath); err == nil {
 		if raw.API.Enable {
 			apiInfo = raw.API
@@ -116,7 +116,7 @@ func validateConfig(configFile string) {
 		fmt.Fprintf(os.Stderr, "resolve config: %v\n", err)
 		os.Exit(1)
 	}
-	if _, err := agent.NewCanonicalConfig(resolved); err != nil {
+	if _, err := configv2.LoadAndNormalize(resolved); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/net-agent/remotework/agent/vnet"
+	"github.com/net-agent/remotework/agent/vservice"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -15,9 +17,9 @@ import (
 // Hub Ping 状态查询（需要同时访问 Networks 和 Services）
 //
 
-func (hub *Hub) GetPingState() ([]*PingReport, error) {
-	var svcs []*Service
-	hub.registry.Range(func(svc *Service) {
+func (hub *Hub) GetPingState() ([]*vnet.PingReport, error) {
+	var svcs []*vservice.Service
+	hub.registry.Range(func(svc *vservice.Service) {
 		svcs = append(svcs, svc)
 	})
 
@@ -25,12 +27,12 @@ func (hub *Hub) GetPingState() ([]*PingReport, error) {
 		return nil, errors.New("NO SERVICES")
 	}
 
-	m := make(map[string]*PingReport)
+	m := make(map[string]*vnet.PingReport)
 	for _, svc := range svcs {
 		parseDependAndSaveToMap(m, svc)
 	}
 
-	reports := []*PingReport{}
+	reports := []*vnet.PingReport{}
 	for _, report := range m {
 		reports = append(reports, report)
 
@@ -65,7 +67,7 @@ func (hub *Hub) GetPingStateString() string {
 	utils.RenderAsciiTable(buf, reports,
 		[]string{"index", "network", "domain", "result", "used services"},
 		func(d interface{}, index int) []string {
-			s := d.(*PingReport)
+			s := d.(*vnet.PingReport)
 			return []string{
 				fmt.Sprintf("%v", index),
 				s.Network,
@@ -95,7 +97,7 @@ func formatPingDuration(dur time.Duration) string {
 // 辅助函数
 //
 
-func parseDependAndSaveToMap(m map[string]*PingReport, svc *Service) {
+func parseDependAndSaveToMap(m map[string]*vnet.PingReport, svc *vservice.Service) {
 	urls := [][]string{
 		{"listen", svc.ListenURL},
 		{"target", svc.TargetURL},
@@ -110,7 +112,7 @@ func parseDependAndSaveToMap(m map[string]*PingReport, svc *Service) {
 			continue
 		}
 		if _, found := m[netname]; !found {
-			m[netname] = &PingReport{
+			m[netname] = &vnet.PingReport{
 				Network:      netname,
 				Domain:       "[server]",
 				UsedServices: []string{},
@@ -123,7 +125,7 @@ func parseDependAndSaveToMap(m map[string]*PingReport, svc *Service) {
 		key := fmt.Sprintf("%v://%v", netname, domain)
 		report, found := m[key]
 		if !found {
-			report = &PingReport{}
+			report = &vnet.PingReport{}
 			m[key] = report
 		}
 		report.Network = netname

@@ -8,6 +8,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/net-agent/remotework/agent"
+	"github.com/net-agent/remotework/agent/configv2"
+	"github.com/net-agent/remotework/agent/vservice"
 	"github.com/net-agent/remotework/utils"
 )
 
@@ -20,7 +22,7 @@ type Server struct {
 	poller *StatePoller
 }
 
-func New(hub *agent.Hub, cfg agent.APIInfo, log *slog.Logger) *Server {
+func New(hub *agent.Hub, cfg configv2.APIInfo, log *slog.Logger) *Server {
 	if log == nil {
 		log = utils.NewModuleLogger("api")
 	}
@@ -136,7 +138,7 @@ func (s *Server) OnNetworkStateChange(name, oldState, newState string) {
 }
 
 // OnServiceStatusChange 实现 HubEventListener 接口
-func (s *Server) OnServiceStatusChange(name string, oldStatus, newStatus agent.ServiceStatus) {
+func (s *Server) OnServiceStatusChange(name string, oldStatus, newStatus vservice.ServiceStatus) {
 	var service *ServiceStateDTO
 	states, err := s.hub.GetAllServiceState()
 	if err == nil {

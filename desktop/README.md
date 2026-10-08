@@ -30,7 +30,7 @@ Remotework 的桌面客户端，基于 Tauri 2 + React 构建。作为 Go agent 
 | Node.js | 18+ | 前端构建 |
 | pnpm | 9+ | 包管理 |
 | Rust | 1.77+ | Tauri 后端编译 |
-| Go | 1.21+ | 编译 agent sidecar |
+| Go | 1.24+ | 编译 agent sidecar |
 
 macOS 额外需要 Xcode Command Line Tools；Linux 需要 `libwebkit2gtk-4.1-dev`、`libappindicator3-dev` 等系统库，详见 [Tauri 官方文档](https://v2.tauri.app/start/prerequisites/)。
 
@@ -88,7 +88,7 @@ desktop/
 │   │
 │   ├── lib/                      # 核心库
 │   │   ├── types.ts              # API DTO 类型（镜像 Go api/dto.go）
-│   │   ├── config-types.ts       # 配置类型（镜像 Go agent/config.go）
+│   │   ├── config-types.ts       # 配置类型（镜像 Go agent/configv2/model.go）
 │   │   ├── api.ts                # REST 客户端
 │   │   ├── ws.ts                 # WebSocket 客户端（自动重连）
 │   │   └── utils.ts              # shadcn 工具函数
@@ -133,7 +133,7 @@ desktop/
     ├── tauri.conf.json           # Tauri 配置（窗口、CSP、sidecar）
     ├── capabilities/
     │   └── default.json          # 权限声明
-    ├── binaries/                 # Sidecar 二进制（构建脚本填充，gitignore）
+    ├── remotework-<target-triple> # Sidecar 二进制（build-sidecar.sh 生成，gitignore）
     ├── icons/                    # 应用图标（各平台格式）
     └── src/
         ├── main.rs               # 入口
@@ -151,28 +151,22 @@ Profile 是一份完整的 agent 配置，对应一个 JSON 文件。用户可�
 
 存储位置：`$APPDATA/remotework/profiles/`（macOS 为 `~/Library/Application Support/remotework/profiles/`）
 
-Profile 的 JSON 格式与 Go agent 的 Config 结构完全一致：
+Profile 的 JSON 格式与 Go agent 的 RawConfig（`agent/configv2/model.go`）一致：
 
 ```json
 {
-  "agents": [
+  "links": {
+    "office": "tcp://relay.example.com:8080?as=my-laptop&auth=secret123"
+  },
+  "tunnels": [
     {
-      "name": "office",
-      "protocol": "vtcp",
-      "address": "relay.example.com:8080",
-      "domain": "my-laptop",
-      "password": "secret123"
-    }
-  ],
-  "portproxy": [
-    {
+      "id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "name": "rdp-tunnel",
       "listen": "tcp://127.0.0.1:13389",
-      "target": "vtcp://remote-pc:secret@relay.example.com:8080",
-      "log": "rdp-tunnel"
+      "target": "vtcp://remote-pc.office:3389"
     }
   ],
-  "socks5": [],
-  "rdp": [],
+  "pprof": { "enable": false, "listen": "" },
   "api": { "enable": true, "listen": "127.0.0.1:0", "pollInterval": 5 }
 }
 ```
@@ -243,7 +237,7 @@ pnpm dlx shadcn@latest add <component-name>
 
 关键映射：
 - `types.ts` ← `api/dto.go`（NetworkStateDTO, ServiceStateDTO, StreamStateDTO）
-- `config-types.ts` ← `agent/config.go`（AgentInfo, PortproxyInfo, Socks5Info, RDPInfo）
+- `config-types.ts` ← `agent/configv2/model.go`（RawConfig, TunnelRaw, PprofInfo, APIInfo）
 
 ### Rust 后端开发
 

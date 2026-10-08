@@ -67,7 +67,7 @@ func NewHub(log *slog.Logger) *Hub {
 }
 
 // MountConfig loads a CanonicalConfig (already normalized and validated) into the hub.
-func (hub *Hub) MountConfig(cfg *CanonicalConfig) error {
+func (hub *Hub) MountConfig(cfg *configv2.CanonicalConfig) error {
 	var errs []string
 
 	// 注册 link 网络
@@ -244,7 +244,7 @@ func (hub *Hub) ListenURL(raw string) (net.Listener, error) {
 }
 
 // URLDialer 实现 DialerFactory 接口（委托）
-func (hub *Hub) URLDialer(raw string) (QuickDialer, error) {
+func (hub *Hub) URLDialer(raw string) (vservice.QuickDialer, error) {
 	return hub.networks.URLDialer(raw)
 }
 
@@ -252,28 +252,32 @@ func (hub *Hub) URLDialer(raw string) (QuickDialer, error) {
 // 外部 API 兼容的委托方法
 //
 
-func (hub *Hub) AddNetwork(mnet Network) error               { return hub.networks.Add(mnet) }
-func (hub *Hub) FindNetwork(network string) (Network, error) { return hub.networks.Find(network) }
-func (hub *Hub) AddService(svc *Service) error               { return hub.registry.Add(svc) }
-func (hub *Hub) AddAndStartService(svc *Service) error {
+func (hub *Hub) AddNetwork(mnet vnet.Network) error               { return hub.networks.Add(mnet) }
+func (hub *Hub) FindNetwork(network string) (vnet.Network, error) { return hub.networks.Find(network) }
+func (hub *Hub) AddService(svc *vservice.Service) error           { return hub.registry.Add(svc) }
+func (hub *Hub) AddAndStartService(svc *vservice.Service) error {
 	if err := hub.registry.Add(svc); err != nil {
 		return err
 	}
 	hub.supervisor.Start(svc)
 	return nil
 }
-func (hub *Hub) FindService(name string) (*Service, error) { return hub.registry.Find(name) }
-func (hub *Hub) IsRunning() bool                           { return atomic.LoadInt32(&hub.running) == 1 }
-func (hub *Hub) RangeAllService(fn func(svc *Service))     { hub.registry.Range(fn) }
+func (hub *Hub) FindService(name string) (*vservice.Service, error) { return hub.registry.Find(name) }
+func (hub *Hub) IsRunning() bool                                    { return atomic.LoadInt32(&hub.running) == 1 }
+func (hub *Hub) RangeAllService(fn func(svc *vservice.Service))     { hub.registry.Range(fn) }
 
 //
 // 状态查询委托方法
 //
 
-func (hub *Hub) GetAllServiceState() ([]ServiceState, error)  { return hub.registry.GetAllState() }
-func (hub *Hub) GetAllServiceStateString() string             { return hub.registry.GetAllStateString() }
-func (hub *Hub) GetAllNetworkState() ([]NetworkReport, error) { return hub.networks.GetAllState() }
-func (hub *Hub) GetAllNetworkStateString() string             { return hub.networks.GetAllStateString() }
+func (hub *Hub) GetAllServiceState() ([]vservice.ServiceState, error) {
+	return hub.registry.GetAllState()
+}
+func (hub *Hub) GetAllServiceStateString() string { return hub.registry.GetAllStateString() }
+func (hub *Hub) GetAllNetworkState() ([]vnet.NetworkReport, error) {
+	return hub.networks.GetAllState()
+}
+func (hub *Hub) GetAllNetworkStateString() string { return hub.networks.GetAllStateString() }
 func (hub *Hub) GetAllDataStreamStateString() string {
 	return hub.networks.GetAllDataStreamStateString()
 }
@@ -322,7 +326,7 @@ func (hub *Hub) notifyNetworkStateChange(name, oldState, newState string) {
 	}
 }
 
-func (hub *Hub) notifyServiceStatusChange(name string, oldStatus, newStatus ServiceStatus) {
+func (hub *Hub) notifyServiceStatusChange(name string, oldStatus, newStatus vservice.ServiceStatus) {
 	hub.listenerMu.RLock()
 	snapshot := make([]HubEventListener, len(hub.listeners))
 	copy(snapshot, hub.listeners)

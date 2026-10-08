@@ -6,74 +6,72 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Remotework is a Go traffic relay tool for remote control assistance. Two machines running agents connect through a central server to proxy port traffic (RDP, SSH, etc.). It is not a remote control tool itself — it relays traffic between endpoints.
 
+The `desktop/` directory contains a Tauri 2 + React desktop client that hosts the agent as a sidecar process and talks to it via the `api/` control plane. See `desktop/README.md` and `desktop/CLAUDE.md` for desktop-specific guidance.
+
 ## Build & Test Commands
 
 ```bash
-# Build for current platform
-CGO_ENABLED=0 go build -o dist/remote ./cmd
+make build        # Build for current platform (CGO_ENABLED=0 go build -o dist/remote ./cmd)
+make build-all    # Cross-platform build (sh build.sh, outputs to dist/<date><suffix>/)
+make test         # go test ./...
+make vet          # go vet ./...
+make fmt          # go fmt ./...
 
-# Cross-platform build (all targets)
-sh build.sh
-
-# Run all tests
-go test ./...
-
-# Run a single package's tests
-go test ./utils -v
-
-# Format and vet
-go fmt ./...
-go vet ./...
+make sidecar      # Build Go sidecar for desktop dev (current platform)
+make desktop-dev  # cd desktop && pnpm tauri dev
 ```
 
 Entry point is `./cmd` (not root). The build scripts disable CGO for static binaries.
 
+## Local Dependency Requirement
+
+`go.mod` contains `replace github.com/net-agent/flex/v3 => ../flex`. This is **required**: remotework uses flex APIs (e.g. `flex/v3/packet/ws`) that only exist in commits after the published v3.0.1. Building requires a sibling checkout of the flex repo at `../flex`. Do not remove the replace directive until a newer flex version is published and pinned in `go.mod`.
+
 ## Architecture
 
-Three operational modes selected via `-mode` flag (default: `agent`):
+Single binary, three run modes selected via `-mode` flag (default: `agent`):
 
-- **agent** — Connects to server, runs services (portproxy, socks5, rdp). Entry: `cmd/main.go`
-- **server** — Relay server accepting Flex (TCP) and WebSocket connections. Entry: `server/main.go`
-- **cli** — Ping utility for connectivity testing
+- **agent** — Connects to relay server, runs tunnels (port forwarding / socks5). Entry: `cmd/main.go`
+- **server** — Relay server multiplexing Flex protocol and HTTP/WebSocket on a single port. Implementation: `server/` package (`server/server.go`), uses `flex/v3/switcher`
+- **validate** — Validate a config file and exit
 
 ### Key Packages
 
-- **`agent/`** — Hub-based orchestrator. `Hub` manages multiple virtual networks and services. Networks implement the `Network` interface; services implement `ServiceController`. URL scheme determines network type (`tcp://`, `vtcp://`, `ws://`).
-- **`server/`** — Uses `flex/v2/switcher` with `mixlisten` to multiplex Flex protocol and HTTP/WebSocket on a single port.
-- **`utils/`** — Shared utilities: async logging (`NamedLogger`), encrypted connections (`SecretListener` via `cipherconn`), bidirectional relay (`LinkReadWriteCloser`), exponential backoff (`Cooldown`), pprof server.
-- **`cmd/`** — CLI flags, config loading, signal handling, platform-specific system tray (`systray_*.go`).
+- **`agent/`** — Hub-based orchestrator. `Hub` mounts config and manages two resource kinds: networks and services. Subpackages:
+  - `agent/configv2` — config parsing / normalization / validation; the runtime depends exclusively on its `CanonicalConfig`
+  - `agent/vnet` — `Network` implementations (Flex virtual network, local TCP) plus state reporting (`ReportingNetwork`)
+  - `agent/vservice` — `Service` implementations (portproxy, socks5) plus registry and supervisor lifecycle
+- **`api/`** — Control plane only: HTTP REST + WebSocket over `agent.Hub`. No data traffic. Full reference: `api/README.md`
+- **`server/`** — Relay server internals: config, mux, `Server` lifecycle
+- **`utils/`** — Shared utilities: logging (`NewModuleLogger`, `NamedLogger`), encrypted connections (`SecretListener` via cipherconn), bidirectional relay (`LinkReadWriteCloser`), exponential backoff (`Cooldown`), pprof server, listening-port probe
+- **`cmd/`** — CLI flags (`agent/server/validate`), config loading, signal handling. Sample configs: `cmd/config_example/`
 
 ### Core Flow (Agent Mode)
 
 1. Parse flags → load config (JSON with `//` comments or TOML)
-2. Create `Hub`, add networks (Flex virtual networks + local TCP)
-3. Start services — each runs in its own goroutine
+2. Create `Hub`, mount `links` (networks) and `tunnels` (services) from `CanonicalConfig`
+3. Services run under a supervisor, each in its own goroutine
 4. Networks auto-reconnect with exponential backoff (3s → 1min)
-5. Encryption is optional, enabled via `?secret=` query parameter on URLs
+5. If config fails to load, the agent starts in degraded mode (API only) so the desktop UI can fix it
+6. Transport encryption is optional, enabled via `?authcode=` on tunnel endpoint URLs
 
 ### URL Scheme Convention
 
-All connections use URL-based addressing: `scheme://domain:port[?secret=key]`
-- `tcp://` — standard TCP (local network)
-- `vtcp://` — Flex virtual TCP (through relay server)
-- `ws://` — WebSocket transport
+All connections use URL-based addressing:
+- `tcp://host:port` — standard TCP (local network)
+- `vtcp://vhostname.linkalias:port[?authcode=key]` — Flex virtual TCP through the relay; `vhostname` is the peer node identity, `linkalias` selects which link (network) to use
+- `ws://` / `wss://` — WebSocket transport (for link registration URLs)
 
 ### Config Format
 
-Supports JSON (with `//` line comments) and TOML. Key sections: `agent` (network connections), `portproxy`/`pipe` (port forwarding), `socks5`/`sox` (SOCKS5 proxy), `rdp`, `pprof`.
+Supports JSON (with `//` line comments) and TOML. Top-level sections: `links` (alias → relay registration URL with `?as=` and `?auth=`), `tunnels` (listen/target rules), `api` (control plane), `pprof`. Source of truth: `agent/configv2/model.go`; example: `cmd/config_example/agent.json`.
 
 ## Key Dependencies
 
-- `github.com/net-agent/flex/v3` — Virtual network protocol (core transport layer)
+- `github.com/net-agent/flex/v3` — Virtual network protocol (core transport layer; locally replaced to `../flex`, see above)
 - `github.com/net-agent/cipherconn` — Pre-shared key encryption
 - `github.com/net-agent/socks` — SOCKS5 implementation
-- `github.com/getlantern/systray` — System tray UI
 
 ## Language
 
 Code comments and documentation are primarily in Chinese.
-
-## UI Workflow Rules
-
-- In simple mode, after the user selects an existing share link, the primary next step must advance the main user path (for example, moving toward opening/configuring a share service) rather than leaving the user on the same page.
-- Avoid redundant actions in the same panel that both effectively navigate to advanced mode; each primary/secondary action in simple mode should have a distinct user-facing purpose.
