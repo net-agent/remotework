@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 
-	"github.com/net-agent/remotework/agent"
-	"github.com/net-agent/remotework/agent/configv2"
-	"github.com/net-agent/remotework/api"
+	"github.com/net-agent/remotework/configv2"
+	"github.com/net-agent/remotework/kernel"
+	"github.com/net-agent/remotework/plugins/api"
+	"github.com/net-agent/remotework/plugins/netflex"
+	"github.com/net-agent/remotework/plugins/nettcp"
+	"github.com/net-agent/remotework/plugins/tunnel"
 	"github.com/net-agent/remotework/server"
 	"github.com/net-agent/remotework/utils"
 )
@@ -31,6 +37,13 @@ func main() {
 	}
 }
 
+// loadPlugin 装载插件并记录失败（不中断其余插件）
+func loadPlugin(host *kernel.Host, p kernel.Plugin) {
+	if err := host.Load(p); err != nil {
+		syslog.Warn("load plugin failed", "name", p.Info().Name, "err", err)
+	}
+}
+
 func runAgent(configFile string) {
 	resolved, err := utils.ResolveConfigFile(configFile)
 	if err != nil {
@@ -38,11 +51,15 @@ func runAgent(configFile string) {
 	}
 	syslog.Info("read config", "path", resolved)
 
-	config, err := configv2.LoadAndNormalize(resolved)
-	if err != nil {
-		syslog.Error("config has errors, starting in degraded mode", "err", err)
+	config, cfgErrs := configv2.LoadAndCheck(resolved)
+	if config == nil {
+		syslog.Error("config parse failed, starting in degraded mode", "err", cfgErrs)
 		runDegradedAgent(resolved)
 		return
+	}
+	// 坏项（link/tunnel）跳过并逐个给出原因，好项照常加载——单项失败互不影响
+	for _, e := range cfgErrs.Errors {
+		syslog.Error("config item invalid, skipped", "err", e.Error())
 	}
 
 	if config.Pprof.Enable {
@@ -51,33 +68,40 @@ func runAgent(configFile string) {
 		defer pp.Stop()
 	}
 
-	hub := agent.NewHub(nil)
-	if err := hub.MountConfig(config); err != nil {
-		syslog.Warn("mount config warning", "err", err)
+	host := kernel.NewHost(nil, nil)
+	requestStop, waitStop := stopTrigger()
+
+	// 内置本地网络
+	for _, alias := range []string{"tcp", "tcp4", "tcp6"} {
+		loadPlugin(host, nettcp.New(alias))
+	}
+
+	// link 网络插件
+	for alias, link := range config.Links {
+		loadPlugin(host, netflex.New(alias, link))
+	}
+
+	// tunnel 服务插件
+	for _, t := range config.Tunnels {
+		loadPlugin(host, tunnel.New(t))
 	}
 
 	if config.API.Enable {
-		apiSrv := api.New(hub, config.API, syslog.With("module", "api"))
-		apiSrv.Start()
-		defer apiSrv.Stop()
+		loadPlugin(host, apiplugin.New(config.API, requestStop))
 	}
 
-	go func() {
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-		sig := <-ch
-		syslog.Info("close with signal", "signal", sig)
-		hub.Stop()
-	}()
+	waitStop()
 
-	hub.Start()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := host.Shutdown(ctx); err != nil {
+		syslog.Warn("shutdown incomplete", "err", err)
+	}
 	syslog.Info("main process exit")
 }
 
-// runDegradedAgent starts the agent with no networks/services but with the API
-// server running, so the UI can still connect and the user can fix the config.
+// runDegradedAgent 配置损坏时启动降级模式：只运行 API 插件，便于修复配置
 func runDegradedAgent(configPath string) {
-	// Try to extract API config from the raw file (even if normalization failed)
 	apiInfo := configv2.APIInfo{Enable: true, Listen: "127.0.0.1:8080"}
 	if raw, err := configv2.LoadFile(configPath); err == nil {
 		if raw.API.Enable {
@@ -90,24 +114,41 @@ func runDegradedAgent(configPath string) {
 		os.Exit(1)
 	}
 
-	hub := agent.NewHub(nil)
+	host := kernel.NewHost(nil, nil)
+	requestStop, waitStop := stopTrigger()
 
-	apiSrv := api.New(hub, apiInfo, syslog.With("module", "api"))
-	apiSrv.Start()
-	defer apiSrv.Stop()
+	for _, alias := range []string{"tcp", "tcp4", "tcp6"} {
+		loadPlugin(host, nettcp.New(alias))
+	}
+	loadPlugin(host, apiplugin.New(apiInfo, requestStop))
 
 	syslog.Warn("running in degraded mode — no networks or services loaded")
 
-	go func() {
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-		sig := <-ch
-		syslog.Info("close with signal", "signal", sig)
-		hub.Stop()
-	}()
+	waitStop()
 
-	hub.Start()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	host.Shutdown(ctx)
 	syslog.Info("degraded agent exit")
+}
+
+// stopTrigger 返回停止触发器与等待器：OS 信号或 API /stop 请求均可触发
+func stopTrigger() (requestStop func(), waitStop func()) {
+	stopCh := make(chan struct{})
+	var once sync.Once
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	return func() { once.Do(func() { close(stopCh) }) },
+		func() {
+			select {
+			case sig := <-sigCh:
+				syslog.Info("close with signal", "signal", sig)
+			case <-stopCh:
+				syslog.Info("close with stop request")
+			}
+		}
 }
 
 func validateConfig(configFile string) {
@@ -116,8 +157,9 @@ func validateConfig(configFile string) {
 		fmt.Fprintf(os.Stderr, "resolve config: %v\n", err)
 		os.Exit(1)
 	}
-	if _, err := configv2.LoadAndNormalize(resolved); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+	_, cfgErrs := configv2.LoadAndCheck(resolved)
+	if len(cfgErrs.Errors) > 0 {
+		fmt.Fprintf(os.Stderr, "%v\n", cfgErrs)
 		os.Exit(1)
 	}
 	fmt.Println("OK")

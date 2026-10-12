@@ -37,23 +37,25 @@ Single binary, three run modes selected via `-mode` flag (default: `agent`):
 
 ### Key Packages
 
-- **`agent/`** — Hub-based orchestrator. `Hub` mounts config and manages two resource kinds: networks and services. Subpackages:
-  - `agent/configv2` — config parsing / normalization / validation; the runtime depends exclusively on its `CanonicalConfig`
-  - `agent/vnet` — `Network` implementations (Flex virtual network, local TCP) plus state reporting (`ReportingNetwork`)
-  - `agent/vservice` — `Service` implementations (portproxy, socks5) plus registry and supervisor lifecycle
-- **`api/`** — Control plane only: HTTP REST + WebSocket over `agent.Hub`. No data traffic. Full reference: `api/README.md`
+- **`kernel/`** — Plugin runtime (microkernel): plugin lifecycle state machine, dependency-injection capability container (`Context` + `Inject`/`Provide`), ordered startup/shutdown orchestration, side-effect cleanup on unload. Developer manual: `kernel/README.md`
+- **`plugins/`** — Loadable plugins on kernel: `nettcp` (builtin TCP networks), `netflex` (Flex virtual networks), `tunnel` (portproxy/socks5 services), `api` (control plane observer). Naming/capability conventions: `plugins/doc.go`
+- **`vnet/`** — `Network` interface implementations (Flex virtual network, local TCP) plus state reporting (`ReportingNetwork`); consumed by network plugins
+- **`vservice/`** — Service controllers (portproxy, socks5) and `ServiceState`; consumed by the tunnel plugin
+- **`configv2/`** — Config parsing/normalization/validation (JSON with `//` comments, TOML); consumed by `cmd` and plugins
+- **`api/`** — Control plane only: HTTP REST + WebSocket, driven by the `Backend` interface (`api/backend.go`), implemented by `plugins/api`. No data traffic. Full reference: `api/README.md`
 - **`server/`** — Relay server internals: config, mux, `Server` lifecycle
 - **`utils/`** — Shared utilities: logging (`NewModuleLogger`, `NamedLogger`), encrypted connections (`SecretListener` via cipherconn), bidirectional relay (`LinkReadWriteCloser`), exponential backoff (`Cooldown`), pprof server, listening-port probe
-- **`cmd/`** — CLI flags (`agent/server/validate`), config loading, signal handling. Sample configs: `cmd/config_example/`
+- **`cmd/`** — CLI flags (`agent/server/validate`), config loading, kernel host assembly, signal handling. Sample configs: `cmd/config_example/`
 
 ### Core Flow (Agent Mode)
 
 1. Parse flags → load config (JSON with `//` comments or TOML)
-2. Create `Hub`, mount `links` (networks) and `tunnels` (services) from `CanonicalConfig`
-3. Services run under a supervisor, each in its own goroutine
+2. Create `kernel.Host`, load plugins: builtin networks → link networks (`netflex`) → tunnels → api
+3. The kernel scheduler initializes plugins in dependency order (tunnel plugins inject network capabilities; unmet deps park in `Pending` until provided)
 4. Networks auto-reconnect with exponential backoff (3s → 1min)
-5. If config fails to load, the agent starts in degraded mode (API only) so the desktop UI can fix it
+5. Config loading is fault-tolerant per item: invalid links/tunnels are skipped with logged errors (`configv2.LoadAndCheck`) while valid ones load normally — one bad tunnel never blocks others. Degraded mode (API only) only triggers when the config file itself cannot be parsed, so the desktop UI can fix it
 6. Transport encryption is optional, enabled via `?authcode=` on tunnel endpoint URLs
+7. Shutdown (OS signal or `POST /api/v1/stop`) unloads all plugins in reverse dependency order
 
 ### URL Scheme Convention
 
@@ -64,7 +66,7 @@ All connections use URL-based addressing:
 
 ### Config Format
 
-Supports JSON (with `//` line comments) and TOML. Top-level sections: `links` (alias → relay registration URL with `?as=` and `?auth=`), `tunnels` (listen/target rules), `api` (control plane), `pprof`. Source of truth: `agent/configv2/model.go`; example: `cmd/config_example/agent.json`.
+Supports JSON (with `//` line comments) and TOML. Top-level sections: `links` (alias → relay registration URL with `?as=` and `?auth=`), `tunnels` (listen/target rules), `api` (control plane), `pprof`. Source of truth: `configv2/model.go`; example: `cmd/config_example/agent.json`.
 
 ## Key Dependencies
 

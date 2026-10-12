@@ -3,6 +3,7 @@ package vnet
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"strconv"
@@ -12,6 +13,8 @@ import (
 	"github.com/net-agent/flex/v3/node"
 	"github.com/net-agent/flex/v3/packet"
 	"github.com/net-agent/flex/v3/packet/ws"
+	"github.com/net-agent/flex/v3/stream"
+	"github.com/net-agent/remotework/utils"
 )
 
 var (
@@ -25,6 +28,8 @@ type FlexLinkConfig struct {
 	RelayURL string // full relay URL (without query params)
 	Domain   string // node identity in virtual network (the "as" value)
 	Auth     string // authentication secret
+	// Logger 可选，Session 日志器；为 nil 时回退到按别名自建的模块日志器
+	Logger *slog.Logger
 	// OnStateChange 可选回调，Session 状态变更时触发（参数为状态字符串）
 	OnStateChange func(oldState, newState string)
 }
@@ -33,6 +38,7 @@ type flexNetwork struct {
 	name    string // network name (alias in v2)
 	meta    flexMeta
 	session *node.Session
+	tracker streamStateTracker
 }
 
 // flexMeta stores metadata for reporting.
@@ -59,9 +65,15 @@ func NewFlexNetworkFromLink(cfg FlexLinkConfig) (Network, error) {
 	sessCfg := node.SessionConfig{
 		Domain:   cfg.Domain,
 		Password: cfg.Auth,
+		Mac:      utils.GetMacAddressStr(), // 设备标识，握手时上报给 switcher
 	}
 
 	sess := node.NewSession(connector, sessCfg)
+	log := cfg.Logger
+	if log == nil {
+		log = utils.NewModuleLogger("vnet.flex." + cfg.Alias)
+	}
+	sess.SetLogger(log)
 
 	if cfg.OnStateChange != nil {
 		// SessionState 枚举定义见 github.com/net-agent/flex/v3/node/session.go
@@ -156,13 +168,25 @@ func (fnet *flexNetwork) Ping(domain string, timeout time.Duration) (time.Durati
 	return pinger.PingDomain(domain, timeout)
 }
 
+// GetStreamStates 实现 registry 的 streamStateProvider 可选接口。
+// 重连中（GetNode 为 nil）时活跃流为空，仅返回已关闭流历史。
+func (fnet *flexNetwork) GetStreamStates() (actives, closeds []*stream.State) {
+	n := fnet.session.GetNode()
+	if n == nil {
+		// 注意：nil *node.Node 不能直接装箱进 interface，需显式传 nil
+		return fnet.tracker.collect(nil)
+	}
+	return fnet.tracker.collect(n)
+}
+
 func (fnet *flexNetwork) Meta() NetworkMeta {
 	return NetworkMeta{
-		Protocol: fnet.meta.scheme,
-		Address:  fnet.meta.address,
-		Domain:   fnet.meta.domain,
-		State:    fnet.session.GetState().String(),
-		LastErr:  fnet.session.GetLastErr(),
-		Kind:     "virtual",
+		Protocol:   fnet.meta.scheme,
+		Address:    fnet.meta.address,
+		Domain:     fnet.meta.domain,
+		State:      fnet.session.GetState().String(),
+		LastErr:    fnet.session.GetLastErr(),
+		Reconnects: fnet.session.GetReconnectCount(),
+		Kind:       "virtual",
 	}
 }

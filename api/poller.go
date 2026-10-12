@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/net-agent/flex/v3/stream"
-	"github.com/net-agent/remotework/agent"
 )
 
 // svcSnapshot 记录单个 service 的上次状态快照
@@ -17,26 +16,27 @@ type svcSnapshot struct {
 }
 
 // StatePoller 后台轮询数据流变化，通过差异检测广播事件
-// 注意：network 状态已通过 Session 回调链实时推送，不再轮询
+// 注意：network/service 状态变化已通过事件订阅实时推送，
+// 轮询仅用于流快照差分与计数器刷新。
 type StatePoller struct {
-	hub      *agent.Hub
+	backend  Backend
 	wsHub    *WSHub
 	interval time.Duration
 	stopCh   chan struct{}
 
 	// 上次快照
-	lastStreams    map[string]map[string]bool // network -> "localAddr->remoteAddr" set
+	lastStreams   map[string]map[string]bool // network -> "localAddr->remoteAddr" set
 	lastRunning   bool
 	lastSvcStates map[string]svcSnapshot
 }
 
-func NewStatePoller(hub *agent.Hub, wsHub *WSHub, interval time.Duration) *StatePoller {
+func NewStatePoller(backend Backend, wsHub *WSHub, interval time.Duration) *StatePoller {
 	return &StatePoller{
-		hub:           hub,
+		backend:       backend,
 		wsHub:         wsHub,
 		interval:      interval,
 		stopCh:        make(chan struct{}),
-		lastStreams:    make(map[string]map[string]bool),
+		lastStreams:   make(map[string]map[string]bool),
 		lastRunning:   true,
 		lastSvcStates: make(map[string]svcSnapshot),
 	}
@@ -65,8 +65,8 @@ func (p *StatePoller) run() {
 }
 
 func (p *StatePoller) poll() {
-	// 检查 hub 运行状态
-	running := p.hub.IsRunning()
+	// 检查后端运行状态
+	running := p.backend.IsRunning()
 	if p.lastRunning && !running {
 		p.wsHub.Broadcast("hub.stopped", map[string]interface{}{})
 	}
@@ -76,7 +76,7 @@ func (p *StatePoller) poll() {
 	p.pollServices()
 
 	// 获取网络名称列表用于 stream 轮询
-	reports, err := p.hub.GetAllNetworkState()
+	reports, err := p.backend.GetAllNetworkState()
 	if err != nil {
 		return
 	}
@@ -86,7 +86,7 @@ func (p *StatePoller) poll() {
 		networks = append(networks, r.Name)
 	}
 
-	streamStates := p.hub.GetDataStreamState(100, networks...)
+	streamStates := p.backend.GetDataStreamState(100, networks...)
 
 	for _, ds := range streamStates {
 		if ds == nil {
@@ -143,7 +143,7 @@ func streamKeyFromState(st *stream.State) string {
 
 // pollServices 检测 service 状态变化并广播事件
 func (p *StatePoller) pollServices() {
-	states, err := p.hub.GetAllServiceState()
+	states, err := p.backend.GetAllServiceState()
 	if err != nil {
 		return
 	}

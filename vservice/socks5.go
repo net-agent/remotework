@@ -19,10 +19,15 @@ type Socks5Controller struct {
 	server   socks.Server
 }
 
-func NewSocks5Controller(lf ListenerFactory, state *ServiceState) *Socks5Controller {
+// NewSocks5Controller 创建 SOCKS5 控制器。
+// log 为 nil 时回退到按服务名自建的模块日志器。
+func NewSocks5Controller(lf ListenerFactory, state *ServiceState, log *slog.Logger) *Socks5Controller {
+	if log == nil {
+		log = utils.NewModuleLogger("svc." + state.Name)
+	}
 	return &Socks5Controller{
 		state: state,
-		log:   utils.NewModuleLogger("svc." + state.Name),
+		log:   log,
 		lf:    lf,
 	}
 }

@@ -20,10 +20,15 @@ type PortproxyController struct {
 	dialer   QuickDialer
 }
 
-func NewPortproxyController(lf ListenerFactory, df DialerFactory, state *ServiceState) *PortproxyController {
+// NewPortproxyController 创建端口转发控制器。
+// log 为 nil 时回退到按服务名自建的模块日志器。
+func NewPortproxyController(lf ListenerFactory, df DialerFactory, state *ServiceState, log *slog.Logger) *PortproxyController {
+	if log == nil {
+		log = utils.NewModuleLogger("svc." + state.Name)
+	}
 	return &PortproxyController{
 		state: state,
-		log:   utils.NewModuleLogger("svc." + state.Name),
+		log:   log,
 		lf:    lf,
 		df:    df,
 	}
@@ -72,7 +77,7 @@ func (p *PortproxyController) serve(dialConn net.Conn) {
 
 	targetConn, err := p.dialer()
 	if err != nil {
-		p.log.Error("dial error", "target", p.state.TargetURL, "err", err)
+		p.log.Error("dial error", "target", utils.RedactURL(p.state.TargetURL), "err", err)
 		return
 	}
 	defer targetConn.Close()
@@ -80,11 +85,11 @@ func (p *PortproxyController) serve(dialConn net.Conn) {
 	dialer := GetRemoteInfo(dialConn)
 	start := time.Now()
 
-	p.log.Info("pipe created", "from", dialer, "to", p.state.TargetURL)
+	p.log.Info("pipe created", "from", dialer, "to", utils.RedactURL(p.state.TargetURL))
 	dialRecv, dialSent, _ := utils.RelayConns(dialConn, targetConn)
 
 	lifetimeInfo := fmt.Sprintf("sent=%v, recv=%v, lifetime=%v",
 		humanize.IBytes(uint64(dialSent)), humanize.IBytes(uint64(dialRecv)), time.Since(start).Round(time.Second))
 
-	p.log.Info("pipe stopped", "from", dialer, "to", p.state.TargetURL, "stats", lifetimeInfo)
+	p.log.Info("pipe stopped", "from", dialer, "to", utils.RedactURL(p.state.TargetURL), "stats", lifetimeInfo)
 }

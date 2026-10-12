@@ -331,6 +331,18 @@ func TestValidate_ListenConflict(t *testing.T) {
 
 	err := Validate(cfg)
 	assertValidationError(t, err, ErrListenConflict)
+
+	// 冲突消息必须指明冲突双方，便于定位
+	verrs := err.(*ValidationErrors)
+	var conflictMsg string
+	for _, e := range verrs.Errors {
+		if e.Code == ErrListenConflict {
+			conflictMsg = e.Message
+		}
+	}
+	if !strings.Contains(conflictMsg, `"rule-a"`) || !strings.Contains(conflictMsg, `"rule-b"`) {
+		t.Errorf("conflict message should name both tunnels, got: %s", conflictMsg)
+	}
 }
 
 func TestValidate_MultipleErrors(t *testing.T) {

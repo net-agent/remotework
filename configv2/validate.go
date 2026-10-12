@@ -21,6 +21,8 @@ const (
 	ErrListenConflict      = "ERR_LISTEN_CONFLICT"
 	ErrInvalidKeepalive    = "ERR_INVALID_KEEPALIVE"
 	ErrMissingAs           = "ERR_MISSING_AS"
+	ErrConfigParse         = "ERR_CONFIG_PARSE"
+	ErrInvalidItem         = "ERR_INVALID_ITEM"
 )
 
 // ValidationError represents a single validation failure with a structured error code.
@@ -123,7 +125,7 @@ func validateLinks(cfg *CanonicalConfig, errs *ValidationErrors) {
 // validateTunnels checks rules 2-8, 10-11, 13.
 func validateTunnels(cfg *CanonicalConfig, errs *ValidationErrors) {
 	idSet := make(map[string]bool)
-	listenSet := make(map[string]bool)
+	listenSet := make(map[string]string) // listen key -> 首个占用它的 tunnel 描述
 
 	for i, t := range cfg.Tunnels {
 		prefix := fmt.Sprintf("tunnel[%d] %q", i, t.Name)
@@ -181,11 +183,11 @@ func validateTunnels(cfg *CanonicalConfig, errs *ValidationErrors) {
 		// Rule 13: listen endpoint must not conflict
 		if t.Listen.RawURL != "" {
 			key := fmt.Sprintf("%s://%s", t.Listen.Scheme, t.Listen.Address())
-			if listenSet[key] {
+			if owner, found := listenSet[key]; found {
 				errs.add(ErrListenConflict,
-					fmt.Sprintf("%s: listen endpoint %s conflicts with another tunnel", prefix, key))
+					fmt.Sprintf("%s: listen endpoint %s conflicts with %s (same listen address)", prefix, key, owner))
 			} else {
-				listenSet[key] = true
+				listenSet[key] = prefix
 			}
 		}
 	}

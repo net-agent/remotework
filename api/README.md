@@ -15,14 +15,14 @@
 
 ## 概述
 
-`api` 包为 Remotework Agent 提供 HTTP REST + WebSocket 控制面接口。它将 `agent.Hub` 的状态查询和基本操作能力暴露给上层应用（Web UI、CLI 工具、监控系统等）。
+`api` 包为 Remotework Agent 提供 HTTP REST + WebSocket 控制面接口。它通过 `Backend` 接口（`api/backend.go`）把运行时状态查询和基本操作能力暴露给上层应用（Web UI、CLI 工具、监控系统等）。
 
 核心定位：
 
 - **仅控制面** — 不代理任何数据流量，只提供状态查询和管理操作
-- **只读为主** — 大部分接口是状态查询，仅 `stop` 和 `loglevel` 涉及写操作
+- **只读为主** — 大部分接口是状态查询，写操作仅有 `stop`、`loglevel` 和运行时挂载（link/tunnel）
 - **实时感知** — WebSocket 推送网络状态、服务状态、数据流变化等事件
-- **零业务逻辑** — `api` 包接收 `*agent.Hub` 作为依赖，所有业务逻辑在 `agent` 包内
+- **零业务逻辑** — `api` 包只依赖 `Backend` 接口，不绑定具体运行时；实现由 `plugins/api` 提供，桥接 kernel 的 Catalog/EventBus
 
 ```
 应用层 (Web UI / CLI / 监控)
@@ -31,7 +31,7 @@
     │
     └─ WebSocket ──→ 实时事件推送
          │
-    api.Server ──→ agent.Hub（只读访问 + Stop）
+    api.Server ──→ Backend 接口（plugins/api 实现 ──→ kernel Catalog/EventBus）
 ```
 
 ---
@@ -40,24 +40,23 @@
 
 在使用 API 之前，理解 Agent 的内部架构有助于正确解读返回数据。
 
-### Hub — 中央编排器
+### Kernel — 插件宿主
 
-`Hub` 是 Agent 的核心，管理两类资源：
+Agent 运行时是一个微内核（`kernel/`）：所有功能都是加载在 Host 上的插件，API 本身也是一个观察器插件。与状态相关的两类插件：
 
-- **Networks（网络）** — 通过中转服务器建立的虚拟网络连接
-- **Services（服务）** — 运行在虚拟网络之上的业务（端口转发、SOCKS5 代理等）
+- **网络插件**（`network/<alias>`）— 内置的 `tcp`/`tcp4`/`tcp6` 本地网络，以及通过中转服务器建立的 Flex 虚拟网络
+- **隧道插件**（`tunnel/<name>`）— 运行在网络之上的业务（端口转发、SOCKS5 代理等）
 
 ```
-Hub
- ├── NetworkRegistry
- │    ├── tcp / tcp4 / tcp6    （内置本地网络）
- │    ├── mynet1               （Flex 虚拟网络）
- │    └── mynet2               （Flex 虚拟网络）
- └── ServiceManager
-      ├── portproxy-rdp        （端口转发服务）
-      ├── portproxy-ssh        （端口转发服务）
-      └── socks5-proxy         （SOCKS5 代理服务）
+kernel.Host
+ ├── network/tcp、network/tcp4、network/tcp6   （内置本地网络）
+ ├── network/mynet1、network/mynet2            （Flex 虚拟网络）
+ ├── tunnel/rdp-forward                        （端口转发）
+ ├── tunnel/socks5-proxy                       （SOCKS5 代理）
+ └── api                                       （本控制面，观察器插件）
 ```
+
+内核按依赖关系排序启停插件（隧道注入网络能力），并通过 Catalog/EventBus 两个预置能力向观察器暴露插件清单与状态事件——API 的 REST 查询和 WebSocket 推送正是由此驱动。
 
 ### 网络生命周期
 
@@ -145,22 +144,26 @@ pollInterval = 5
 
 ```go
 import (
-    "github.com/net-agent/remotework/agent"
     "github.com/net-agent/remotework/api"
+    "github.com/net-agent/remotework/kernel"
+    apiplugin "github.com/net-agent/remotework/plugins/api"
 )
 
-hub := agent.NewHub(nil)
-hub.MountConfig(config)
+// 方式一（推荐）：把 API 作为观察器插件挂到 kernel 宿主
+host := kernel.NewHost(nil, nil) // nil 使用默认 logger 与参数
+// ... 按需加载网络/隧道插件 ...
+host.Load(apiplugin.New(config.API, func() {
+    // /stop 被调用时的宿主停止回调，例如触发 Shutdown
+}))
 
-apiServer := api.New(hub, config.API, nil) // nil 使用默认 logger
+// 方式二：不用 kernel，自行实现 api.Backend 接口后直接起服务
+apiServer := api.New(myBackend, config.API, nil) // nil 使用默认 logger
 apiServer.Start()  // 非阻塞
 defer apiServer.Stop()
-
-hub.Start() // 阻塞
 ```
 
 `api.New()` 接收三个参数：
-- `*agent.Hub` — Hub 实例（必须）
+- `api.Backend` — 控制面后端接口实现（必须）
 - `configv2.APIInfo` — 配置信息
 - `*slog.Logger` — 日志器，传 `nil` 使用默认
 
@@ -186,7 +189,7 @@ hub.Start() // 阻塞
 
 ### GET /api/v1/status
 
-获取 Hub 运行状态。
+获取宿主运行状态。
 
 **响应：**
 
@@ -199,7 +202,7 @@ hub.Start() // 阻塞
 }
 ```
 
-`running` 为 `true` 表示服务管理器正在运行，`false` 表示所有服务已退出。
+`running` 为 `true` 表示控制面后端运行中；为 `false` 表示宿主已进入停止流程（插件正在卸载）。
 
 ---
 
@@ -222,7 +225,8 @@ hub.Start() // 阻塞
       "lastErr": "",
       "aliveMs": 360000,
       "listens": 2,
-      "dials": 5
+      "dials": 5,
+      "reconnects": 1
     },
     {
       "name": "tcp",
@@ -232,7 +236,8 @@ hub.Start() // 阻塞
       "state": "",
       "aliveMs": 0,
       "listens": 0,
-      "dials": 0
+      "dials": 0,
+      "reconnects": 0
     }
   ]
 }
@@ -419,7 +424,7 @@ X-Confirm: yes
 }
 ```
 
-调用后 Hub 会异步执行停止流程：关闭所有服务 → 断开所有网络 → 进程退出。
+调用后宿主会异步执行停止流程：按逆依赖顺序卸载全部插件（隧道 → 网络 → API），随后进程退出。
 
 缺少 `X-Confirm: yes` 头时返回错误：
 
@@ -475,7 +480,7 @@ ws://127.0.0.1:8080/api/v1/ws
 
 #### network.state
 
-网络连接状态发生变化时触发。由 Hub 事件监听器实时推送，无延迟。
+网络连接状态发生变化时触发。由 kernel EventBus 实时推送，无延迟。
 
 ```json
 {
@@ -508,7 +513,7 @@ ws://127.0.0.1:8080/api/v1/ws
 
 #### service.status
 
-服务状态发生变化时触发。由 Hub 事件监听器实时推送。
+服务状态发生变化时触发。由 kernel EventBus 实时推送。
 
 ```json
 {
@@ -574,7 +579,7 @@ ws://127.0.0.1:8080/api/v1/ws
 
 #### hub.stopped
 
-Hub 停止运行时触发。由轮询器检测 `IsRunning()` 状态变化后推送。
+宿主停止运行时触发。由轮询器检测 `IsRunning()` 状态变化后推送。
 
 ```json
 {
@@ -603,6 +608,7 @@ Hub 停止运行时触发。由轮询器检测 `IsRunning()` 状态变化后推�
 | `aliveMs` | int64 | 当前连接存活时间（毫秒），离线时为 0 |
 | `listens` | int32 | 在此网络上创建的 listener 数量 |
 | `dials` | int32 | 通过此网络发起的 dial 数量 |
+| `reconnects` | int64 | 累计断线重连次数（虚拟网络有效，本地网络恒为 0） |
 
 ### ServiceStateDTO
 
@@ -792,7 +798,7 @@ API 模块使用两种互补的事件推送机制：
 
 | 机制 | 事件类型 | 延迟 | 原理 |
 |------|----------|------|------|
-| Hub 事件监听器 | `network.state`、`service.status` | 实时 | agent 包在状态变更时直接回调 |
+| kernel EventBus | `network.state`、`service.status` | 实时 | 插件在状态变更时向事件总线发布事件 |
 | StatePoller 轮询 | `stream.update`、`hub.stopped` | ≤ pollInterval | 定期快照对比，检测差异 |
 
 网络和服务状态变化频率低但重要性高，采用实时回调；数据流变化频繁且无内置钩子，采用轮询差异检测。
@@ -806,9 +812,9 @@ API 模块使用两种互补的事件推送机制：
 
 ### 并发安全
 
-- 所有 REST 接口都是并发安全的，Hub 内部使用 `sync.RWMutex` 和 `atomic` 操作
-- WebSocket 广播使用快照复制模式，不会阻塞 Hub 的正常运行
-- 事件监听器回调通过 `go` 异步执行，不会阻塞 agent 的状态变更流程
+- 所有 REST 接口都是并发安全的，kernel 宿主内部以 actor 模型串行化插件状态变更
+- WebSocket 广播使用快照复制模式，不会阻塞宿主的正常运行
+- 事件回调在独立 goroutine 中执行，不会阻塞插件的状态变更流程
 
 ### 性能考量
 
@@ -834,6 +840,6 @@ if (json.ErrCode !== 0) {
 ```
 
 常见错误场景：
-- Hub 未启动或已停止时查询服务/网络 → `"NO SERVICES"` / `"NO NETWORKS"`
+- 没有任何隧道服务时调用全量 ping → `"NO SERVICES"`
 - ping 不存在的网络 → `"network='xxx' not found"`
 - 无效的日志级别 → `"invalid level, use: debug/info/warn/error"`

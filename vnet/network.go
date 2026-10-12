@@ -24,26 +24,28 @@ type NetworkMetaProvider interface {
 }
 
 type NetworkMeta struct {
-	Protocol string
-	Address  string
-	Domain   string
-	State    string
-	LastErr  string
-	Kind     string // "local" or "virtual"
+	Protocol   string
+	Address    string
+	Domain     string
+	State      string
+	LastErr    string
+	Reconnects int64  // 累计断线重连次数（虚拟网络有效）
+	Kind       string // "local" or "virtual"
 }
 
 type NetworkReport struct {
-	Name     string
-	Protocol string
-	Address  string
-	Domain   string
-	Alive    time.Duration
-	Listens  int32
-	Accepts  int32
-	Dials    int32
-	State    string
-	LastErr  string
-	Kind     string // "local" or "virtual"
+	Name       string
+	Protocol   string
+	Address    string
+	Domain     string
+	Alive      time.Duration
+	Listens    int32
+	Accepts    int32
+	Dials      int32
+	State      string
+	LastErr    string
+	Reconnects int64
+	Kind       string // "local" or "virtual"
 }
 
 type PingReport struct {

@@ -4,8 +4,8 @@ import (
 	"time"
 
 	"github.com/net-agent/flex/v3/stream"
-	"github.com/net-agent/remotework/agent/vnet"
-	"github.com/net-agent/remotework/agent/vservice"
+	"github.com/net-agent/remotework/vnet"
+	"github.com/net-agent/remotework/vservice"
 )
 
 type ServiceStateDTO struct {
@@ -22,16 +22,17 @@ type ServiceStateDTO struct {
 }
 
 type NetworkStateDTO struct {
-	Name     string `json:"name"`
-	Kind     string `json:"kind"`
-	Protocol string `json:"protocol"`
-	Address  string `json:"address"`
-	Domain   string `json:"domain"`
-	State    string `json:"state"`
-	LastErr  string `json:"lastErr,omitempty"`
-	AliveMs  int64  `json:"aliveMs"`
-	Listens  int32  `json:"listens"`
-	Dials    int32  `json:"dials"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Protocol   string `json:"protocol"`
+	Address    string `json:"address"`
+	Domain     string `json:"domain"`
+	State      string `json:"state"`
+	LastErr    string `json:"lastErr,omitempty"`
+	AliveMs    int64  `json:"aliveMs"`
+	Listens    int32  `json:"listens"`
+	Dials      int32  `json:"dials"`
+	Reconnects int64  `json:"reconnects"`
 }
 
 type StreamStateDTO struct {
@@ -77,16 +78,17 @@ func toServiceDTO(s vservice.ServiceState) ServiceStateDTO {
 
 func toNetworkDTO(r vnet.NetworkReport) NetworkStateDTO {
 	return NetworkStateDTO{
-		Name:     r.Name,
-		Kind:     r.Kind,
-		Protocol: r.Protocol,
-		Address:  r.Address,
-		Domain:   r.Domain,
-		State:    r.State,
-		LastErr:  r.LastErr,
-		AliveMs:  r.Alive.Milliseconds(),
-		Listens:  r.Listens,
-		Dials:    r.Dials,
+		Name:       r.Name,
+		Kind:       r.Kind,
+		Protocol:   r.Protocol,
+		Address:    r.Address,
+		Domain:     r.Domain,
+		State:      r.State,
+		LastErr:    r.LastErr,
+		AliveMs:    r.Alive.Milliseconds(),
+		Listens:    r.Listens,
+		Dials:      r.Dials,
+		Reconnects: r.Reconnects,
 	}
 }
 
@@ -101,8 +103,8 @@ func toStreamDTO(network string, s *stream.State) StreamStateDTO {
 		LocalAddr:    s.LocalAddr.String(),
 		RemoteDomain: s.RemoteDomain,
 		RemoteAddr:   s.RemoteAddr.String(),
-		ReadBytes:    0, // todo
-		WriteBytes:   0, // todo
+		ReadBytes:    s.BytesRead,
+		WriteBytes:   s.BytesWritten,
 		AliveMs:      aliveMs,
 		IsClosed:     s.IsClosed,
 	}

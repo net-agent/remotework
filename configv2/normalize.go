@@ -43,6 +43,38 @@ func Normalize(raw *RawConfig) (*CanonicalConfig, error) {
 	return canonical, nil
 }
 
+// normalizeAll 逐项容忍式归一化：坏项跳过并把错误记入 errs，好项保留。
+// 与 Normalize 的区别是不因单个坏项拖垮整个配置。
+func normalizeAll(raw *RawConfig) (*CanonicalConfig, *ValidationErrors) {
+	errs := &ValidationErrors{}
+	canonical := &CanonicalConfig{
+		Links:   make(map[string]LinkSpec, len(raw.Links)),
+		Tunnels: make([]TunnelSpec, 0, len(raw.Tunnels)),
+		Pprof:   raw.Pprof,
+		API:     raw.API,
+	}
+
+	for alias, rawURL := range raw.Links {
+		spec, err := normalizeLink(alias, rawURL)
+		if err != nil {
+			errs.add(ErrInvalidItem, fmt.Sprintf("link %q: %v", alias, err))
+			continue
+		}
+		canonical.Links[alias] = spec
+	}
+
+	for i, t := range raw.Tunnels {
+		spec, err := normalizeTunnel(t)
+		if err != nil {
+			errs.add(ErrInvalidItem, fmt.Sprintf("tunnel[%d] %q: %v", i, t.Name, err))
+			continue
+		}
+		canonical.Tunnels = append(canonical.Tunnels, spec)
+	}
+
+	return canonical, errs
+}
+
 // normalizeLink parses a Registration URL into a LinkSpec.
 func normalizeLink(alias, rawURL string) (LinkSpec, error) {
 	u, err := url.Parse(rawURL)

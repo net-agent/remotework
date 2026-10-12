@@ -2,6 +2,7 @@ package vservice
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -111,25 +112,25 @@ func GetRemoteInfo(c interface{}) string {
 	return "invalid_conn"
 }
 
-// NewPortproxyService 创建端口转发服务
-func NewPortproxyService(lf ListenerFactory, df DialerFactory, name, listenURL, targetURL string) *Service {
+// NewPortproxyService 创建端口转发服务。log 为 nil 时控制器自建日志器。
+func NewPortproxyService(lf ListenerFactory, df DialerFactory, name, listenURL, targetURL string, log *slog.Logger) *Service {
 	svc := &Service{}
 	svc.Type = "portproxy"
 	svc.Name = utils.FirstString(name, "portproxy")
 	svc.ListenURL = listenURL
 	svc.TargetURL = targetURL
-	svc.Controller = NewPortproxyController(lf, df, &svc.ServiceState)
+	svc.Controller = NewPortproxyController(lf, df, &svc.ServiceState, log)
 	return svc
 }
 
-// NewSocks5Service 创建 SOCKS5 代理服务
-func NewSocks5Service(lf ListenerFactory, name, listenURL, username, password string) *Service {
+// NewSocks5Service 创建 SOCKS5 代理服务。log 为 nil 时控制器自建日志器。
+func NewSocks5Service(lf ListenerFactory, name, listenURL, username, password string, log *slog.Logger) *Service {
 	svc := &Service{}
 	svc.Type = "socks5"
 	svc.Name = utils.FirstString(name, "socks5")
 	svc.ListenURL = listenURL
 	svc.Username = username
 	svc.Password = password
-	svc.Controller = NewSocks5Controller(lf, &svc.ServiceState)
+	svc.Controller = NewSocks5Controller(lf, &svc.ServiceState, log)
 	return svc
 }

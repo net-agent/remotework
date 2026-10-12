@@ -7,22 +7,23 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/net-agent/remotework/agent"
-	"github.com/net-agent/remotework/agent/configv2"
-	"github.com/net-agent/remotework/agent/vservice"
+	"github.com/net-agent/remotework/configv2"
 	"github.com/net-agent/remotework/utils"
 )
 
 type Server struct {
-	hub    *agent.Hub
-	log    *slog.Logger
-	server *http.Server
-	router *mux.Router
-	wsHub  *WSHub
-	poller *StatePoller
+	backend Backend
+	log     *slog.Logger
+	server  *http.Server
+	router  *mux.Router
+	wsHub   *WSHub
+	poller  *StatePoller
+
+	unsubNet func()
+	unsubSvc func()
 }
 
-func New(hub *agent.Hub, cfg configv2.APIInfo, log *slog.Logger) *Server {
+func New(backend Backend, cfg configv2.APIInfo, log *slog.Logger) *Server {
 	if log == nil {
 		log = utils.NewModuleLogger("api")
 	}
@@ -40,15 +41,15 @@ func New(hub *agent.Hub, cfg configv2.APIInfo, log *slog.Logger) *Server {
 	wsHub := NewWSHub(log.With("module", "api.ws"))
 
 	s := &Server{
-		hub:    hub,
-		log:    log,
-		router: router,
-		wsHub:  wsHub,
+		backend: backend,
+		log:     log,
+		router:  router,
+		wsHub:   wsHub,
 		server: &http.Server{
 			Addr:    listen,
 			Handler: corsMiddleware(router),
 		},
-		poller: NewStatePoller(hub, wsHub, time.Duration(pollInterval)*time.Second),
+		poller: NewStatePoller(backend, wsHub, time.Duration(pollInterval)*time.Second),
 	}
 
 	s.registerRoutes()
@@ -88,7 +89,13 @@ func (s *Server) registerRoutes() {
 
 // Start 非阻塞启动 API 服务器
 func (s *Server) Start() error {
-	s.hub.AddEventListener(s)
+	// 订阅后端事件并泵送到 WebSocket
+	var netCh <-chan NetworkStateEvent
+	var svcCh <-chan ServiceStatusEvent
+	netCh, s.unsubNet = s.backend.SubscribeNetworkState(64)
+	svcCh, s.unsubSvc = s.backend.SubscribeServiceStatus(64)
+	go s.eventLoop(netCh, svcCh)
+
 	s.poller.Start()
 
 	go func() {
@@ -102,7 +109,12 @@ func (s *Server) Start() error {
 
 // Stop 优雅关闭
 func (s *Server) Stop() {
-	s.hub.RemoveEventListener(s)
+	if s.unsubNet != nil {
+		s.unsubNet()
+	}
+	if s.unsubSvc != nil {
+		s.unsubSvc()
+	}
 	s.poller.Stop()
 	s.wsHub.CloseAll()
 
@@ -114,14 +126,33 @@ func (s *Server) Stop() {
 	s.log.Info("api server stopped")
 }
 
-// OnNetworkStateChange 实现 HubEventListener 接口
-func (s *Server) OnNetworkStateChange(name, oldState, newState string) {
+// eventLoop 把后端事件翻译为 WebSocket 广播
+func (s *Server) eventLoop(netCh <-chan NetworkStateEvent, svcCh <-chan ServiceStatusEvent) {
+	for netCh != nil || svcCh != nil {
+		select {
+		case evt, ok := <-netCh:
+			if !ok {
+				netCh = nil
+				continue
+			}
+			s.broadcastNetworkState(evt)
+		case evt, ok := <-svcCh:
+			if !ok {
+				svcCh = nil
+				continue
+			}
+			s.broadcastServiceStatus(evt)
+		}
+	}
+}
+
+func (s *Server) broadcastNetworkState(evt NetworkStateEvent) {
 	// 获取最新的网络报告
 	var report *NetworkStateDTO
-	reports, err := s.hub.GetAllNetworkState()
+	reports, err := s.backend.GetAllNetworkState()
 	if err == nil {
 		for _, r := range reports {
-			if r.Name == name {
+			if r.Name == evt.Network {
 				dto := toNetworkDTO(r)
 				report = &dto
 				break
@@ -130,20 +161,19 @@ func (s *Server) OnNetworkStateChange(name, oldState, newState string) {
 	}
 
 	s.wsHub.Broadcast("network.state", map[string]interface{}{
-		"name":     name,
-		"oldState": oldState,
-		"newState": newState,
+		"name":     evt.Network,
+		"oldState": evt.OldState,
+		"newState": evt.NewState,
 		"report":   report,
 	})
 }
 
-// OnServiceStatusChange 实现 HubEventListener 接口
-func (s *Server) OnServiceStatusChange(name string, oldStatus, newStatus vservice.ServiceStatus) {
+func (s *Server) broadcastServiceStatus(evt ServiceStatusEvent) {
 	var service *ServiceStateDTO
-	states, err := s.hub.GetAllServiceState()
+	states, err := s.backend.GetAllServiceState()
 	if err == nil {
 		for _, st := range states {
-			if st.Name == name {
+			if st.Name == evt.Name {
 				dto := toServiceDTO(st)
 				service = &dto
 				break
@@ -152,9 +182,9 @@ func (s *Server) OnServiceStatusChange(name string, oldStatus, newStatus vservic
 	}
 
 	s.wsHub.Broadcast("service.status", map[string]interface{}{
-		"name":      name,
-		"oldStatus": oldStatus.String(),
-		"newStatus": newStatus.String(),
+		"name":      evt.Name,
+		"oldStatus": evt.OldStatus,
+		"newStatus": evt.NewStatus,
 		"service":   service,
 	})
 }

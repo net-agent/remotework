@@ -134,7 +134,7 @@ func (e *errDepWrap) Error() string {
 func TestNewPortproxyService(t *testing.T) {
 	lf := &mockListenerFactory{}
 	df := &mockDialerFactory{}
-	svc := NewPortproxyService(lf, df, "pp-test", "vtcp://0:1234", "tcp://localhost:3389")
+	svc := NewPortproxyService(lf, df, "pp-test", "vtcp://0:1234", "tcp://localhost:3389", nil)
 
 	if svc.Type != "portproxy" {
 		t.Errorf("Type = %q, want %q", svc.Type, "portproxy")
@@ -154,7 +154,7 @@ func TestNewPortproxyService(t *testing.T) {
 }
 
 func TestNewPortproxyService_DefaultName(t *testing.T) {
-	svc := NewPortproxyService(&mockListenerFactory{}, &mockDialerFactory{}, "", "tcp://0:80", "tcp://0:81")
+	svc := NewPortproxyService(&mockListenerFactory{}, &mockDialerFactory{}, "", "tcp://0:80", "tcp://0:81", nil)
 	if svc.Name != "portproxy" {
 		t.Errorf("default Name = %q, want %q", svc.Name, "portproxy")
 	}
@@ -162,7 +162,7 @@ func TestNewPortproxyService_DefaultName(t *testing.T) {
 
 func TestNewSocks5Service(t *testing.T) {
 	lf := &mockListenerFactory{}
-	svc := NewSocks5Service(lf, "sox-test", "vtcp://0:1080", "user", "pass")
+	svc := NewSocks5Service(lf, "sox-test", "vtcp://0:1080", "user", "pass", nil)
 
 	if svc.Type != "socks5" {
 		t.Errorf("Type = %q, want %q", svc.Type, "socks5")
@@ -177,4 +177,3 @@ func TestNewSocks5Service(t *testing.T) {
 		t.Error("Controller is nil")
 	}
 }
-

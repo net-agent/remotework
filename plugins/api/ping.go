@@ -1,27 +1,30 @@
-package agent
+package apiplugin
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/net-agent/remotework/agent/vnet"
-	"github.com/net-agent/remotework/agent/vservice"
-	"github.com/net-agent/remotework/utils"
+	"github.com/net-agent/remotework/kernel"
+	"github.com/net-agent/remotework/vnet"
+	"github.com/net-agent/remotework/vservice"
 )
 
-//
-// Hub Ping 状态查询（需要同时访问 Networks 和 Services）
-//
-
-func (hub *Hub) GetPingState() ([]*vnet.PingReport, error) {
+// GetPingState 汇总各隧道依赖的网络/domain 并逐一探测
+func (b *backend) GetPingState() ([]*vnet.PingReport, error) {
 	var svcs []*vservice.Service
-	hub.registry.Range(func(svc *vservice.Service) {
-		svcs = append(svcs, svc)
-	})
+	for _, ps := range b.catalog.List() {
+		if ps.Info.Kind != "tunnel" {
+			continue
+		}
+		name := strings.TrimPrefix(ps.Info.Name, tunnelNamePrefix)
+		svc, ok := kernel.Lookup[*vservice.Service](b.ctx, name)
+		if ok {
+			svcs = append(svcs, svc)
+		}
+	}
 
 	if len(svcs) <= 0 {
 		return nil, errors.New("NO SERVICES")
@@ -36,9 +39,9 @@ func (hub *Hub) GetPingState() ([]*vnet.PingReport, error) {
 	for _, report := range m {
 		reports = append(reports, report)
 
-		mnet, err := hub.networks.Find(report.Network)
-		if err != nil {
-			report.PingResult = err.Error()
+		mnet, ok := kernel.Lookup[vnet.Network](b.ctx, report.Network)
+		if !ok {
+			report.PingResult = fmt.Sprintf("network='%v' not found", report.Network)
 			continue
 		}
 		pingDomain := report.Domain
@@ -50,52 +53,11 @@ func (hub *Hub) GetPingState() ([]*vnet.PingReport, error) {
 			report.PingResult = err.Error()
 			continue
 		}
-
 		report.PingResult = formatPingDuration(dur)
 	}
 
 	return reports, nil
 }
-
-func (hub *Hub) GetPingStateString() string {
-	reports, err := hub.GetPingState()
-	if err != nil {
-		return fmt.Sprintf("report ping failed: %v\n", err)
-	}
-
-	buf := bytes.NewBufferString("report ping:\n")
-	utils.RenderAsciiTable(buf, reports,
-		[]string{"index", "network", "domain", "result", "used services"},
-		func(d interface{}, index int) []string {
-			s := d.(*vnet.PingReport)
-			return []string{
-				fmt.Sprintf("%v", index),
-				s.Network,
-				s.Domain,
-				s.PingResult,
-				strings.Join(s.UsedServices, ", "),
-			}
-		},
-	)
-	return buf.String()
-}
-
-// formatPingDuration 格式化 ping 延迟，最小单位为 ms。
-// 低于 1ms 显示为 "<1ms"，低于 1s 显示整数 ms，否则显示保留一位小数的秒。
-func formatPingDuration(dur time.Duration) string {
-	ms := dur.Milliseconds()
-	if ms < 1 {
-		return "<1ms"
-	}
-	if ms < 1000 {
-		return fmt.Sprintf("%dms", ms)
-	}
-	return fmt.Sprintf("%.1fs", dur.Seconds())
-}
-
-//
-// 辅助函数
-//
 
 func parseDependAndSaveToMap(m map[string]*vnet.PingReport, svc *vservice.Service) {
 	urls := [][]string{
@@ -143,4 +105,17 @@ func parseURLDepend(raw string) (string, string, error) {
 		return "", "", err
 	}
 	return u.Scheme, u.Hostname(), nil
+}
+
+// formatPingDuration 格式化 ping 延迟，最小单位为 ms。
+// 低于 1ms 显示为 "<1ms"，低于 1s 显示整数 ms，否则显示保留一位小数的秒。
+func formatPingDuration(dur time.Duration) string {
+	ms := dur.Milliseconds()
+	if ms < 1 {
+		return "<1ms"
+	}
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	return fmt.Sprintf("%.1fs", dur.Seconds())
 }

@@ -7,18 +7,18 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
-	"github.com/net-agent/remotework/agent/configv2"
+	"github.com/net-agent/remotework/configv2"
 	"github.com/net-agent/remotework/utils"
 )
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	utils.WriteJSON(w, nil, map[string]interface{}{
-		"running": s.hub.IsRunning(),
+		"running": s.backend.IsRunning(),
 	})
 }
 
 func (s *Server) handleNetworks(w http.ResponseWriter, r *http.Request) {
-	reports, err := s.hub.GetAllNetworkState()
+	reports, err := s.backend.GetAllNetworkState()
 	if err != nil {
 		utils.WriteJSON(w, err, nil)
 		return
@@ -34,7 +34,7 @@ func (s *Server) handleNetworks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServices(w http.ResponseWriter, r *http.Request) {
-	states, err := s.hub.GetAllServiceState()
+	states, err := s.backend.GetAllServiceState()
 	if err != nil {
 		utils.WriteJSON(w, err, nil)
 		return
@@ -75,7 +75,7 @@ func (s *Server) handleStreams(w http.ResponseWriter, r *http.Request) {
 
 	filterNetwork := r.URL.Query().Get("network")
 
-	reports, err := s.hub.GetAllNetworkState()
+	reports, err := s.backend.GetAllNetworkState()
 	if err != nil {
 		utils.WriteJSON(w, err, nil)
 		return
@@ -88,7 +88,7 @@ func (s *Server) handleStreams(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	streamStates := s.hub.GetDataStreamState(limit, networks...)
+	streamStates := s.backend.GetDataStreamState(limit, networks...)
 
 	var dtos []StreamStateDTO
 	for _, ds := range streamStates {
@@ -109,7 +109,7 @@ func (s *Server) handleStreams(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePingAll(w http.ResponseWriter, r *http.Request) {
-	reports, err := s.hub.GetPingState()
+	reports, err := s.backend.GetPingState()
 	if err != nil {
 		utils.WriteJSON(w, err, nil)
 		return
@@ -126,7 +126,7 @@ func (s *Server) handlePingSingle(w http.ResponseWriter, r *http.Request) {
 	network := vars["network"]
 	domain := vars["domain"]
 
-	dur, err := s.hub.PingDomain(network, domain)
+	dur, err := s.backend.PingDomain(network, domain)
 	if err != nil {
 		utils.WriteJSON(w, err, nil)
 		return
@@ -173,10 +173,10 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	utils.WriteJSON(w, nil, map[string]string{"status": "stopping"})
-	go s.hub.Stop()
+	go s.backend.RequestStop()
 }
 
-// handleAddLink dynamically adds a link (network) at runtime.
+// handleAddLink 运行时动态挂载 link（网络）
 func (s *Server) handleAddLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Alias string `json:"alias"`
@@ -208,14 +208,14 @@ func (s *Server) handleAddLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.hub.MountLink(req.Alias, link); err != nil {
+	if err := s.backend.MountLink(req.Alias, link); err != nil {
 		utils.WriteJSON(w, err, nil)
 		return
 	}
 	utils.WriteJSON(w, nil, map[string]string{"status": "ok", "alias": req.Alias})
 }
 
-// handleAddTunnel dynamically adds a tunnel (service) at runtime.
+// handleAddTunnel 运行时动态挂载 tunnel（服务）
 func (s *Server) handleAddTunnel(w http.ResponseWriter, r *http.Request) {
 	var tunnelRaw configv2.TunnelRaw
 	if err := utils.ReadJSON(r, &tunnelRaw); err != nil {
@@ -239,7 +239,7 @@ func (s *Server) handleAddTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tunnel := canonical.Tunnels[0]
-	if err := s.hub.MountTunnel(tunnel); err != nil {
+	if err := s.backend.MountTunnel(tunnel); err != nil {
 		utils.WriteJSON(w, err, nil)
 		return
 	}
