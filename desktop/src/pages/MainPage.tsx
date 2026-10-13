@@ -37,11 +37,49 @@ function RestartBanner() {
   );
 }
 
+// sidecar 配置解析失败进入降级模式（/status mode=degraded）时的引导横幅
+function DegradedBanner() {
+  const { status } = useAgentStore();
+  const { setUIMode, setAdvancedTab } = useUIStore();
+
+  if (status?.mode !== "degraded") {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400 shrink-0">
+      <div className="flex min-w-0 items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="min-w-0">
+          <span className="font-medium">配置文件解析失败，Agent 以降级模式运行</span>
+          {status.configError ? (
+            <p className="mt-0.5 break-all whitespace-pre-wrap text-red-600 dark:text-red-400/80">
+              {status.configError}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-5 shrink-0 px-1.5 text-xs text-red-700 hover:text-red-900 dark:text-red-400"
+        onClick={() => {
+          setUIMode("advanced");
+          setAdvancedTab("config");
+        }}
+      >
+        前往配置页
+      </Button>
+    </div>
+  );
+}
+
 function AdvancedMainPage() {
   const { advancedTab } = useUIStore();
 
   return (
     <div className="flex h-full flex-col">
+      <DegradedBanner />
       <RestartBanner />
       <div className="min-h-0 flex-1">
         {advancedTab === "networks" && <NetworksTab />}
@@ -103,6 +141,8 @@ function SimpleMainPage() {
           </div>
         </div>
       ) : null}
+
+      <DegradedBanner />
 
       <RestartBanner />
 

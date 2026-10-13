@@ -24,6 +24,19 @@ export interface NetworkStateDTO {
   aliveMs: number;
   listens: number;
   dials: number;
+  reconnects: number;
+}
+
+// GET /api/v1/status 响应 Data（sidecar 协议 §6.1）
+export interface StatusDTO {
+  running: boolean;
+  mode: "normal" | "degraded";
+  version: string;
+  commit: string;
+  protocol: number;
+  uptimeMs: number;
+  configPath: string;
+  configError?: string; // mode === "degraded" 时非空
 }
 
 export interface StreamStateDTO {
@@ -85,3 +98,6 @@ export interface StreamUpdateEvent {
   opened: StreamStateDTO[];
   closed: StreamStateDTO[];
 }
+
+// hub.stopped 负载为空对象
+export type HubStoppedEvent = Record<string, never>;

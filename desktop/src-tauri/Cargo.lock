@@ -2810,6 +2810,7 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "if-addrs",
+ "rand 0.8.5",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -2819,7 +2820,6 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-shell",
  "tokio",
- "winreg",
 ]
 
 [[package]]

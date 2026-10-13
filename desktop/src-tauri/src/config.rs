@@ -214,28 +214,21 @@ pub fn get_network_interfaces() -> Result<Vec<String>, String> {
     Ok(addrs)
 }
 
+/// 读取用户选择的 profile 文件内容（导入场景）。
+/// 前端 webview 经 asset:// 读文件会被 CSP 拦截，改由 Host 读取（协议 §1：Host 是配置文件唯一写方/读方）。
 #[tauri::command]
-pub fn get_windows_rdp_port() -> Result<Option<u16>, String> {
-    #[cfg(target_os = "windows")]
-    {
-        use winreg::enums::HKEY_LOCAL_MACHINE;
-        use winreg::RegKey;
-
-        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-        let path = "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp";
-        let key = hklm.open_subkey(path).map_err(|e| e.to_string())?;
-        let port: u32 = key.get_value("PortNumber").map_err(|e| e.to_string())?;
-        return Ok(u16::try_from(port).ok());
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        Ok(None)
-    }
+pub fn read_profile_file(path: String) -> Result<String, String> {
+    fs::read_to_string(&path).map_err(|e| format!("read file '{}': {}", path, e))
 }
 
 fn sanitize_filename(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }

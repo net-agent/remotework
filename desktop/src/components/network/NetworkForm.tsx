@@ -13,6 +13,7 @@ import { useUIStore } from "@/stores/ui-store";
 import { useProfileStore } from "@/stores/profile-store";
 import { useAgentStore } from "@/stores/agent-store";
 import * as api from "@/lib/api";
+import { persistThenMount, errorMessage } from "@/lib/hot-mount";
 import { validateLinkURL } from "@/lib/config-validation";
 import { toast } from "sonner";
 
@@ -76,8 +77,35 @@ export function NetworkForm() {
       delete newLinks[editingLinkAlias];
     }
 
-    newLinks[trimmedAlias] = url.trim();
+    const trimmedUrl = url.trim();
+    newLinks[trimmedAlias] = trimmedUrl;
     const newConfig = { ...currentConfig, links: newLinks };
+
+    if (!isEditing && agentRunning && activeProfile) {
+      // 协议 §8 双写：先落盘活动 profile，再热挂载；热挂载失败回滚配置
+      const profileName = activeProfile;
+      const prevConfig = currentConfig;
+      const outcome = await persistThenMount({
+        persist: () => saveConfig(profileName, newConfig),
+        mount: () => api.addLink(trimmedAlias, trimmedUrl),
+        rollback: () => saveConfig(profileName, prevConfig),
+      });
+      if (outcome.ok) {
+        setSelectedSimpleShareLinkAlias(trimmedAlias);
+        toast.success("链路已添加并启动");
+        closeLinkForm();
+      } else if (outcome.stage === "persist") {
+        toast.error(`保存配置失败: ${errorMessage(outcome.error)}`);
+      } else {
+        toast.error(
+          outcome.rolledBack
+            ? `动态添加失败，已回滚配置: ${errorMessage(outcome.error)}`
+            : `动态添加失败且配置回滚失败: ${errorMessage(outcome.error)}`,
+        );
+      }
+      return;
+    }
+
     setCurrentConfig(newConfig);
     if (activeProfile) {
       await saveConfig(activeProfile, newConfig);
@@ -86,8 +114,9 @@ export function NetworkForm() {
 
     // Dynamically add to running agent (new links only)
     if (!isEditing && agentRunning) {
+      // 无活动 profile 无法双写，退化为直接热挂载
       try {
-        await api.addLink(trimmedAlias, url.trim());
+        await api.addLink(trimmedAlias, trimmedUrl);
         toast.success("链路已添加并启动");
       } catch (e) {
         toast.warning(`已保存配置，但动态添加失败: ${e}`);

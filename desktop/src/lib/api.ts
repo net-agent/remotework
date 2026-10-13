@@ -3,23 +3,41 @@ import type {
   ListeningPortDTO,
   NetworkStateDTO,
   ServiceStateDTO,
+  StatusDTO,
   StreamStateDTO,
   PingResultDTO,
 } from "./types";
 import type { TunnelInfo } from "./config-types";
 
-let baseUrl = "";
+export interface ApiEndpointConfig {
+  baseUrl: string;
+  token: string | null;
+}
 
-export function setBaseUrl(url: string) {
-  baseUrl = url.replace(/\/$/, "");
+// 当前 sidecar 连接凭证（协议 §7）：由 agent store 在启动/重启后经
+// platform.getApiEndpoint() 刷新；token 为 null 对应 standalone 开放模式。
+let endpoint: ApiEndpointConfig = { baseUrl: "", token: null };
+
+export function setEndpoint(next: ApiEndpointConfig | null) {
+  endpoint = next
+    ? { baseUrl: next.baseUrl.replace(/\/$/, ""), token: next.token || null }
+    : { baseUrl: "", token: null };
+}
+
+export function getEndpoint(): ApiEndpointConfig {
+  return endpoint;
 }
 
 export function getBaseUrl() {
-  return baseUrl;
+  return endpoint.baseUrl;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(`${baseUrl}${path}`, init);
+  const headers = new Headers(init?.headers);
+  if (endpoint.token) {
+    headers.set("Authorization", `Bearer ${endpoint.token}`);
+  }
+  const resp = await fetch(`${endpoint.baseUrl}${path}`, { ...init, headers });
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
   }
@@ -30,7 +48,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return json.Data;
 }
 
-export async function getStatus(): Promise<{ running: boolean }> {
+export async function getStatus(): Promise<StatusDTO> {
   return request("/api/v1/status");
 }
 
@@ -78,10 +96,7 @@ export async function setLogLevel(level: string): Promise<{ level: string }> {
 }
 
 export async function stopAgent(): Promise<{ status: string }> {
-  return request("/api/v1/stop", {
-    method: "POST",
-    headers: { "X-Confirm": "yes" },
-  });
+  return request("/api/v1/stop", { method: "POST" });
 }
 
 export async function addLink(

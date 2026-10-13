@@ -5,6 +5,12 @@ type EventHandler = (event: WsEvent) => void;
 const RECONNECT_BASE = 1000;
 const RECONNECT_MAX = 30000;
 
+// webview 无法自定义 WS 请求头，token 经查询参数传递（协议 §7.1）
+export function buildWsUrl(apiBaseUrl: string, token?: string | null): string {
+  const base = apiBaseUrl.replace(/^http/, "ws") + "/api/v1/ws";
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+}
+
 export class AgentWebSocket {
   private ws: WebSocket | null = null;
   private url = "";
@@ -19,9 +25,9 @@ export class AgentWebSocket {
     this.onConnect = onConnect ?? null;
   }
 
-  connect(apiBaseUrl: string) {
+  connect(apiBaseUrl: string, token?: string | null) {
     this.closed = false;
-    this.url = apiBaseUrl.replace(/^http/, "ws") + "/api/v1/ws";
+    this.url = buildWsUrl(apiBaseUrl, token);
     this.doConnect();
   }
 

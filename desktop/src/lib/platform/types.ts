@@ -1,8 +1,23 @@
 import type { AgentConfig, ProfilesIndex } from "@/lib/config-types";
 
+export type SidecarLogLevel = "debug" | "info" | "warn" | "error";
+
 export interface SidecarLogPayload {
   source: "stdout" | "stderr";
-  line: string;
+  level: SidecarLogLevel;
+  module?: string;
+  msg?: string;
+  line: string; // 原始行文本，msg 缺失时回退展示
+}
+
+export interface SidecarExitedPayload {
+  code: number | null;
+  intended: boolean; // false 且 code !== 0 表示异常退出
+}
+
+export interface ApiEndpoint {
+  port: number;
+  token: string | null;
 }
 
 export interface SaveDialogOptions {
@@ -21,7 +36,7 @@ export interface PlatformAdapter {
   stopAgent(): Promise<void>;
   restartAgent(profileName: string): Promise<number>;
   agentRunning(): Promise<boolean>;
-  getAgentPort(): Promise<number>;
+  getApiEndpoint(): Promise<ApiEndpoint>;
 
   // Profile management
   listProfiles(): Promise<ProfilesIndex>;
@@ -32,12 +47,14 @@ export interface PlatformAdapter {
   setActiveProfile(name: string): Promise<void>;
   importProfile(name: string, content: string): Promise<void>;
   exportProfile(name: string): Promise<string>;
+  readProfileFile(path: string): Promise<string>;
 
   // System info
   getNetworkInterfaces(): Promise<string[]>;
 
   // Events — return an unsubscribe function
   onSidecarLog(handler: (payload: SidecarLogPayload) => void): () => void;
+  onSidecarExited(handler: (payload: SidecarExitedPayload) => void): () => void;
   onTrayToggleUIMode(handler: () => void): () => void;
   emitUIModeChanged(mode: string): void;
 

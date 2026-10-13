@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import type { TunnelInfo } from "@/lib/config-types";
 import { validateTunnel } from "@/lib/config-validation";
+import { persistThenMount, errorMessage } from "@/lib/hot-mount";
 import { useAgentStore } from "@/stores/agent-store";
 import type { useProfileStore } from "@/stores/profile-store";
 import * as api from "@/lib/api";
@@ -112,13 +113,39 @@ export async function saveTunnelConfig(input: {
   }
 
   nextConfig.tunnels = tunnels;
+
+  const agentRunning = useAgentStore.getState().agentRunning;
+
+  if (isNew && agentRunning && context.activeProfile) {
+    // 协议 §8 双写：先落盘活动 profile，再热挂载；热挂载失败回滚配置
+    const profileName = context.activeProfile;
+    const prevConfig = context.currentConfig;
+    const outcome = await persistThenMount({
+      persist: () => context.saveConfig(profileName, nextConfig),
+      mount: () => api.addTunnel(tunnel),
+      rollback: () => context.saveConfig(profileName, prevConfig),
+    });
+    if (outcome.ok) {
+      toast.success("隧道已添加并启动");
+    } else if (outcome.stage === "persist") {
+      toast.error(`保存配置失败: ${errorMessage(outcome.error)}`);
+    } else {
+      toast.error(
+        outcome.rolledBack
+          ? `动态添加失败，已回滚配置: ${errorMessage(outcome.error)}`
+          : `动态添加失败且配置回滚失败: ${errorMessage(outcome.error)}`,
+      );
+    }
+    return outcome.ok;
+  }
+
   context.setCurrentConfig(nextConfig);
   if (context.activeProfile) {
     await context.saveConfig(context.activeProfile, nextConfig);
   }
 
-  const agentRunning = useAgentStore.getState().agentRunning;
   if (isNew && agentRunning) {
+    // 无活动 profile 无法双写，退化为直接热挂载
     try {
       await api.addTunnel(tunnel);
       toast.success("隧道已添加并启动");

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   NetworkStateDTO,
   ServiceStateDTO,
+  StatusDTO,
   StreamStateDTO,
   WsEvent,
   NetworkStateEvent,
@@ -9,20 +10,23 @@ import type {
   StreamUpdateEvent,
 } from "@/lib/types";
 import * as api from "@/lib/api";
+import type { ApiEndpointConfig } from "@/lib/api";
 
 interface AgentState {
   agentRunning: boolean;
-  apiBaseUrl: string;
+  apiEndpoint: ApiEndpointConfig | null;
   wsConnected: boolean;
   startError: string;
+  status: StatusDTO | null;
   networks: NetworkStateDTO[];
   services: ServiceStateDTO[];
   streams: StreamStateDTO[];
 
   setAgentRunning: (running: boolean) => void;
-  setApiBaseUrl: (url: string) => void;
+  setApiEndpoint: (endpoint: ApiEndpointConfig | null) => void;
   setWsConnected: (connected: boolean) => void;
   setStartError: (error: string) => void;
+  setStatus: (status: StatusDTO | null) => void;
   fetchAll: () => Promise<void>;
   handleWsEvent: (event: WsEvent) => void;
   reset: () => void;
@@ -30,37 +34,38 @@ interface AgentState {
 
 export const useAgentStore = create<AgentState>((set, get) => ({
   agentRunning: false,
-  apiBaseUrl: "",
+  apiEndpoint: null,
   wsConnected: false,
   startError: "",
+  status: null,
   networks: [],
   services: [],
   streams: [],
 
   setAgentRunning: (running) => set({ agentRunning: running }),
-  setApiBaseUrl: (url) => {
-    api.setBaseUrl(url);
-    set({ apiBaseUrl: url });
+  setApiEndpoint: (endpoint) => {
+    api.setEndpoint(endpoint);
+    set({ apiEndpoint: endpoint });
   },
   setWsConnected: (connected) => set({ wsConnected: connected }),
   setStartError: (error) => set({ startError: error }),
+  setStatus: (status) => set({ status }),
 
   fetchAll: async () => {
-    try {
-      const [networks, services, streams] = await Promise.allSettled([
-        api.getNetworks(),
-        api.getServices(),
-        api.getStreams(),
-      ]);
-      set({
-        networks: networks.status === "fulfilled" ? networks.value : [],
-        services: services.status === "fulfilled" ? services.value : [],
-        streams: streams.status === "fulfilled" ? streams.value : [],
-        agentRunning: true,
-      });
-    } catch {
-      set({ agentRunning: false });
-    }
+    const [status, networks, services, streams] = await Promise.allSettled([
+      api.getStatus(),
+      api.getNetworks(),
+      api.getServices(),
+      api.getStreams(),
+    ]);
+    set({
+      status: status.status === "fulfilled" ? status.value : get().status,
+      networks: networks.status === "fulfilled" ? networks.value : [],
+      services: services.status === "fulfilled" ? services.value : [],
+      streams: streams.status === "fulfilled" ? streams.value : [],
+      agentRunning:
+        status.status === "fulfilled" ? status.value.running : true,
+    });
   },
 
   handleWsEvent: (event: WsEvent) => {
@@ -102,20 +107,29 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         break;
       }
       case "hub.stopped": {
-        set({ agentRunning: false, networks: [], services: [], streams: [] });
+        set({
+          agentRunning: false,
+          status: null,
+          networks: [],
+          services: [],
+          streams: [],
+        });
         break;
       }
     }
   },
 
-  reset: () =>
+  reset: () => {
+    api.setEndpoint(null);
     set({
       agentRunning: false,
-      apiBaseUrl: "",
+      apiEndpoint: null,
       wsConnected: false,
       startError: "",
+      status: null,
       networks: [],
       services: [],
       streams: [],
-    }),
+    });
+  },
 }));

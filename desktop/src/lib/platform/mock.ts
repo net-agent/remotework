@@ -3,12 +3,23 @@ import type { AgentConfig, ProfilesIndex, ProfileMeta } from "@/lib/config-types
 import type {
   PlatformAdapter,
   SidecarLogPayload,
+  SidecarExitedPayload,
+  ApiEndpoint,
   SaveDialogOptions,
   OpenDialogOptions,
 } from "./types";
 
 const STORAGE_KEY = "mock-profiles";
-const MOCK_PORT = 19195;
+const PORT_STORAGE_KEY = "mock-api-port";
+const DEFAULT_MOCK_PORT = 8080;
+
+// 浏览器开发模式下 sidecar 以 standalone 开放模式运行（无 token）；
+// 端口可用 localStorage["mock-api-port"] 覆盖以对齐本地 agent 实例。
+function mockPort(): number {
+  const raw = localStorage.getItem(PORT_STORAGE_KEY);
+  const port = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(port) && port > 0 ? port : DEFAULT_MOCK_PORT;
+}
 
 interface StoredProfiles {
   active: string;
@@ -32,7 +43,7 @@ function saveStorage(data: StoredProfiles): void {
 export class MockAdapter implements PlatformAdapter {
   // Sidecar — assume agent is either manually started or not needed
   async startAgent(_profileName: string): Promise<number> {
-    return MOCK_PORT;
+    return mockPort();
   }
 
   async stopAgent(): Promise<void> {
@@ -40,15 +51,15 @@ export class MockAdapter implements PlatformAdapter {
   }
 
   async restartAgent(_profileName: string): Promise<number> {
-    return MOCK_PORT;
+    return mockPort();
   }
 
   async agentRunning(): Promise<boolean> {
     return false;
   }
 
-  async getAgentPort(): Promise<number> {
-    return MOCK_PORT;
+  async getApiEndpoint(): Promise<ApiEndpoint> {
+    return { port: mockPort(), token: null };
   }
 
   // Profile management backed by localStorage
@@ -114,6 +125,12 @@ export class MockAdapter implements PlatformAdapter {
     return JSON.stringify({ ...emptyConfig(), ...config }, null, 2);
   }
 
+  // 浏览器模式没有文件路径概念：导入经 showOpenDialog 的 FileReader 拿到内容，
+  // 不会走到这里。
+  async readProfileFile(_path: string): Promise<string> {
+    throw new Error("readProfileFile is not supported in browser mode");
+  }
+
   // System info
   async getNetworkInterfaces(): Promise<string[]> {
     return ["0.0.0.0", "127.0.0.1", "192.168.1.100"];
@@ -121,6 +138,12 @@ export class MockAdapter implements PlatformAdapter {
 
   // Events — no-op in browser
   onSidecarLog(_handler: (payload: SidecarLogPayload) => void): () => void {
+    return () => {};
+  }
+
+  onSidecarExited(
+    _handler: (payload: SidecarExitedPayload) => void,
+  ): () => void {
     return () => {};
   }
 

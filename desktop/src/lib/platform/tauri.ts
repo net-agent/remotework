@@ -5,9 +5,25 @@ import type { AgentConfig, ProfilesIndex } from "@/lib/config-types";
 import type {
   PlatformAdapter,
   SidecarLogPayload,
+  SidecarExitedPayload,
+  ApiEndpoint,
   SaveDialogOptions,
   OpenDialogOptions,
 } from "./types";
+
+function subscribe<T>(
+  event: string,
+  handler: (payload: T) => void,
+): () => void {
+  let cancelled = false;
+  const unlistenPromise = listen<T>(event, (e) => {
+    if (!cancelled) handler(e.payload);
+  });
+  return () => {
+    cancelled = true;
+    unlistenPromise.then((fn) => fn());
+  };
+}
 
 export class TauriAdapter implements PlatformAdapter {
   // Sidecar management
@@ -27,8 +43,8 @@ export class TauriAdapter implements PlatformAdapter {
     return invoke<boolean>("agent_running");
   }
 
-  getAgentPort(): Promise<number> {
-    return invoke<number>("get_agent_port");
+  getApiEndpoint(): Promise<ApiEndpoint> {
+    return invoke<ApiEndpoint>("get_api_endpoint");
   }
 
   // Profile management
@@ -64,6 +80,10 @@ export class TauriAdapter implements PlatformAdapter {
     return invoke<string>("export_profile", { name });
   }
 
+  readProfileFile(path: string): Promise<string> {
+    return invoke<string>("read_profile_file", { path });
+  }
+
   // System info
   getNetworkInterfaces(): Promise<string[]> {
     return invoke<string[]>("get_network_interfaces");
@@ -71,28 +91,17 @@ export class TauriAdapter implements PlatformAdapter {
 
   // Events
   onSidecarLog(handler: (payload: SidecarLogPayload) => void): () => void {
-    let cancelled = false;
-    const unlistenPromise = listen<SidecarLogPayload>(
-      "sidecar-log",
-      (event) => {
-        if (!cancelled) handler(event.payload);
-      },
-    );
-    return () => {
-      cancelled = true;
-      unlistenPromise.then((fn) => fn());
-    };
+    return subscribe<SidecarLogPayload>("sidecar-log", handler);
+  }
+
+  onSidecarExited(
+    handler: (payload: SidecarExitedPayload) => void,
+  ): () => void {
+    return subscribe<SidecarExitedPayload>("sidecar-exited", handler);
   }
 
   onTrayToggleUIMode(handler: () => void): () => void {
-    let cancelled = false;
-    const unlistenPromise = listen("tray-toggle-ui-mode", () => {
-      if (!cancelled) handler();
-    });
-    return () => {
-      cancelled = true;
-      unlistenPromise.then((fn) => fn());
-    };
+    return subscribe<void>("tray-toggle-ui-mode", handler);
   }
 
   emitUIModeChanged(mode: string): void {

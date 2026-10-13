@@ -9,4 +9,12 @@ export const platform: PlatformAdapter = isTauri
   ? new TauriAdapter()
   : new MockAdapter();
 
-export type { PlatformAdapter, SidecarLogPayload, SaveDialogOptions, OpenDialogOptions } from "./types";
+export type {
+  PlatformAdapter,
+  SidecarLogPayload,
+  SidecarLogLevel,
+  SidecarExitedPayload,
+  ApiEndpoint,
+  SaveDialogOptions,
+  OpenDialogOptions,
+} from "./types";

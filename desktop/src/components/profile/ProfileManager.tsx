@@ -87,9 +87,8 @@ export function ProfileManager() {
         content = fileContent;
         fileName = "imported";
       } else {
-        // File path (Tauri mode)
-        const resp = await fetch(`asset://localhost/${fileContent}`);
-        content = await resp.text();
+        // File path (Tauri mode) — 经 Host 读取，避免 asset:// 被 CSP 拦截
+        content = await platform.readProfileFile(fileContent);
         fileName =
           fileContent.split("/").pop()?.split("\\").pop() ?? "imported";
       }

@@ -3,12 +3,12 @@ import { AgentWebSocket } from "@/lib/ws";
 import { useAgentStore } from "@/stores/agent-store";
 
 export function useWebSocket() {
-  const { apiBaseUrl, agentRunning, handleWsEvent, setWsConnected, fetchAll } =
+  const { apiEndpoint, agentRunning, handleWsEvent, setWsConnected, fetchAll } =
     useAgentStore();
   const wsRef = useRef<AgentWebSocket | null>(null);
 
   useEffect(() => {
-    if (!apiBaseUrl || !agentRunning) {
+    if (!apiEndpoint || !agentRunning) {
       if (wsRef.current) {
         wsRef.current.disconnect();
         wsRef.current = null;
@@ -33,7 +33,7 @@ export function useWebSocket() {
       setWsConnected(ws.connected);
     }, 1000);
 
-    ws.connect(apiBaseUrl);
+    ws.connect(apiEndpoint.baseUrl, apiEndpoint.token);
     wsRef.current = ws;
 
     return () => {
@@ -42,5 +42,5 @@ export function useWebSocket() {
       wsRef.current = null;
       setWsConnected(false);
     };
-  }, [apiBaseUrl, agentRunning, handleWsEvent, setWsConnected, fetchAll]);
+  }, [apiEndpoint, agentRunning, handleWsEvent, setWsConnected, fetchAll]);
 }

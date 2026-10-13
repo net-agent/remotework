@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,16 +16,26 @@ import { useAgentStore } from "@/stores/agent-store";
 import { useProfileStore } from "@/stores/profile-store";
 import { useSidecar } from "@/hooks/use-sidecar";
 import { useUIStore } from "@/stores/ui-store";
+import * as api from "@/lib/api";
 import { toast } from "sonner";
 
 export function SettingsPage() {
   const [logLevel, setLogLevel] = useState("info");
   const { setLogLevel: apiSetLogLevel } = useAgentApi();
-  const { agentRunning } = useAgentStore();
+  const { agentRunning, status, setStatus } = useAgentStore();
   const { activeProfile, dirty, needsRestart, clearNeedsRestart } =
     useProfileStore();
   const { uiMode, setUIMode } = useUIStore();
   const { restartAgent } = useSidecar();
+
+  // 关于区展示 sidecar 版本：进入设置页且 agent 在运行时刷新一次 /status
+  useEffect(() => {
+    if (!agentRunning) return;
+    api
+      .getStatus()
+      .then(setStatus)
+      .catch(() => {});
+  }, [agentRunning, setStatus]);
 
   const handleLogLevelChange = async (level: string) => {
     try {
@@ -117,8 +127,15 @@ export function SettingsPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm">关于</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-1">
           <p className="text-sm text-muted-foreground">Remotework Desktop v0.1.0</p>
+          {agentRunning && status ? (
+            <p className="text-xs text-muted-foreground">
+              Agent {status.version} ({status.commit}) · 协议 v{status.protocol}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">Agent 未运行</p>
+          )}
         </CardContent>
       </Card>
     </div>

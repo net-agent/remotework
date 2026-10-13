@@ -5,6 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TARGET_DIR="$SCRIPT_DIR/src-tauri"
 
+# 版本信息注入（sidecar 协议：version/commit 经 -ldflags -X 写入二进制）
+VERSION="$(cd "$ROOT_DIR" && git describe --tags --always 2>/dev/null || echo dev)"
+COMMIT="$(cd "$ROOT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo '')"
+LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT}"
+
 build_target() {
     local os=$1
     local arch=$2
@@ -12,7 +17,7 @@ build_target() {
     local ext=$4
 
     echo "Building for $target_triple..."
-    CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -o "$TARGET_DIR/remotework-${target_triple}${ext}" "$ROOT_DIR/cmd"
+    CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -ldflags "${LDFLAGS}" -o "$TARGET_DIR/remotework-${target_triple}${ext}" "$ROOT_DIR/cmd"
     echo "  -> remotework-${target_triple}${ext}"
 }
 

@@ -58,6 +58,7 @@ describe("link-rules", () => {
         aliveMs: 1,
         listens: 0,
         dials: 0,
+        reconnects: 0,
       },
       {
         name: "offline-link",
@@ -69,6 +70,7 @@ describe("link-rules", () => {
         aliveMs: 1,
         listens: 0,
         dials: 0,
+        reconnects: 0,
       },
     ];
 
