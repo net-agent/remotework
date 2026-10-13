@@ -6,9 +6,6 @@ node_modules/
 
 target/
 
-# Tauri sidecar binaries
-desktop/src-tauri/remotework-*
-
 __debug_bin*
 
 cmd/traces-logs/

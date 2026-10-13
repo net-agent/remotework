@@ -8,7 +8,7 @@ Remotework是一个用来进行辅助远程控制的工具，运行agent的两�
 
 Remotework只是流量的搬运工，实际的远程控制工具依赖RDP client、SSH client等第三方工具。
 
-- 桌面客户端（Tauri 2 + React）：见 [desktop/README.md](desktop/README.md)
+- 桌面客户端（Tauri 2 + React）：已拆分为独立仓库 remotework-desktop
 - 控制面 API（REST + WebSocket）：见 [api/README.md](api/README.md)
 
 ## 构建

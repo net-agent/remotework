@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Remotework is a Go traffic relay tool for remote control assistance. Two machines running agents connect through a central server to proxy port traffic (RDP, SSH, etc.). It is not a remote control tool itself — it relays traffic between endpoints.
 
-The `desktop/` directory contains a Tauri 2 + React desktop client that hosts the agent as a sidecar process and talks to it via the `api/` control plane. See `desktop/README.md` and `desktop/CLAUDE.md` for desktop-specific guidance.
+The desktop client (Tauri 2 + React, hosting the agent as a sidecar via the `api/` control plane) lives in the separate `remotework-desktop` repository; it was split out of this repo's former `desktop/` directory.
 
 ## Build & Test Commands
 
@@ -16,9 +16,6 @@ make build-all    # Cross-platform build (sh build.sh, outputs to dist/<date><su
 make test         # go test ./...
 make vet          # go vet ./...
 make fmt          # go fmt ./...
-
-make sidecar      # Build Go sidecar for desktop dev (current platform)
-make desktop-dev  # cd desktop && pnpm tauri dev
 ```
 
 Entry point is `./cmd` (not root). The build scripts disable CGO for static binaries.
