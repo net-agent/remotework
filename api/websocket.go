@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -11,7 +12,11 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	// Origin 为空（非浏览器客户端）直接允许；否则必须在白名单内
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		return origin == "" || allowedOrigins[origin]
+	},
 }
 
 // Event 推送给客户端的事件信封
@@ -125,6 +130,12 @@ func (c *WSClient) setSubscriptions(events []string) {
 
 // handleWebSocket 处理 WebSocket 连接升级
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// webview 无法自定义 WS 请求头，token 经查询参数传递
+	if s.token != "" && r.URL.Query().Get("token") != s.token {
+		writeError(w, http.StatusUnauthorized, errors.New("unauthorized"))
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.log.Error("websocket upgrade failed", "err", err)
@@ -141,23 +152,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	go s.wsReadPump(client)
 }
 
-// wsReadPump 读取客户端消息（订阅指令），5秒内未订阅则自动订阅全部
+// wsReadPump 读取客户端订阅指令；未发送订阅消息时 subs 保持 nil，即订阅全部事件
 func (s *Server) wsReadPump(c *WSClient) {
 	defer func() {
 		s.wsHub.removeClient(c)
 		c.conn.Close()
-	}()
-
-	// 5秒内未收到订阅消息则自动订阅全部
-	subscribed := make(chan struct{}, 1)
-	go func() {
-		timer := time.NewTimer(5 * time.Second)
-		defer timer.Stop()
-		select {
-		case <-subscribed:
-		case <-timer.C:
-			// 超时，subs 保持 nil 即订阅全部
-		}
 	}()
 
 	c.conn.SetReadDeadline(time.Time{})
@@ -170,10 +169,6 @@ func (s *Server) wsReadPump(c *WSClient) {
 		var sub subscribeMsg
 		if json.Unmarshal(msg, &sub) == nil && sub.Action == "subscribe" {
 			c.setSubscriptions(sub.Events)
-			select {
-			case subscribed <- struct{}{}:
-			default:
-			}
 		}
 	}
 }

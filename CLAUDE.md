@@ -42,10 +42,10 @@ Single binary, three run modes selected via `-mode` flag (default: `agent`):
 - **`vnet/`** — `Network` interface implementations (Flex virtual network, local TCP) plus state reporting (`ReportingNetwork`); consumed by network plugins
 - **`vservice/`** — Service controllers (portproxy, socks5) and `ServiceState`; consumed by the tunnel plugin
 - **`configv2/`** — Config parsing/normalization/validation (JSON with `//` comments, TOML); consumed by `cmd` and plugins
-- **`api/`** — Control plane only: HTTP REST + WebSocket, driven by the `Backend` interface (`api/backend.go`), implemented by `plugins/api`. No data traffic. Full reference: `api/README.md`
+- **`api/`** — Control plane only: HTTP REST + WebSocket, driven by the `Backend` interface (`api/backend.go`), implemented by `plugins/api`. No data traffic. Runtime options come from its own `api.Config` (not `configv2.APIInfo`); binds synchronously in `Start()` and reports the actual address via `Addr()`. Security: Bearer token (HTTP) / `?token=` (WS), Host-header whitelist, CORS/Origin allow-list. Full reference: `api/README.md`
 - **`server/`** — Relay server internals: config, mux, `Server` lifecycle
-- **`utils/`** — Shared utilities: logging (`NewModuleLogger`, `NamedLogger`), encrypted connections (`SecretListener` via cipherconn), bidirectional relay (`LinkReadWriteCloser`), exponential backoff (`Cooldown`), pprof server, listening-port probe
-- **`cmd/`** — CLI flags (`agent/server/validate`), config loading, kernel host assembly, signal handling. Sample configs: `cmd/config_example/`
+- **`utils/`** — Shared utilities: logging (`NewModuleLogger`, `NamedLogger`, `SetFormat` — `json` writes slog JSON to stdout for sidecar managed mode, `text` writes console format to stderr), encrypted connections (`SecretListener` via cipherconn), bidirectional relay (`LinkReadWriteCloser`), exponential backoff (`Cooldown`), pprof server, listening-port probe
+- **`cmd/`** — CLI flags (`agent/server/validate`, `-log-format text|json`), config loading, kernel host assembly, signal handling, and the sidecar process contract (C3 stdout control lines: `ready`/`fatal`, exit codes 0/1/2, `version`/`commit` injected via `-ldflags -X` by the build scripts). Protocol spec: `docs/tauri-sidecar-protocol.md`. Sample configs: `cmd/config_example/`
 
 ### Core Flow (Agent Mode)
 

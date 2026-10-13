@@ -27,11 +27,13 @@ func SetLevel(level slog.Level) {
 }
 
 // SetFormat 切换控制台输出格式
-// format: "text"（默认）或 "json"
+// format: "text"（默认，人类可读，写 stderr）或 "json"（slog JSON，写 stdout）。
+// json 模式供 Host 托管运行（sidecar 协议 C3 通道）：stdout 承载结构化日志，
+// stderr 仅保留 panic 等运行库输出。
 func SetFormat(format string) {
 	switch format {
 	case "json":
-		globalFanout.Add("console", slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		globalFanout.Add("console", slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 			Level: &globalLevel,
 		}))
 	default:

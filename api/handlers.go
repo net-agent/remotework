@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/net-agent/remotework/configv2"
@@ -12,8 +13,15 @@ import (
 )
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	utils.WriteJSON(w, nil, map[string]interface{}{
-		"running": s.backend.IsRunning(),
+	utils.WriteJSON(w, nil, statusDTO{
+		Running:     s.backend.IsRunning(),
+		Mode:        s.meta.Mode,
+		Version:     s.meta.Version,
+		Commit:      s.meta.Commit,
+		Protocol:    s.meta.Protocol,
+		UptimeMs:    time.Since(s.startedAt).Milliseconds(),
+		ConfigPath:  s.meta.ConfigPath,
+		ConfigError: s.meta.ConfigError,
 	})
 }
 
@@ -168,10 +176,6 @@ func (s *Server) handleLogLevel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("X-Confirm") != "yes" {
-		utils.WriteJSON(w, errors.New("missing header X-Confirm: yes"), nil)
-		return
-	}
 	utils.WriteJSON(w, nil, map[string]string{"status": "stopping"})
 	go s.backend.RequestStop()
 }

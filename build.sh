@@ -10,6 +10,12 @@ app="remote"
 srcPath="./cmd"
 baseDistPath="./dist" # 基础输出目录
 
+# 版本信息注入（sidecar 协议：version/commit 经 -ldflags -X 写入二进制）
+VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"
+COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo '')"
+LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT}"
+echo "版本: ${VERSION} (${COMMIT})"
+
 # --- 1. 确定本次编译的输出目录 ---
 date_prefix="$(date '+%Y%m%d')"
 target_dir=""
@@ -67,7 +73,7 @@ for os in ${GOOS_LIST[@]}; do
     bin_name="${app}_${os}_${arch}${ext}"
     
     # 执行编译，输出到新创建的目标目录
-    GOOS="$os" GOARCH="$arch" go build -o "${target_dir}/${bin_name}" "${srcPath}"
+    GOOS="$os" GOARCH="$arch" go build -ldflags "${LDFLAGS}" -o "${target_dir}/${bin_name}" "${srcPath}"
     
     # 检查编译是否成功
     if [ $? -eq 0 ]; then

@@ -27,17 +27,24 @@ const (
 	tunnelNamePrefix  = "tunnel/"
 )
 
+// Options 进程层注入的运行时选项（与文件配置分离）
+type Options struct {
+	Token string   // Bearer token，空表示 standalone 开放模式
+	Meta  api.Meta // /status 元信息
+}
+
 // Plugin api 观察器插件
 type Plugin struct {
 	cfg     configv2.APIInfo
 	onStop  func()
+	opts    Options
 	backend *backend
 	server  *api.Server
 }
 
 // New 创建 api 插件；onStop 为请求停止宿主的回调（由 cmd 注入）
-func New(cfg configv2.APIInfo, onStop func()) *Plugin {
-	return &Plugin{cfg: cfg, onStop: onStop}
+func New(cfg configv2.APIInfo, onStop func(), opts Options) *Plugin {
+	return &Plugin{cfg: cfg, onStop: onStop, opts: opts}
 }
 
 func (p *Plugin) Info() kernel.Info {
@@ -62,7 +69,12 @@ func (p *Plugin) Init(c *kernel.Context) error {
 		log:     c.Logger(),
 	}
 	p.backend.running.Store(true)
-	p.server = api.New(p.backend, p.cfg, c.Logger())
+	p.server = api.New(p.backend, api.Config{
+		Listen:       p.cfg.Listen,
+		PollInterval: p.cfg.PollInterval,
+		Token:        p.opts.Token,
+		Meta:         p.opts.Meta,
+	}, c.Logger())
 	c.DeferCleanup(func(ctx context.Context) error {
 		p.backend.running.Store(false)
 		p.server.Stop()
@@ -73,6 +85,14 @@ func (p *Plugin) Init(c *kernel.Context) error {
 
 func (p *Plugin) Start(c *kernel.Context) error {
 	return p.server.Start()
+}
+
+// Addr 返回 API 服务器实际绑定地址；未初始化时返回空串
+func (p *Plugin) Addr() string {
+	if p.server == nil {
+		return ""
+	}
+	return p.server.Addr()
 }
 
 //

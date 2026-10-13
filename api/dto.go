@@ -54,6 +54,18 @@ type PingResultDTO struct {
 	UsedServices []string `json:"usedServices"`
 }
 
+// statusDTO GET /status 的响应体（sidecar 协议 §6.1）
+type statusDTO struct {
+	Running     bool   `json:"running"`
+	Mode        string `json:"mode"`
+	Version     string `json:"version"`
+	Commit      string `json:"commit"`
+	Protocol    int    `json:"protocol"`
+	UptimeMs    int64  `json:"uptimeMs"`
+	ConfigPath  string `json:"configPath"`
+	ConfigError string `json:"configError,omitempty"`
+}
+
 type ListeningPortDTO struct {
 	Port        uint16 `json:"port"`
 	Protocol    string `json:"protocol"`

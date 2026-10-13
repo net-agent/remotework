@@ -5,11 +5,13 @@
 - [概述](#概述)
 - [核心架构理解](#核心架构理解)
 - [配置与启动](#配置与启动)
+- [认证与来源校验](#认证与来源校验)
 - [REST API 参考](#rest-api-参考)
 - [WebSocket 实时事件](#websocket-实时事件)
 - [数据模型](#数据模型)
 - [集成示例](#集成示例)
 - [设计决策与注意事项](#设计决策与注意事项)
+- [Sidecar 协议](#sidecar-协议)
 
 ---
 
@@ -154,18 +156,53 @@ host := kernel.NewHost(nil, nil) // nil 使用默认 logger 与参数
 // ... 按需加载网络/隧道插件 ...
 host.Load(apiplugin.New(config.API, func() {
     // /stop 被调用时的宿主停止回调，例如触发 Shutdown
+}, apiplugin.Options{
+    Token: os.Getenv("REMOTEWORK_API_TOKEN"), // 可空，见「认证与来源校验」
+    Meta:  api.Meta{Protocol: 1, Mode: "normal", ConfigPath: resolvedPath},
 }))
 
 // 方式二：不用 kernel，自行实现 api.Backend 接口后直接起服务
-apiServer := api.New(myBackend, config.API, nil) // nil 使用默认 logger
-apiServer.Start()  // 非阻塞
+apiServer := api.New(myBackend, api.Config{
+    Listen: "127.0.0.1:8080",
+    Token:  "...",          // 可空
+    Meta:   api.Meta{Protocol: 1, Mode: "normal"},
+}, nil) // nil 使用默认 logger
+if err := apiServer.Start(); err != nil {
+    // 端口绑定失败会同步返回错误
+}
 defer apiServer.Stop()
+// apiServer.Addr() 返回实际绑定地址（Listen 配 ":0" 时为系统分配端口）
 ```
 
 `api.New()` 接收三个参数：
 - `api.Backend` — 控制面后端接口实现（必须）
-- `configv2.APIInfo` — 配置信息
+- `api.Config` — 运行时选项（监听地址、轮询间隔、token、元信息），与文件配置解耦
 - `*slog.Logger` — 日志器，传 `nil` 使用默认
+
+`Start()` 是**同步绑定**：端口被占用等错误立即返回，不会等到首次请求才暴露。
+
+---
+
+## 认证与来源校验
+
+自 sidecar 协议 v1 起，API 具备完整的安全层（standalone 开放模式下同样生效）：
+
+### Bearer token
+
+- 进程经环境变量 `REMOTEWORK_API_TOKEN` 获取 token（Host 每次 spawn 重新生成），token 不落盘、不出现在命令行参数中。
+- token 存在时，所有 `/api/v1/*` HTTP 请求必须携带 `Authorization: Bearer <token>`，缺失或错误返回 **401**（统一错误信封）。
+- WebSocket 握手经 `?token=<token>` 查询参数传递（webview 无法自定义 WS 请求头），校验失败返回 **401** 且不升级连接。
+- token 为空（standalone CLI 场景）时 API 保持开放，启动日志输出 warn 提示 `api server running without auth token`。
+
+### Host 头白名单（防 DNS rebinding）
+
+HTTP 请求的 Host 头去端口后必须在白名单内：`127.0.0.1`、`localhost`、`::1`、`[::1]`，否则返回 **403**。
+
+### CORS / WebSocket Origin 白名单
+
+- 允许的 Origin：`tauri://localhost`（macOS 生产）、`http://tauri.localhost`（Windows 生产）、`http://localhost:1420`（dev）。
+- 命中时反射 Origin 并允许 `Content-Type, Authorization` 头；未命中不设置 `Access-Control-Allow-Origin`。
+- WebSocket 握手校验 Origin：Origin 为空（非浏览器客户端）直接允许，否则必须在白名单内。
 
 ---
 
@@ -189,7 +226,7 @@ defer apiServer.Stop()
 
 ### GET /api/v1/status
 
-获取宿主运行状态。
+获取宿主运行状态与进程元信息。
 
 **响应：**
 
@@ -197,12 +234,27 @@ defer apiServer.Stop()
 {
   "ErrCode": 0,
   "Data": {
-    "running": true
+    "running": true,
+    "mode": "normal",
+    "version": "v1.2.0",
+    "commit": "abc1234",
+    "protocol": 1,
+    "uptimeMs": 12345,
+    "configPath": "/abs/path/active-config.json",
+    "configError": ""
   }
 }
 ```
 
-`running` 为 `true` 表示控制面后端运行中；为 `false` 表示宿主已进入停止流程（插件正在卸载）。
+| 字段 | 说明 |
+|------|------|
+| `running` | `true` 表示控制面后端运行中；`false` 表示宿主已进入停止流程（插件正在卸载） |
+| `mode` | `normal` 或 `degraded`（配置损坏时仅运行 API 的降级模式） |
+| `version` / `commit` | 构建期经 `-ldflags -X` 注入的版本信息 |
+| `protocol` | sidecar 协议版本，当前为 `1` |
+| `uptimeMs` | API 服务器启动至今的毫秒数 |
+| `configPath` | 当前配置文件路径 |
+| `configError` | 降级模式时的配置错误汇总；正常模式下省略（`omitempty`） |
 
 ---
 
@@ -245,7 +297,7 @@ defer apiServer.Stop()
 
 字段说明见 [NetworkStateDTO](#networkstatedto)。
 
-注意：返回列表包含内置的 `tcp`/`tcp4`/`tcp6` 网络，它们的大部分字段为空值。上层应用通常可以过滤掉 `protocol` 为空的条目。
+注意：返回列表包含内置的 `tcp` 本地网络（`tcp4`/`tcp6` 已被过滤），其大部分字段为空值。上层应用通常可以过滤掉 `protocol` 为空的条目。
 
 ---
 
@@ -403,15 +455,91 @@ POST /api/v1/ping/mynet/remote-pc
 
 ---
 
+### GET /api/v1/system/listening-ports
+
+枚举本机当前处于 LISTEN 状态的端口（用于隧道配置时辅助选端口）。
+
+**响应：**
+
+```json
+{
+  "ErrCode": 0,
+  "Data": [
+    {
+      "port": 3389,
+      "protocol": "tcp",
+      "pid": 1234,
+      "processName": "svchost"
+    }
+  ]
+}
+```
+
+`pid` / `processName` 无法获取时省略。
+
+---
+
+### POST /api/v1/links
+
+运行时热挂载一个 link（虚拟网络），免重启生效。持久化由调用方负责（见协议 §8 双写编排），sidecar 不写配置文件。
+
+**请求体：**
+
+```json
+{
+  "alias": "mynet",
+  "url": "tcp://server.example.com:9000?as=mypc&auth=secret"
+}
+```
+
+`alias` 与 `url` 均必填；`url` 中必须包含 `as=` 参数。
+
+**响应：**
+
+```json
+{
+  "ErrCode": 0,
+  "Data": {
+    "status": "ok",
+    "alias": "mynet"
+  }
+}
+```
+
+---
+
+### POST /api/v1/tunnels
+
+运行时热挂载一个 tunnel（端口转发 / socks5 服务），免重启生效。持久化约定同 `/links`。
+
+**请求体：** 与配置文件 `tunnels` 数组单项相同（原始 JSON 结构，服务端会规范化）。
+
+```json
+{
+  "name": "rdp-forward",
+  "listen": "tcp://127.0.0.1:13389",
+  "target": "vtcp://remote-pc.mynet:3389?authcode=key"
+}
+```
+
+**响应：**
+
+```json
+{
+  "ErrCode": 0,
+  "Data": {
+    "status": "ok",
+    "name": "rdp-forward",
+    "id": "a1b2c3d4-..."
+  }
+}
+```
+
+---
+
 ### POST /api/v1/stop
 
-优雅停止 Agent。需要确认头防止误操作。
-
-**必须的请求头：**
-
-```
-X-Confirm: yes
-```
+优雅停止 Agent。自 sidecar 协议 v1 起由 token 鉴权保护，**不再需要 `X-Confirm` 头**。
 
 **响应：**
 
@@ -424,16 +552,7 @@ X-Confirm: yes
 }
 ```
 
-调用后宿主会异步执行停止流程：按逆依赖顺序卸载全部插件（隧道 → 网络 → API），随后进程退出。
-
-缺少 `X-Confirm: yes` 头时返回错误：
-
-```json
-{
-  "ErrCode": -1,
-  "ErrMsg": "missing header X-Confirm: yes"
-}
-```
+调用后宿主会异步执行停止流程：按逆依赖顺序卸载全部插件（隧道 → 网络 → API），随后进程以退出码 0 退出（停机宽限 15 秒）。
 
 ---
 
@@ -442,10 +561,12 @@ X-Confirm: yes
 ### 连接
 
 ```
-ws://127.0.0.1:8080/api/v1/ws
+ws://127.0.0.1:8080/api/v1/ws?token=<REMOTEWORK_API_TOKEN>
 ```
 
-连接建立后，客户端可以发送订阅消息选择感兴趣的事件类型。如果 5 秒内未发送订阅消息，将自动订阅全部事件。
+token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求头），校验失败返回 401 且不升级连接。Origin 头必须在白名单内（见「认证与来源校验」），非浏览器客户端（无 Origin 头）不受此限。
+
+连接建立后，客户端可以发送订阅消息选择感兴趣的事件类型；未发送订阅消息时默认接收全部事件。
 
 ### 订阅
 
@@ -653,6 +774,9 @@ ws://127.0.0.1:8080/api/v1/ws
 ### curl 快速验证
 
 ```bash
+# 若进程以 REMOTEWORK_API_TOKEN 启动，所有请求需带：
+#   -H "Authorization: Bearer $REMOTEWORK_API_TOKEN"
+
 # 检查运行状态
 curl http://127.0.0.1:8080/api/v1/status
 
@@ -665,6 +789,9 @@ curl http://127.0.0.1:8080/api/v1/services
 # 查看数据流（限制 20 条，过滤指定网络）
 curl "http://127.0.0.1:8080/api/v1/streams?limit=20&network=mynet"
 
+# 查看本机监听端口
+curl http://127.0.0.1:8080/api/v1/system/listening-ports
+
 # 全量 ping 测试
 curl -X POST http://127.0.0.1:8080/api/v1/ping
 
@@ -676,15 +803,23 @@ curl -X PUT http://127.0.0.1:8080/api/v1/loglevel \
   -H "Content-Type: application/json" \
   -d '{"level":"debug"}'
 
-# 停止 Agent
-curl -X POST http://127.0.0.1:8080/api/v1/stop \
-  -H "X-Confirm: yes"
+# 热挂载 link / tunnel
+curl -X POST http://127.0.0.1:8080/api/v1/links \
+  -H "Content-Type: application/json" \
+  -d '{"alias":"mynet","url":"tcp://server.example.com:9000?as=mypc&auth=secret"}'
+curl -X POST http://127.0.0.1:8080/api/v1/tunnels \
+  -H "Content-Type: application/json" \
+  -d '{"name":"rdp-forward","listen":"tcp://127.0.0.1:13389","target":"vtcp://remote-pc.mynet:3389?authcode=key"}'
+
+# 停止 Agent（无需 X-Confirm，由 token 鉴权保护）
+curl -X POST http://127.0.0.1:8080/api/v1/stop
 ```
 
 ### JavaScript WebSocket 客户端
 
 ```javascript
-const ws = new WebSocket('ws://127.0.0.1:8080/api/v1/ws');
+const token = '<REMOTEWORK_API_TOKEN>'; // standalone 无 token 时可省略
+const ws = new WebSocket(`ws://127.0.0.1:8080/api/v1/ws?token=${encodeURIComponent(token)}`);
 
 ws.onopen = () => {
   // 订阅感兴趣的事件（可选，不发则接收全部）
@@ -806,8 +941,9 @@ API 模块使用两种互补的事件推送机制：
 ### 安全性
 
 - 默认监听 `127.0.0.1`，仅本机可访问
-- `/stop` 接口需要 `X-Confirm: yes` 头防止误操作
-- WebSocket 的 `CheckOrigin` 默认允许所有来源（适合本地开发），生产环境如需暴露到外网应自行添加认证中间件
+- token 鉴权：`Authorization: Bearer <token>`（HTTP）/ `?token=`（WS），token 经 env 注入不落盘；standalone 无 token 时保持开放并输出 warn 日志
+- Host 头白名单（`127.0.0.1` / `localhost` / `::1`）防 DNS rebinding
+- CORS 与 WS Origin 收敛为白名单（`tauri://localhost`、`http://tauri.localhost`、`http://localhost:1420`）
 - API 不暴露密码等敏感配置信息
 
 ### 并发安全
@@ -843,3 +979,9 @@ if (json.ErrCode !== 0) {
 - 没有任何隧道服务时调用全量 ping → `"NO SERVICES"`
 - ping 不存在的网络 → `"network='xxx' not found"`
 - 无效的日志级别 → `"invalid level, use: debug/info/warn/error"`
+
+---
+
+## Sidecar 协议
+
+当本进程作为 Tauri 桌面端的 sidecar 运行时，进程间契约（启动握手、stdout 行协议、token 颁发、退出码等）以 [`docs/tauri-sidecar-protocol.md`](../docs/tauri-sidecar-protocol.md) 为准。本文档描述的是 C4 通道（REST/WS）的接口细节，两处关于认证、来源校验与 `/status`、`/stop` 语义的定义保持一致。
