@@ -125,6 +125,7 @@ func runAgent(configFile string) {
 
 	host := kernel.NewHost(nil, nil)
 	requestStop, waitStop := stopTrigger()
+	startParentWatchdog(requestStop, syslog)
 
 	// 内置本地网络
 	for _, alias := range []string{"tcp", "tcp4", "tcp6"} {
@@ -170,6 +171,7 @@ func runDegradedAgent(configPath, token, configError string) {
 
 	host := kernel.NewHost(nil, nil)
 	requestStop, waitStop := stopTrigger()
+	startParentWatchdog(requestStop, syslog)
 
 	for _, alias := range []string{"tcp", "tcp4", "tcp6"} {
 		loadPlugin(host, nettcp.New(alias))
