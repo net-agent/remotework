@@ -32,6 +32,11 @@ type FlexLinkConfig struct {
 	Logger *slog.Logger
 	// OnStateChange 可选回调，Session 状态变更时触发（参数为状态字符串）
 	OnStateChange func(oldState, newState string)
+	// OnStreamOpen / OnStreamClosed 可选回调，流打开 / 完全关闭时触发（flex Trace 钩子，
+	// 每次重连新建的 Node 会自动继承）。注意：Closed 在流完全关闭后的滞留期
+	// （flex DefaultDetachRetention，约 2 秒）届满时触发，非即时。
+	OnStreamOpen   func(st *stream.State)
+	OnStreamClosed func(st *stream.State)
 }
 
 type flexNetwork struct {
@@ -74,6 +79,14 @@ func NewFlexNetworkFromLink(cfg FlexLinkConfig) (Network, error) {
 		log = utils.NewModuleLogger("vnet.flex." + cfg.Alias)
 	}
 	sess.SetLogger(log)
+
+	if cfg.OnStreamOpen != nil || cfg.OnStreamClosed != nil {
+		// SetTrace 需在 Serve 前调用；重连后新建的 Node 由 Session 自动注入同一组钩子
+		sess.SetTrace(&node.Trace{
+			StreamOpen:   cfg.OnStreamOpen,
+			StreamClosed: cfg.OnStreamClosed,
+		})
+	}
 
 	if cfg.OnStateChange != nil {
 		// SessionState 枚举定义见 github.com/net-agent/flex/v3/node/session.go
@@ -179,8 +192,18 @@ func (fnet *flexNetwork) GetStreamStates() (actives, closeds []*stream.State) {
 	return fnet.tracker.collect(n)
 }
 
+// CloseStream 实现 StreamCloser 可选接口：按流 State.Index 手动关闭一条活跃流。
+// 重连中（GetNode 为 nil）返回 false。
+func (fnet *flexNetwork) CloseStream(index int32) bool {
+	n := fnet.session.GetNode()
+	if n == nil {
+		return false
+	}
+	return n.CloseStream(index)
+}
+
 func (fnet *flexNetwork) Meta() NetworkMeta {
-	return NetworkMeta{
+	meta := NetworkMeta{
 		Protocol:   fnet.meta.scheme,
 		Address:    fnet.meta.address,
 		Domain:     fnet.meta.domain,
@@ -189,4 +212,10 @@ func (fnet *flexNetwork) Meta() NetworkMeta {
 		Reconnects: fnet.session.GetReconnectCount(),
 		Kind:       "virtual",
 	}
+	// 重连中（GetNode 为 nil）节点级指标保持零值
+	if n := fnet.session.GetNode(); n != nil {
+		meta.BytesRead, meta.BytesWritten = n.GetReadWriteSize()
+		meta.RTT = n.GetLastRTT()
+	}
+	return meta
 }

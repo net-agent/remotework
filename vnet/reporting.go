@@ -30,10 +30,11 @@ func (r *ReportingNetwork) Listen(network, addr string) (net.Listener, error) {
 
 func (r *ReportingNetwork) Report() NetworkReport {
 	report := NetworkReport{
-		Name:    r.GetName(),
-		Alive:   time.Since(r.start),
-		Dials:   r.dialCount.Load(),
-		Listens: r.listenCount.Load(),
+		Name:      r.GetName(),
+		Alive:     time.Since(r.start),
+		StartedAt: r.start,
+		Dials:     r.dialCount.Load(),
+		Listens:   r.listenCount.Load(),
 	}
 	if mp, ok := r.Network.(NetworkMetaProvider); ok {
 		meta := mp.Meta()
@@ -44,6 +45,9 @@ func (r *ReportingNetwork) Report() NetworkReport {
 		report.LastErr = meta.LastErr
 		report.Reconnects = meta.Reconnects
 		report.Kind = meta.Kind
+		report.BytesRead = meta.BytesRead
+		report.BytesWritten = meta.BytesWritten
+		report.RTT = meta.RTT
 	}
 	return report
 }

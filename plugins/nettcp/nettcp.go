@@ -2,6 +2,7 @@
 package nettcp
 
 import (
+	"github.com/net-agent/flex/v3/stream"
 	"github.com/net-agent/remotework/kernel"
 	"github.com/net-agent/remotework/vnet"
 )
@@ -21,8 +22,22 @@ func (p *Plugin) Info() kernel.Info {
 }
 
 func (p *Plugin) Init(c *kernel.Context) error {
-	return kernel.Provide[vnet.Network](c, p.alias,
-		vnet.NewReportingNetwork(vnet.NewTcpNetwork(p.alias)))
+	bus, err := kernel.Inject[kernel.EventBus](c, "")
+	if err != nil {
+		return err
+	}
+
+	alias := p.alias
+	trace := &vnet.StreamTrace{
+		OnStreamOpen: func(st *stream.State) {
+			bus.Publish(vnet.TopicStreamOpen, vnet.StreamEvent{Network: alias, State: st})
+		},
+		OnStreamClosed: func(st *stream.State) {
+			bus.Publish(vnet.TopicStreamClosed, vnet.StreamEvent{Network: alias, State: st})
+		},
+	}
+	return kernel.Provide[vnet.Network](c, alias,
+		vnet.NewReportingNetwork(vnet.NewTcpNetwork(alias, trace)))
 }
 
 func (p *Plugin) Start(c *kernel.Context) error { return nil }

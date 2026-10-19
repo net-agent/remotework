@@ -23,6 +23,11 @@ type NetworkMetaProvider interface {
 	Meta() NetworkMeta
 }
 
+// StreamCloser 可选接口：按流 State.Index 主动关闭一条连接（手动关闭）
+type StreamCloser interface {
+	CloseStream(index int32) bool
+}
+
 type NetworkMeta struct {
 	Protocol   string
 	Address    string
@@ -31,6 +36,10 @@ type NetworkMeta struct {
 	LastErr    string
 	Reconnects int64  // 累计断线重连次数（虚拟网络有效）
 	Kind       string // "local" or "virtual"
+
+	BytesRead    int64         // 节点累计读取字节数（虚拟网络有效）
+	BytesWritten int64         // 节点累计写入字节数（虚拟网络有效）
+	RTT          time.Duration // 最近一次心跳 RTT（虚拟网络有效，未测量为 0）
 }
 
 type NetworkReport struct {
@@ -39,6 +48,7 @@ type NetworkReport struct {
 	Address    string
 	Domain     string
 	Alive      time.Duration
+	StartedAt  time.Time // 网络对象创建时刻（Alive 的绝对时间锚点）
 	Listens    int32
 	Accepts    int32
 	Dials      int32
@@ -46,6 +56,10 @@ type NetworkReport struct {
 	LastErr    string
 	Reconnects int64
 	Kind       string // "local" or "virtual"
+
+	BytesRead    int64         // 节点累计读取字节数
+	BytesWritten int64         // 节点累计写入字节数
+	RTT          time.Duration // 最近一次心跳 RTT（0 表示未测量或不支持）
 }
 
 type PingReport struct {
