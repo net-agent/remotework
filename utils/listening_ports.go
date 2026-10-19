@@ -13,6 +13,27 @@ type ListeningPortInfo struct {
 	Protocol    string
 	PID         uint32
 	ProcessName string
+	// Address 为监听地址，取自连接本地地址（如 "0.0.0.0"、"::"、"127.0.0.1"）
+	Address string
+	// ProcStartMs 为进程启动时间（Unix 毫秒），pid 非法或获取失败时为 0
+	ProcStartMs int64
+}
+
+// getProcessStartMs 获取进程启动时间（Unix 毫秒）。做成包内变量便于单测替换，
+// 避免测试路径触发真实系统调用。pid<=0 或获取失败时返回 0。
+var getProcessStartMs = func(pid int32) int64 {
+	if pid <= 0 {
+		return 0
+	}
+	process, err := gopsprocess.NewProcess(pid)
+	if err != nil {
+		return 0
+	}
+	createTime, err := process.CreateTime()
+	if err != nil {
+		return 0
+	}
+	return createTime
 }
 
 func ListListeningPorts() ([]ListeningPortInfo, error) {
@@ -25,6 +46,8 @@ func ListListeningPorts() ([]ListeningPortInfo, error) {
 
 func buildListeningPorts(connections []gopsnet.ConnectionStat) []ListeningPortInfo {
 	items := make([]ListeningPortInfo, 0, len(connections))
+	// CreateTime 调用成本高，同一次采集内按 pid 缓存，避免每个 socket 重复查询
+	startMsCache := make(map[int32]int64)
 	for _, connection := range connections {
 		if !isListeningConnection(connection) {
 			continue
@@ -33,11 +56,19 @@ func buildListeningPorts(connections []gopsnet.ConnectionStat) []ListeningPortIn
 			continue
 		}
 
+		startMs, cached := startMsCache[connection.Pid]
+		if !cached {
+			startMs = getProcessStartMs(connection.Pid)
+			startMsCache[connection.Pid] = startMs
+		}
+
 		items = append(items, ListeningPortInfo{
 			Port:        uint16(connection.Laddr.Port),
 			Protocol:    protocolName(connection.Type),
 			PID:         uint32(connection.Pid),
 			ProcessName: getProcessName(connection.Pid),
+			Address:     connection.Laddr.IP,
+			ProcStartMs: startMs,
 		})
 	}
 	return dedupeListeningPorts(items)
@@ -74,24 +105,37 @@ func protocolName(kind uint32) string {
 	}
 }
 
+// listeningPortKey 为去重键：同端口的不同监听地址（IPv4/IPv6 双栈）或
+// 不同进程（SO_REUSEPORT）视为不同监听，只有三者完全一致才合并。
+type listeningPortKey struct {
+	address string
+	port    uint16
+	pid     uint32
+}
+
 func dedupeListeningPorts(items []ListeningPortInfo) []ListeningPortInfo {
-	unique := make(map[uint16]ListeningPortInfo, len(items))
+	unique := make(map[listeningPortKey]ListeningPortInfo, len(items))
 	for _, item := range items {
-		if _, exists := unique[item.Port]; exists {
+		key := listeningPortKey{address: item.Address, port: item.Port, pid: item.PID}
+		if _, exists := unique[key]; exists {
 			continue
 		}
-		unique[item.Port] = item
+		unique[key] = item
 	}
 
-	ports := make([]uint16, 0, len(unique))
-	for port := range unique {
-		ports = append(ports, port)
+	result := make([]ListeningPortInfo, 0, len(unique))
+	for _, item := range unique {
+		result = append(result, item)
 	}
-	sort.Slice(ports, func(i, j int) bool { return ports[i] < ports[j] })
-
-	result := make([]ListeningPortInfo, 0, len(ports))
-	for _, port := range ports {
-		result = append(result, unique[port])
-	}
+	// 排序保持确定性：端口升序为主键，同端口按监听地址字典序、再按 PID 升序
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Port != result[j].Port {
+			return result[i].Port < result[j].Port
+		}
+		if result[i].Address != result[j].Address {
+			return result[i].Address < result[j].Address
+		}
+		return result[i].PID < result[j].PID
+	})
 	return result
 }
