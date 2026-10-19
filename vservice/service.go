@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/net-agent/flex/v3/stream"
@@ -80,6 +81,10 @@ type ServiceState struct {
 	ID      int32
 	actives int32
 	dones   int32
+
+	// connRefs 连接登记表（key 为 connRef，零值可用）：
+	// 记录服务经手的连接 {网络别名, 连接编号}，供 api 层反查连接归属
+	connRefs sync.Map
 }
 
 func (s *ServiceState) SetStatus(st ServiceStatus) { atomic.StoreInt32(&s.status, int32(st)) }

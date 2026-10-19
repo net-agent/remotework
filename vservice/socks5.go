@@ -44,6 +44,11 @@ func (s *Socks5Controller) Init() error {
 			b.Close()
 			s.log.Info("link stopped", "from", dialer, "alive", time.Since(start).Round(time.Second))
 		}()
+		// a 是 listen 侧接受的连接（运行时为 net.Conn），登记归属供控制面反查；
+		// b 由 socks 库内部 dial 产生、不经过 vnet，无法追踪，不做登记
+		if conn, ok := a.(net.Conn); ok {
+			a = s.state.TrackConn(networkOfURL(s.state.ListenURL), conn)
+		}
 		s.log.Info("link created", "from", dialer)
 		return utils.RelayConns(a, b)
 	})

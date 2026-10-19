@@ -75,14 +75,21 @@ func (p *PortproxyController) serve(dialConn net.Conn) {
 		p.state.AddDoneCount(1)
 	}()
 
+	// 包装前先取对端信息：登记包装会遮蔽 GetRemoteInfo 的 *stream.Stream 断言
+	dialer := GetRemoteInfo(dialConn)
+	// 登记 listen 侧连接归属（网络别名取自 ListenURL 的 scheme），供控制面反查；
+	// 无法提取连接编号时原样返回，不影响数据通路
+	dialConn = p.state.TrackConn(networkOfURL(p.state.ListenURL), dialConn)
+
 	targetConn, err := p.dialer()
 	if err != nil {
 		p.log.Error("dial error", "target", utils.RedactURL(p.state.TargetURL), "err", err)
 		return
 	}
+	// 登记 dial 侧连接归属（网络别名取自 TargetURL 的 scheme）
+	targetConn = p.state.TrackConn(networkOfURL(p.state.TargetURL), targetConn)
 	defer targetConn.Close()
 
-	dialer := GetRemoteInfo(dialConn)
 	start := time.Now()
 
 	p.log.Info("pipe created", "from", dialer, "to", utils.RedactURL(p.state.TargetURL))
