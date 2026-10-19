@@ -41,5 +41,14 @@
   "pprof": {
     "enable": false,
     "listen": "localhost:6060"
+  },
+
+  "api": {
+    "enable": false,
+    "listen": "127.0.0.1:8080",
+    // 网络/服务状态轮询间隔（秒），缺省 5
+    "pollInterval": 5,
+    // 数据流字节数/速率快照推送间隔（秒），缺省 1
+    "streamStatsInterval": 1
   }
 }

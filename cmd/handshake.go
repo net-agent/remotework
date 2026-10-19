@@ -12,8 +12,10 @@ var (
 	commit  = ""
 )
 
-// protocolVersion 为 sidecar 协议版本（docs/tauri-sidecar-protocol.md）
-const protocolVersion = 1
+// protocolVersion 为 sidecar 协议版本（docs/tauri-sidecar-protocol.md）。
+// v2 新增：WS 主题订阅（snapshot-on-subscribe / resync / 事件信封 seq+topic）、
+// 流生命周期即时事件（stream.opened/closed）、每 tick 计数器快照（network.stats/service.stats）。
+const protocolVersion = 2
 
 // managedMode 仅当 -log-format=json（Host 托管模式）时为 true，
 // 此时 stdout 承载 C3 控制行与结构化日志；文本模式完全不输出控制行。

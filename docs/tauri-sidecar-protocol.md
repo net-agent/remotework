@@ -195,10 +195,11 @@ sidecar **MUST NOT** 为热挂载提供任何形式的持久化。
 
 ## 9. 版本协商
 
-1. 本协议版本 `protocol: 1`，sidecar 在 `ready` 消息与 `/api/v1/status` 中均 **MUST** 携带。
+1. 本协议版本 `protocol: 2`（v2 新增 WS 主题订阅/快照/序列号与流生命周期即时事件，全部为 additive 变更；REST 契约不变），sidecar 在 `ready` 消息与 `/api/v1/status` 中均 **MUST** 携带。
 2. sidecar 的 `version`/`commit` **MUST** 经 `-ldflags -X` 在构建期注入。
 3. Host 对 `protocol` 高于自身支持上限的 sidecar **MUST** 报错提示升级，**MUST NOT** 尝试兼容未知协议。
 4. Host 不再以 stderr 文本特征（如 `"invalid run-mode"`）探测二进制能力。
+5. v2 的 WS 事件契约（主题、快照、seq/resync、背压与心跳）以 `api/README.md` 的「WebSocket 实时事件」章节为准。
 
 ---
 

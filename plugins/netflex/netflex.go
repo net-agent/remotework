@@ -4,6 +4,7 @@ package netflex
 import (
 	"context"
 
+	"github.com/net-agent/flex/v3/stream"
 	"github.com/net-agent/remotework/configv2"
 	"github.com/net-agent/remotework/kernel"
 	"github.com/net-agent/remotework/vnet"
@@ -11,6 +12,9 @@ import (
 
 // TopicState 网络会话状态变化的 EventBus 主题，payload 为 StateEvent
 const TopicState = "network.state"
+
+// 流生命周期事件的主题与类型定义在 vnet 包（TopicStreamOpen/TopicStreamClosed、
+// StreamEvent），tcp 与 flex 网络共用同一事件管道。
 
 // StateEvent 网络会话状态变化事件
 type StateEvent struct {
@@ -50,6 +54,12 @@ func (p *Plugin) Init(c *kernel.Context) error {
 		Logger:   c.Logger(),
 		OnStateChange: func(oldState, newState string) {
 			bus.Publish(TopicState, StateEvent{Network: alias, Old: oldState, New: newState})
+		},
+		OnStreamOpen: func(st *stream.State) {
+			bus.Publish(vnet.TopicStreamOpen, vnet.StreamEvent{Network: alias, State: st})
+		},
+		OnStreamClosed: func(st *stream.State) {
+			bus.Publish(vnet.TopicStreamClosed, vnet.StreamEvent{Network: alias, State: st})
 		},
 	})
 	if err != nil {
