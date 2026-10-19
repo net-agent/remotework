@@ -70,10 +70,11 @@ func (p *Plugin) Init(c *kernel.Context) error {
 	}
 	p.backend.running.Store(true)
 	p.server = api.New(p.backend, api.Config{
-		Listen:       p.cfg.Listen,
-		PollInterval: p.cfg.PollInterval,
-		Token:        p.opts.Token,
-		Meta:         p.opts.Meta,
+		Listen:              p.cfg.Listen,
+		PollInterval:        p.cfg.PollInterval,
+		StreamStatsInterval: p.cfg.StreamStatsInterval,
+		Token:               p.opts.Token,
+		Meta:                p.opts.Meta,
 	}, c.Logger())
 	c.DeferCleanup(func(ctx context.Context) error {
 		p.backend.running.Store(false)
@@ -128,8 +129,8 @@ func (b *backend) GetAllNetworkState() ([]vnet.NetworkReport, error) {
 	return reports, nil
 }
 
-func (b *backend) GetAllServiceState() ([]vservice.ServiceState, error) {
-	var states []vservice.ServiceState
+func (b *backend) GetAllServiceState() ([]*vservice.ServiceState, error) {
+	var states []*vservice.ServiceState
 	for _, ps := range b.catalog.List() {
 		if ps.Info.Kind != "tunnel" {
 			continue
@@ -139,7 +140,7 @@ func (b *backend) GetAllServiceState() ([]vservice.ServiceState, error) {
 		if !ok {
 			continue
 		}
-		states = append(states, svc.ServiceState)
+		states = append(states, &svc.ServiceState)
 	}
 	return states, nil
 }
@@ -149,17 +150,55 @@ type streamStateProvider interface {
 	GetStreamStates() (actives, closeds []*stream.State)
 }
 
+// unwrapNetwork 穿透 ReportingNetwork 装饰器取底层网络实现
+func unwrapNetwork(mnet vnet.Network) vnet.Network {
+	if rn, ok := mnet.(*vnet.ReportingNetwork); ok {
+		return rn.Network
+	}
+	return mnet
+}
+
 // streamStatesOf 穿透 ReportingNetwork 装饰器读取流状态
 func streamStatesOf(mnet vnet.Network) (actives, closeds []*stream.State) {
-	inner := mnet
-	if rn, ok := mnet.(*vnet.ReportingNetwork); ok {
-		inner = rn.Network
-	}
-	provider, ok := inner.(streamStateProvider)
+	provider, ok := unwrapNetwork(mnet).(streamStateProvider)
 	if !ok {
 		return nil, nil
 	}
 	return provider.GetStreamStates()
+}
+
+// CloseStream 手动关闭指定网络中的一条流（按 stream.State.Index）
+func (b *backend) CloseStream(network string, index int32) error {
+	mnet, ok := kernel.Lookup[vnet.Network](b.ctx, network)
+	if !ok {
+		return fmt.Errorf("network='%v' not found", network)
+	}
+	closer, ok := unwrapNetwork(mnet).(vnet.StreamCloser)
+	if !ok {
+		return fmt.Errorf("network='%v' does not support closing streams", network)
+	}
+	if !closer.CloseStream(index) {
+		return fmt.Errorf("stream='%v/%v' not found", network, index)
+	}
+	return nil
+}
+
+// GetStreamService 遍历隧道服务匹配流的归属，命中返回服务名，未识别返回 ""
+func (b *backend) GetStreamService(network string, index int64) string {
+	for _, ps := range b.catalog.List() {
+		if ps.Info.Kind != "tunnel" {
+			continue
+		}
+		name := strings.TrimPrefix(ps.Info.Name, tunnelNamePrefix)
+		svc, ok := kernel.Lookup[*vservice.Service](b.ctx, name)
+		if !ok {
+			continue
+		}
+		if svc.ServiceState.MatchConn(network, index) {
+			return svc.Name
+		}
+	}
+	return ""
 }
 
 func (b *backend) GetDataStreamState(limit int, networks ...string) []*api.DataStreamState {
@@ -246,6 +285,26 @@ func (b *backend) SubscribeNetworkState(buf int) (<-chan api.NetworkStateEvent, 
 					OldState: se.Old,
 					NewState: se.New,
 				}
+			}
+		}
+	}()
+	return out, unsub
+}
+
+func (b *backend) SubscribeStreamEvents(buf int) (<-chan api.StreamLifecycleEvent, func()) {
+	src, unsub := b.bus.SubscribeTopic(buf, vnet.TopicStreamOpen, vnet.TopicStreamClosed)
+	out := make(chan api.StreamLifecycleEvent, buf)
+	go func() {
+		defer close(out)
+		for evt := range src {
+			se, ok := evt.Payload.(vnet.StreamEvent)
+			if !ok || se.State == nil {
+				continue
+			}
+			out <- api.StreamLifecycleEvent{
+				Network: se.Network,
+				Closed:  evt.Topic == vnet.TopicStreamClosed,
+				State:   se.State,
 			}
 		}
 	}()

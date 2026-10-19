@@ -30,9 +30,10 @@ type PprofInfo struct {
 
 // APIInfo controls the optional management API server.
 type APIInfo struct {
-	Enable       bool   `json:"enable" toml:"enable"`
-	Listen       string `json:"listen" toml:"listen"`
-	PollInterval int    `json:"pollInterval" toml:"pollInterval"`
+	Enable              bool   `json:"enable" toml:"enable"`
+	Listen              string `json:"listen" toml:"listen"`
+	PollInterval        int    `json:"pollInterval" toml:"pollInterval"`
+	StreamStatsInterval int    `json:"streamStatsInterval" toml:"streamStatsInterval"` // 数据流快照推送间隔（秒），缺省 1
 }
 
 // CanonicalConfig is the normalized, validated internal representation.
@@ -46,13 +47,13 @@ type CanonicalConfig struct {
 
 // LinkSpec is the normalized representation of a link registration URL.
 type LinkSpec struct {
-	Alias     string  // local alias (key from links map)
-	Scheme    string  // connection protocol (tcp, ws, wss, etc.)
-	RelayURL  string  // full relay URL without query params
-	As        string  // vhostname - node identity in virtual network
-	Auth      string  // plain text auth (not recommended for production)
-	AuthRef   string  // auth reference (env var name, secret manager key)
-	Keepalive int     // heartbeat interval in seconds, default 15
+	Alias     string   // local alias (key from links map)
+	Scheme    string   // connection protocol (tcp, ws, wss, etc.)
+	RelayURL  string   // full relay URL without query params
+	As        string   // vhostname - node identity in virtual network
+	Auth      string   // plain text auth (not recommended for production)
+	AuthRef   string   // auth reference (env var name, secret manager key)
+	Keepalive int      // heartbeat interval in seconds, default 15
 	Via       *ViaSpec // optional upstream relay routing
 }
 

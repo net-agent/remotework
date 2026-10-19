@@ -15,10 +15,11 @@ import (
 
 // Config 服务器运行时选项（与文件配置解耦，由调用方组装）
 type Config struct {
-	Listen       string // 监听地址，缺省 127.0.0.1:8080；":0" 表示端口自选
-	PollInterval int    // 数据流轮询间隔（秒），缺省 5
-	Token        string // Bearer token，空表示 standalone 开放模式
-	Meta         Meta   // /status 元信息
+	Listen              string // 监听地址，缺省 127.0.0.1:8080；":0" 表示端口自选
+	PollInterval        int    // 网络/服务轮询间隔（秒），缺省 5
+	StreamStatsInterval int    // 数据流快照推送间隔（秒），缺省 1
+	Token               string // Bearer token，空表示 standalone 开放模式
+	Meta                Meta   // /status 元信息
 }
 
 // Meta 通过 /status 对外回报的进程元信息
@@ -38,14 +39,16 @@ type Server struct {
 	router    *mux.Router
 	wsHub     *WSHub
 	poller    *StatePoller
+	meter     *streamMeter // 流速率计，REST 与轮询器共享
 	token     string
 	meta      Meta
 	startedAt time.Time
 
 	addr atomic.Value // string，实际绑定地址，Start 成功后可读
 
-	unsubNet func()
-	unsubSvc func()
+	unsubNet    func()
+	unsubSvc    func()
+	unsubStream func()
 }
 
 func New(backend Backend, cfg Config, log *slog.Logger) *Server {
@@ -61,6 +64,10 @@ func New(backend Backend, cfg Config, log *slog.Logger) *Server {
 	if pollInterval <= 0 {
 		pollInterval = 5
 	}
+	statsInterval := cfg.StreamStatsInterval
+	if statsInterval <= 0 {
+		statsInterval = 1
+	}
 
 	if cfg.Token == "" {
 		log.Warn("api server running without auth token")
@@ -68,6 +75,7 @@ func New(backend Backend, cfg Config, log *slog.Logger) *Server {
 
 	router := mux.NewRouter()
 	wsHub := NewWSHub(log.With("module", "api.ws"))
+	meter := newStreamMeter()
 
 	s := &Server{
 		backend:   backend,
@@ -77,7 +85,8 @@ func New(backend Backend, cfg Config, log *slog.Logger) *Server {
 		token:     cfg.Token,
 		meta:      cfg.Meta,
 		startedAt: time.Now(),
-		poller:    NewStatePoller(backend, wsHub, time.Duration(pollInterval)*time.Second),
+		meter:     meter,
+		poller:    NewStatePoller(backend, wsHub, meter, time.Duration(pollInterval)*time.Second, time.Duration(statsInterval)*time.Second),
 	}
 	s.server = &http.Server{
 		Addr:    listen,
@@ -165,6 +174,7 @@ func (s *Server) registerRoutes() {
 	r.HandleFunc("/services", s.handleServices).Methods("GET")
 	r.HandleFunc("/system/listening-ports", s.handleListeningPorts).Methods("GET")
 	r.HandleFunc("/streams", s.handleStreams).Methods("GET")
+	r.HandleFunc("/streams/{network}/{id}", s.handleCloseStream).Methods("DELETE")
 	r.HandleFunc("/ping", s.handlePingAll).Methods("POST")
 	r.HandleFunc("/ping/{network}/{domain}", s.handlePingSingle).Methods("POST")
 	r.HandleFunc("/loglevel", s.handleLogLevel).Methods("PUT")
@@ -186,9 +196,11 @@ func (s *Server) Start() error {
 	// 订阅后端事件并泵送到 WebSocket
 	var netCh <-chan NetworkStateEvent
 	var svcCh <-chan ServiceStatusEvent
+	var streamCh <-chan StreamLifecycleEvent
 	netCh, s.unsubNet = s.backend.SubscribeNetworkState(64)
 	svcCh, s.unsubSvc = s.backend.SubscribeServiceStatus(64)
-	go s.eventLoop(netCh, svcCh)
+	streamCh, s.unsubStream = s.backend.SubscribeStreamEvents(256)
+	go s.eventLoop(netCh, svcCh, streamCh)
 
 	s.poller.Start()
 
@@ -211,11 +223,18 @@ func (s *Server) Addr() string {
 
 // Stop 优雅关闭
 func (s *Server) Stop() {
+	// 先广播 hub.stopped 并留出发送窗口，比轮询检测更即时
+	s.wsHub.Broadcast("hub.stopped", map[string]interface{}{})
+	time.Sleep(100 * time.Millisecond)
+
 	if s.unsubNet != nil {
 		s.unsubNet()
 	}
 	if s.unsubSvc != nil {
 		s.unsubSvc()
+	}
+	if s.unsubStream != nil {
+		s.unsubStream()
 	}
 	s.poller.Stop()
 	s.wsHub.CloseAll()
@@ -228,9 +247,14 @@ func (s *Server) Stop() {
 	s.log.Info("api server stopped")
 }
 
-// eventLoop 把后端事件翻译为 WebSocket 广播
-func (s *Server) eventLoop(netCh <-chan NetworkStateEvent, svcCh <-chan ServiceStatusEvent) {
-	for netCh != nil || svcCh != nil {
+// eventLoop 把后端事件翻译为 WebSocket 广播；
+// 流生命周期事件经批处理器按窗口合并，避免洪流场景逐条推送
+func (s *Server) eventLoop(netCh <-chan NetworkStateEvent, svcCh <-chan ServiceStatusEvent, streamCh <-chan StreamLifecycleEvent) {
+	batcher := newStreamEventBatcher()
+	flushTick := time.NewTicker(streamEventBatchWindow)
+	defer flushTick.Stop()
+
+	for netCh != nil || svcCh != nil || streamCh != nil {
 		select {
 		case evt, ok := <-netCh:
 			if !ok {
@@ -244,8 +268,20 @@ func (s *Server) eventLoop(netCh <-chan NetworkStateEvent, svcCh <-chan ServiceS
 				continue
 			}
 			s.broadcastServiceStatus(evt)
+		case evt, ok := <-streamCh:
+			if !ok {
+				streamCh = nil
+				continue
+			}
+			if evt.State != nil {
+				batcher.add(evt)
+			}
+		case <-flushTick.C:
+			batcher.flush(s.wsHub, s.backend.GetStreamService)
 		}
 	}
+	// 事件源全部关闭，冲刷残余批量事件
+	batcher.flush(s.wsHub, s.backend.GetStreamService)
 }
 
 func (s *Server) broadcastNetworkState(evt NetworkStateEvent) {

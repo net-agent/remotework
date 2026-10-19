@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -65,8 +66,10 @@ func (s *Server) handleListeningPorts(w http.ResponseWriter, r *http.Request) {
 		dtos = append(dtos, ListeningPortDTO{
 			Port:        port.Port,
 			Protocol:    port.Protocol,
+			Address:     port.Address,
 			PID:         port.PID,
 			ProcessName: port.ProcessName,
+			ProcStartMs: port.ProcStartMs,
 		})
 	}
 	utils.WriteJSON(w, nil, dtos)
@@ -98,22 +101,51 @@ func (s *Server) handleStreams(w http.ResponseWriter, r *http.Request) {
 
 	streamStates := s.backend.GetDataStreamState(limit, networks...)
 
+	now := time.Now()
 	var dtos []StreamStateDTO
 	for _, ds := range streamStates {
 		if ds == nil {
 			continue
 		}
+		// 活跃流采样实时速率，并标注归属服务
+		rates := s.meter.sample(ds.Network, ds.Actives, now)
 		for _, st := range ds.Actives {
-			dtos = append(dtos, toStreamDTO(ds.Network, st))
+			dto := toStreamDTO(ds.Network, st)
+			if rate, ok := rates[st.Index]; ok {
+				dto.ReadBps = rate[0]
+				dto.WriteBps = rate[1]
+			}
+			dto.ServiceName = s.backend.GetStreamService(ds.Network, int64(st.Index))
+			dtos = append(dtos, dto)
 		}
 		for _, st := range ds.Closeds {
-			dtos = append(dtos, toStreamDTO(ds.Network, st))
+			dto := toStreamDTO(ds.Network, st)
+			dto.ServiceName = s.backend.GetStreamService(ds.Network, int64(st.Index))
+			dtos = append(dtos, dto)
 		}
 	}
 	if dtos == nil {
 		dtos = []StreamStateDTO{}
 	}
 	utils.WriteJSON(w, nil, dtos)
+}
+
+// handleCloseStream 手动关闭指定网络中的一条流
+func (s *Server) handleCloseStream(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	network := vars["network"]
+
+	id, err := strconv.ParseInt(vars["id"], 10, 32)
+	if err != nil {
+		utils.WriteJSON(w, fmt.Errorf("invalid stream id: '%v'", vars["id"]), nil)
+		return
+	}
+
+	if err := s.backend.CloseStream(network, int32(id)); err != nil {
+		utils.WriteJSON(w, err, nil)
+		return
+	}
+	utils.WriteJSON(w, nil, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handlePingAll(w http.ResponseWriter, r *http.Request) {
