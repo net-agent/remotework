@@ -65,10 +65,17 @@ func (p *Plugin) Init(c *kernel.Context) error {
 	if p.spec.Target.Kind == configv2.EndpointBuiltin {
 		switch p.spec.Target.Scheme {
 		case "socks5":
+			// socks5 出站拨号经内置 tcp 网络发出，使 target 侧连接纳入
+			// 流追踪与归属登记（socks 库默认 net.Dial 不产生可追踪连接）
+			dialNet, err := kernel.Inject[vnet.Network](c, "tcp")
+			if err != nil {
+				return err
+			}
 			svc = vservice.NewSocks5Service(
 				staticListenerFactory{p.closer},
 				p.spec.Name, internalURL(p.spec.Listen),
 				p.spec.Target.Username, p.spec.Target.Password,
+				"tcp", dialNet.Dial,
 				p.log,
 			)
 		default:

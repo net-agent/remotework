@@ -162,7 +162,7 @@ func TestNewPortproxyService_DefaultName(t *testing.T) {
 
 func TestNewSocks5Service(t *testing.T) {
 	lf := &mockListenerFactory{}
-	svc := NewSocks5Service(lf, "sox-test", "vtcp://0:1080", "user", "pass", nil)
+	svc := NewSocks5Service(lf, "sox-test", "vtcp://0:1080", "user", "pass", "tcp", nil, nil)
 
 	if svc.Type != "socks5" {
 		t.Errorf("Type = %q, want %q", svc.Type, "socks5")

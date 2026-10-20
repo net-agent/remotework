@@ -15,6 +15,10 @@ import (
 // QuickDialer 快速创建连接的函数类型
 type QuickDialer func() (net.Conn, error)
 
+// TargetDialer 按网络与地址创建出站连接的能力（形状与 vnet.Network.Dial 一致），
+// 用于 socks5 等目标地址在运行时才确定的服务
+type TargetDialer func(network, addr string) (net.Conn, error)
+
 // ListenerFactory 从 URL 创建 listener 的能力
 type ListenerFactory interface {
 	ListenURL(raw string) (net.Listener, error)
@@ -128,14 +132,18 @@ func NewPortproxyService(lf ListenerFactory, df DialerFactory, name, listenURL, 
 	return svc
 }
 
-// NewSocks5Service 创建 SOCKS5 代理服务。log 为 nil 时控制器自建日志器。
-func NewSocks5Service(lf ListenerFactory, name, listenURL, username, password string, log *slog.Logger) *Service {
+// NewSocks5Service 创建 SOCKS5 代理服务。
+// dialNetwork/dial 指定出站连接使用的网络能力与归属别名（如 "tcp"），
+// 出站连接由此纳入 network plugin 的流追踪；dial 为 nil 时回退到
+// socks 库默认的 net.Dial（target 侧不产生可追踪连接）。
+// log 为 nil 时控制器自建日志器。
+func NewSocks5Service(lf ListenerFactory, name, listenURL, username, password, dialNetwork string, dial TargetDialer, log *slog.Logger) *Service {
 	svc := &Service{}
 	svc.Type = "socks5"
 	svc.Name = utils.FirstString(name, "socks5")
 	svc.ListenURL = listenURL
 	svc.Username = username
 	svc.Password = password
-	svc.Controller = NewSocks5Controller(lf, &svc.ServiceState, log)
+	svc.Controller = NewSocks5Controller(lf, &svc.ServiceState, log, dialNetwork, dial)
 	return svc
 }

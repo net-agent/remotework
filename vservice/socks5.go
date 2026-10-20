@@ -17,23 +17,32 @@ type Socks5Controller struct {
 	lf       ListenerFactory
 	listener net.Listener
 	server   socks.Server
+
+	dialNetwork string       // 出站连接归属的网络别名（归属登记与拨号参数）
+	dial        TargetDialer // 出站拨号能力；nil 时回退到 socks 库默认的 net.Dial
 }
 
 // NewSocks5Controller 创建 SOCKS5 控制器。
 // log 为 nil 时回退到按服务名自建的模块日志器。
-func NewSocks5Controller(lf ListenerFactory, state *ServiceState, log *slog.Logger) *Socks5Controller {
+func NewSocks5Controller(lf ListenerFactory, state *ServiceState, log *slog.Logger, dialNetwork string, dial TargetDialer) *Socks5Controller {
 	if log == nil {
 		log = utils.NewModuleLogger("svc." + state.Name)
 	}
 	return &Socks5Controller{
-		state: state,
-		log:   log,
-		lf:    lf,
+		state:       state,
+		log:         log,
+		lf:          lf,
+		dialNetwork: dialNetwork,
+		dial:        dial,
 	}
 }
 
 func (s *Socks5Controller) Init() error {
 	s.server = socks.NewPswdServer(s.state.Username, s.state.Password)
+	if s.dial != nil {
+		// 出站拨号改经注入的网络能力发出，target 侧连接纳入流追踪
+		s.server.SetRequster(s.requestTarget)
+	}
 	s.server.SetConnLinker(func(a, b io.ReadWriteCloser) (a2b int64, b2a int64, err error) {
 		dialer := GetRemoteInfo(a)
 		start := time.Now()
@@ -45,9 +54,15 @@ func (s *Socks5Controller) Init() error {
 			s.log.Info("link stopped", "from", dialer, "alive", time.Since(start).Round(time.Second))
 		}()
 		// a 是 listen 侧接受的连接（运行时为 net.Conn），登记归属供控制面反查；
-		// b 由 socks 库内部 dial 产生、不经过 vnet，无法追踪，不做登记
+		// 无法提取连接编号时原样返回，不影响数据通路
 		if conn, ok := a.(net.Conn); ok {
 			a = s.state.TrackConn(networkOfURL(s.state.ListenURL), conn)
+		}
+		// b 是 target 侧出站连接：requestTarget 经 network plugin 拨号产生，
+		// 携带连接编号（tcp ConnID），登记归属；库默认拨号（dial 为 nil）时
+		// 无法提取编号，TrackConn 原样返回
+		if conn, ok := b.(net.Conn); ok {
+			b = s.state.TrackConn(s.dialNetwork, conn)
 		}
 		s.log.Info("link created", "from", dialer)
 		return utils.RelayConns(a, b)
@@ -59,6 +74,15 @@ func (s *Socks5Controller) Init() error {
 		return err
 	}
 	return nil
+}
+
+// requestTarget 替换 socks 库的 DefaultRequester：出站拨号改经注入的网络能力发出。
+// 命令分发语义与库默认实现保持一致（仅支持 CONNECT）。
+func (s *Socks5Controller) requestTarget(req socks.Request, _ socks.Context) (net.Conn, error) {
+	if req.GetCommand() != socks.ConnectCommand {
+		return nil, socks.ErrReplyCmdNotSupported
+	}
+	return s.dial(s.dialNetwork, req.GetAddrPortStr())
 }
 
 func (s *Socks5Controller) Start() error {
