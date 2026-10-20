@@ -150,6 +150,7 @@ func (p *StatePoller) pollStreamStats() {
 				dto.WriteBps = rate[1]
 			}
 			dto.ServiceName = p.backend.GetStreamService(ds.Network, int64(st.Index))
+			dto.PipeID = p.backend.GetStreamPipe(ds.Network, int64(st.Index))
 			currentDTOs = append(currentDTOs, dto)
 		}
 

@@ -35,6 +35,7 @@ func (fakeBackend) PingDomain(network, domain string) (time.Duration, error) {
 }
 func (fakeBackend) CloseStream(network string, index int32) error        { return nil }
 func (fakeBackend) GetStreamService(network string, index int64) string  { return "" }
+func (fakeBackend) GetStreamPipe(network string, index int64) string     { return "" }
 func (fakeBackend) MountLink(alias string, link configv2.LinkSpec) error { return nil }
 func (fakeBackend) MountTunnel(tunnel configv2.TunnelSpec) error         { return nil }
 func (fakeBackend) RequestStop()                                         {}
@@ -273,6 +274,7 @@ type streamBackend struct {
 	streams     []*DataStreamState
 	closeErr    error
 	serviceName string
+	pipeID      string
 	closeCalls  []string // 记录 "network/index" 调用
 }
 
@@ -285,6 +287,9 @@ func (b *streamBackend) CloseStream(network string, index int32) error {
 }
 func (b *streamBackend) GetStreamService(network string, index int64) string {
 	return b.serviceName
+}
+func (b *streamBackend) GetStreamPipe(network string, index int64) string {
+	return b.pipeID
 }
 
 func startTestServerWith(t *testing.T, b Backend, cfg Config) *Server {
@@ -533,6 +538,7 @@ func TestPollerStreamStatsAndUpdate(t *testing.T) {
 	b := &streamBackend{
 		streams:     []*DataStreamState{{Network: "mynet", Actives: []*stream.State{st}}},
 		serviceName: "rdp-forward",
+		pipeID:      "rdp-forward#3",
 	}
 	hub := NewWSHub(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	poller := NewStatePoller(b, hub, nil, time.Minute, time.Minute)
@@ -567,6 +573,9 @@ func TestPollerStreamStatsAndUpdate(t *testing.T) {
 	if dto0["serviceName"] != "rdp-forward" {
 		t.Errorf("stats dto serviceName mismatch: %v", dto0["serviceName"])
 	}
+	if dto0["pipeId"] != "rdp-forward#3" {
+		t.Errorf("stats dto pipeId mismatch: %v", dto0["pipeId"])
+	}
 	if dto0["readBps"].(float64) != 0 {
 		t.Errorf("first poll readBps should be 0, got %v", dto0["readBps"])
 	}
@@ -585,6 +594,9 @@ func TestPollerStreamStatsAndUpdate(t *testing.T) {
 	openedDTO := opened[0].(map[string]interface{})
 	if openedDTO["serviceName"] != "rdp-forward" {
 		t.Errorf("opened dto serviceName mismatch: %v", openedDTO["serviceName"])
+	}
+	if openedDTO["pipeId"] != "rdp-forward#3" {
+		t.Errorf("opened dto pipeId mismatch: %v", openedDTO["pipeId"])
 	}
 
 	// 次轮：字节数增长 → 速率非零；流集合不变 → 不再推 stream.update

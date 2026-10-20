@@ -277,11 +277,11 @@ func (s *Server) eventLoop(netCh <-chan NetworkStateEvent, svcCh <-chan ServiceS
 				batcher.add(evt)
 			}
 		case <-flushTick.C:
-			batcher.flush(s.wsHub, s.backend.GetStreamService)
+			batcher.flush(s.wsHub, s.backend)
 		}
 	}
 	// 事件源全部关闭，冲刷残余批量事件
-	batcher.flush(s.wsHub, s.backend.GetStreamService)
+	batcher.flush(s.wsHub, s.backend)
 }
 
 func (s *Server) broadcastNetworkState(evt NetworkStateEvent) {

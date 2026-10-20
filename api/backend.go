@@ -25,6 +25,8 @@ type Backend interface {
 	CloseStream(network string, index int32) error
 	// GetStreamService 返回流的归属服务名，未识别返回 ""
 	GetStreamService(network string, index int64) string
+	// GetStreamPipe 返回流的 pipe 配对标识（tunnel 两端流携带相同值），未配对返回 ""
+	GetStreamPipe(network string, index int64) string
 
 	// 运行时挂载
 	MountLink(alias string, link configv2.LinkSpec) error

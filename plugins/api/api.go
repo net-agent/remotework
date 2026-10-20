@@ -201,6 +201,24 @@ func (b *backend) GetStreamService(network string, index int64) string {
 	return ""
 }
 
+// GetStreamPipe 遍历隧道服务查询流的 pipe 配对标识，未配对返回 ""
+func (b *backend) GetStreamPipe(network string, index int64) string {
+	for _, ps := range b.catalog.List() {
+		if ps.Info.Kind != "tunnel" {
+			continue
+		}
+		name := strings.TrimPrefix(ps.Info.Name, tunnelNamePrefix)
+		svc, ok := kernel.Lookup[*vservice.Service](b.ctx, name)
+		if !ok {
+			continue
+		}
+		if pipeID := svc.ServiceState.MatchPipe(network, index); pipeID != "" {
+			return pipeID
+		}
+	}
+	return ""
+}
+
 func (b *backend) GetDataStreamState(limit int, networks ...string) []*api.DataStreamState {
 	resp := []*api.DataStreamState{}
 	for _, network := range networks {

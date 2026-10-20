@@ -90,6 +90,10 @@ func (p *PortproxyController) serve(dialConn net.Conn) {
 	targetConn = p.state.TrackConn(networkOfURL(p.state.TargetURL), targetConn)
 	defer targetConn.Close()
 
+	// 配对 pipe 两端连接（pipeId），供控制面关联 tunnel 两端的流视图；
+	// 任一端无法提取连接编号时不配对，不影响数据通路
+	p.state.LinkConns(networkOfURL(p.state.ListenURL), dialConn, networkOfURL(p.state.TargetURL), targetConn)
+
 	start := time.Now()
 
 	p.log.Info("pipe created", "from", dialer, "to", utils.RedactURL(p.state.TargetURL))

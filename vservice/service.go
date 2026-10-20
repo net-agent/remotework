@@ -89,6 +89,12 @@ type ServiceState struct {
 	// connRefs 连接登记表（key 为 connRef，零值可用）：
 	// 记录服务经手的连接 {网络别名, 连接编号}，供 api 层反查连接归属
 	connRefs sync.Map
+	// pipeRefs 配对登记表（key 为 connRef，value 为 pipeID）：
+	// 记录被 pipe 关联的两端连接，供 api 层把 tunnel 两端的流关联为端到端视图；
+	// 由 LinkConns 写入，随 untrackConn 与 connRefs 同时注销
+	pipeRefs sync.Map
+	// pipeSeq 服务内 pipe 序号（pipeID 的组成部分，从 1 开始）
+	pipeSeq atomic.Uint64
 }
 
 func (s *ServiceState) SetStatus(st ServiceStatus) { atomic.StoreInt32(&s.status, int32(st)) }

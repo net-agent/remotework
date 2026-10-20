@@ -68,6 +68,7 @@ type StreamStateDTO struct {
 	ReadBps     float64 `json:"readBps"`               // 实时读流速（字节/秒），由调用方填充
 	WriteBps    float64 `json:"writeBps"`              // 实时写流速（字节/秒），由调用方填充
 	ServiceName string  `json:"serviceName,omitempty"` // 归属服务名，由调用方填充
+	PipeID      string  `json:"pipeId,omitempty"`      // pipe 配对标识：tunnel 两端流携带相同值，由调用方填充
 }
 
 type PingResultDTO struct {

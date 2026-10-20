@@ -116,6 +116,7 @@ func (s *Server) streamSnapshot() []StreamStateDTO {
 				dto.WriteBps = rate[1]
 			}
 			dto.ServiceName = s.backend.GetStreamService(ds.Network, int64(st.Index))
+			dto.PipeID = s.backend.GetStreamPipe(ds.Network, int64(st.Index))
 			dtos = append(dtos, dto)
 		}
 	}
@@ -147,9 +148,9 @@ func (b *streamEventBatcher) add(evt StreamLifecycleEvent) {
 	}
 }
 
-// flush 把累积的事件广播为空数组安全的分组事件；enrich 用于给打开的流标注归属服务
-// （已关闭流的归属大概率已注销，与 poller 差分版 stream.update 一致保持空值）
-func (b *streamEventBatcher) flush(hub *WSHub, enrich func(network string, index int64) string) {
+// flush 把累积的事件广播为空数组安全的分组事件；backend 用于给打开的流标注归属服务
+// 与 pipe 配对（已关闭流的归属大概率已注销，与 poller 差分版 stream.update 一致保持空值）
+func (b *streamEventBatcher) flush(hub *WSHub, backend Backend) {
 	b.mu.Lock()
 	opened, closed := b.opened, b.closed
 	b.opened = make(map[string][]*stream.State)
@@ -160,7 +161,8 @@ func (b *streamEventBatcher) flush(hub *WSHub, enrich func(network string, index
 		dtos := make([]StreamStateDTO, 0, len(states))
 		for _, st := range states {
 			dto := toStreamDTO(network, st)
-			dto.ServiceName = enrich(network, int64(st.Index))
+			dto.ServiceName = backend.GetStreamService(network, int64(st.Index))
+			dto.PipeID = backend.GetStreamPipe(network, int64(st.Index))
 			dtos = append(dtos, dto)
 		}
 		hub.Broadcast("stream.opened", map[string]interface{}{

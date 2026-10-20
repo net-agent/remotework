@@ -99,7 +99,12 @@ func TestSocks5Controller_EndToEndTracksTarget(t *testing.T) {
 	}
 
 	lf := &mockListenerFactory{listenFn: func(raw string) (net.Listener, error) {
-		return net.Listen("tcp", "127.0.0.1:0")
+		// 附加 ConnID，模拟经 tcp 网络插件监听的 listen 侧连接
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return nil, err
+		}
+		return &idListener{Listener: ln}, nil
 	}}
 	svc := NewSocks5Service(lf, "sox-e2e", "tcp://127.0.0.1:0", "", "", "tcp", TargetDialer(dial), nil)
 	if err := svc.Controller.Init(); err != nil {
@@ -122,6 +127,15 @@ func TestSocks5Controller_EndToEndTracksTarget(t *testing.T) {
 	if !waitMatchConn(svc, "tcp", 42, true, 2*time.Second) {
 		t.Error("target conn should be tracked (MatchConn hit) while session active")
 	}
+	if !waitMatchConn(svc, "tcp", 1, true, 2*time.Second) {
+		t.Error("listen conn should be tracked (id=1) while session active")
+	}
+
+	// pipe 两端（listen 侧 id=1 与 target 侧 id=42）应配对到同一 pipeID
+	pipeA, pipeB := waitPipe(svc, "tcp", 1, 2*time.Second), waitPipe(svc, "tcp", 42, 2*time.Second)
+	if pipeA == "" || pipeA != pipeB {
+		t.Errorf("pipe ends should share one pipeID, got %q / %q", pipeA, pipeB)
+	}
 
 	// 收发验证转发通路
 	if _, err := client.Write([]byte("ping")); err != nil {
@@ -134,10 +148,14 @@ func TestSocks5Controller_EndToEndTracksTarget(t *testing.T) {
 		t.Fatalf("echo read = %q, %v, want ping", buf[:n], err)
 	}
 
-	// 关闭后会话结束，归属登记注销
+	// 关闭后会话结束，归属登记注销，配对同步清除
 	client.Close()
-	if !waitMatchConn(svc, "tcp", 42, false, 2*time.Second) {
-		t.Error("target conn should be untracked after session closed")
+	if !waitMatchConn(svc, "tcp", 42, false, 2*time.Second) ||
+		!waitMatchConn(svc, "tcp", 1, false, 2*time.Second) {
+		t.Error("both conns should be untracked after session closed")
+	}
+	if got := svc.MatchPipe("tcp", 1); got != "" || svc.MatchPipe("tcp", 42) != "" {
+		t.Errorf("pipe mappings should be removed after session closed, got %q / %q", svc.MatchPipe("tcp", 1), svc.MatchPipe("tcp", 42))
 	}
 }
 

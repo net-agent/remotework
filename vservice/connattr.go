@@ -1,6 +1,7 @@
 package vservice
 
 import (
+	"fmt"
 	"net"
 	"net/url"
 	"reflect"
@@ -84,9 +85,37 @@ func (s *ServiceState) MatchConn(network string, index int64) bool {
 	return ok
 }
 
-// untrackConn 注销连接登记
+// LinkConns 关联一对被本服务 pipe 的连接：两端各登记相同的 pipeID，
+// 供控制面把 tunnel 两端的流记录关联为端到端视图。pipeID 形如 "svcName#3"
+// （服务名 + 服务内序号），仅在进程运行期内保证唯一。
+// 任一端无法提取连接编号时不建立关联并返回 ""（不影响数据通路）。
+func (s *ServiceState) LinkConns(netA string, a net.Conn, netB string, b net.Conn) string {
+	if netA == "" || netB == "" || a == nil || b == nil {
+		return ""
+	}
+	idxA, okA := extractConnIndex(a)
+	idxB, okB := extractConnIndex(b)
+	if !okA || !okB {
+		return ""
+	}
+	pipeID := fmt.Sprintf("%s#%d", s.Name, s.pipeSeq.Add(1))
+	s.pipeRefs.Store(connRef{Network: netA, Index: idxA}, pipeID)
+	s.pipeRefs.Store(connRef{Network: netB, Index: idxB}, pipeID)
+	return pipeID
+}
+
+// MatchPipe 查询指定网络内的连接所属的 pipeID（api 层关联查询用），未配对返回 ""
+func (s *ServiceState) MatchPipe(network string, index int64) string {
+	if v, ok := s.pipeRefs.Load(connRef{Network: network, Index: index}); ok {
+		return v.(string)
+	}
+	return ""
+}
+
+// untrackConn 注销连接登记（归属与配对同步注销）
 func (s *ServiceState) untrackConn(ref connRef) {
 	s.connRefs.Delete(ref)
+	s.pipeRefs.Delete(ref)
 }
 
 // extractConnIndex 提取连接在网络内的编号。

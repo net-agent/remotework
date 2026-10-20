@@ -55,14 +55,21 @@ func (s *Socks5Controller) Init() error {
 		}()
 		// a 是 listen 侧接受的连接（运行时为 net.Conn），登记归属供控制面反查；
 		// 无法提取连接编号时原样返回，不影响数据通路
+		var aConn, bConn net.Conn
 		if conn, ok := a.(net.Conn); ok {
-			a = s.state.TrackConn(networkOfURL(s.state.ListenURL), conn)
+			aConn = s.state.TrackConn(networkOfURL(s.state.ListenURL), conn)
+			a = aConn
 		}
 		// b 是 target 侧出站连接：requestTarget 经 network plugin 拨号产生，
 		// 携带连接编号（tcp ConnID），登记归属；库默认拨号（dial 为 nil）时
 		// 无法提取编号，TrackConn 原样返回
 		if conn, ok := b.(net.Conn); ok {
-			b = s.state.TrackConn(s.dialNetwork, conn)
+			bConn = s.state.TrackConn(s.dialNetwork, conn)
+			b = bConn
+		}
+		// 配对 pipe 两端连接（pipeId），供控制面关联两端流视图
+		if aConn != nil && bConn != nil {
+			s.state.LinkConns(networkOfURL(s.state.ListenURL), aConn, s.dialNetwork, bConn)
 		}
 		s.log.Info("link created", "from", dialer)
 		return utils.RelayConns(a, b)

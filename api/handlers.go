@@ -116,11 +116,13 @@ func (s *Server) handleStreams(w http.ResponseWriter, r *http.Request) {
 				dto.WriteBps = rate[1]
 			}
 			dto.ServiceName = s.backend.GetStreamService(ds.Network, int64(st.Index))
+			dto.PipeID = s.backend.GetStreamPipe(ds.Network, int64(st.Index))
 			dtos = append(dtos, dto)
 		}
 		for _, st := range ds.Closeds {
 			dto := toStreamDTO(ds.Network, st)
 			dto.ServiceName = s.backend.GetStreamService(ds.Network, int64(st.Index))
+			dto.PipeID = s.backend.GetStreamPipe(ds.Network, int64(st.Index))
 			dtos = append(dtos, dto)
 		}
 	}

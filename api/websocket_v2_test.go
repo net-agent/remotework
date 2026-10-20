@@ -222,7 +222,7 @@ func TestStreamEventBatcher(t *testing.T) {
 	closed.Closed = time.Now()
 	batcher.add(StreamLifecycleEvent{Network: "mynet", State: closed, Closed: true})
 
-	batcher.flush(hub, func(network string, index int64) string { return "svc" })
+	batcher.flush(hub, &streamBackend{serviceName: "svc", pipeID: "svc#1"})
 
 	evt := readWSEvent(t, c)
 	if evt.Type != "stream.opened" {
@@ -238,6 +238,9 @@ func TestStreamEventBatcher(t *testing.T) {
 	}
 	if streams[0].(map[string]interface{})["serviceName"] != "svc" {
 		t.Errorf("opened streams should be enriched with serviceName: %v", streams[0])
+	}
+	if streams[0].(map[string]interface{})["pipeId"] != "svc#1" {
+		t.Errorf("opened streams should be enriched with pipeId: %v", streams[0])
 	}
 
 	evt = readWSEvent(t, c)
