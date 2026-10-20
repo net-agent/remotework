@@ -386,7 +386,8 @@ GET /api/v1/streams?limit=20&network=mynet
       "sentAckTotal": 51200,
       "readBps": 2048.5,
       "writeBps": 1024.0,
-      "serviceName": "rdp-forward"
+      "serviceName": "rdp-forward",
+      "pipeId": "rdp-forward#3"
     }
   ]
 }
@@ -396,7 +397,7 @@ GET /api/v1/streams?limit=20&network=mynet
 
 返回列表中活跃流在前，已关闭流在后。`limit` 参数仅限制已关闭流的数量，活跃流始终全量返回。
 
-活跃流附带实时流速（`readBps`/`writeBps`，字节/秒）：由控制面按相邻两次采样的字节差计算，首次采样为 0。所有流均尝试标注归属服务（`serviceName`）；无法识别时省略该字段。
+活跃流附带实时流速（`readBps`/`writeBps`，字节/秒）：由控制面按相邻两次采样的字节差计算，首次采样为 0。所有流均尝试标注归属服务（`serviceName`）与 pipe 配对标识（`pipeId`）；无法识别时省略对应字段。
 
 ---
 
@@ -799,8 +800,8 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 }
 ```
 
-- `stream.opened`：新建流，含 `index` 与 `createdAtMs`，归属服务（`serviceName`）按填充时可识别的标注
-- `stream.closed`：完全关闭的流，另含 `closedAtMs`、`closeReason` 与最终字节计数；`serviceName` 与 poller 差分版一致保持空值（关闭时归属大概率已注销）
+- `stream.opened`：新建流，含 `index` 与 `createdAtMs`，归属服务（`serviceName`）与 pipe 配对标识（`pipeId`）按填充时可识别的标注
+- `stream.closed`：完全关闭的流，另含 `closedAtMs`、`closeReason` 与最终字节计数；`serviceName`/`pipeId` 与 poller 差分版一致保持空值（关闭时归属大概率已注销）
 - **延迟语义**：opened 为即时（内核事件到广播 <100ms 量级）；tcp 流的 closed 即时，flex 流的 closed 受流滞留期（约 2 秒，等待晚到数据包）影响滞后送达，属已知行为
 - poller 差分版 `stream.update` 保留作为过渡（v1 兼容），v2 客户端应以 `stream.opened/closed` 为准
 
@@ -836,7 +837,8 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
         "sentAckTotal": 0,
         "readBps": 0,
         "writeBps": 0,
-        "serviceName": "rdp-forward"
+        "serviceName": "rdp-forward",
+      "pipeId": "rdp-forward#3"
       }
     ],
     "closed": []
@@ -881,7 +883,8 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
         "sentAckTotal": 51200,
         "readBps": 2048.5,
         "writeBps": 1024.0,
-        "serviceName": "rdp-forward"
+        "serviceName": "rdp-forward",
+      "pipeId": "rdp-forward#3"
       }
     ]
   }
@@ -995,6 +998,7 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 | `readBps` | float64 | 实时读流速（字节/秒），仅活跃流有效，首次采样为 0 |
 | `writeBps` | float64 | 实时写流速（字节/秒），仅活跃流有效，首次采样为 0 |
 | `serviceName` | string | 归属服务名（无法识别时省略） |
+| `pipeId` | string | pipe 配对标识（未配对时省略）：经 tunnel 中转的连接会在两端流上携带相同值（形如 `服务名#序号`，仅进程运行期内唯一），客户端可据此把 listen 侧与 target 侧的流关联为端到端视图；连接关闭后配对注销，已关闭流不携带 |
 
 ### PingResultDTO
 

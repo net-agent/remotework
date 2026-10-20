@@ -114,6 +114,16 @@ flex 流完全关闭后有滞留期（`DefaultDetachRetention`，约 2s，用于
 
 与需求确认的一致：`aliveMs` 与 `startedAtMs` 同源于**网络对象创建时刻**（约等于 agent 启动/热挂载时刻），不是单次连接在线时长（重连不重置）。若需要"本次在线时长"需另提需求。
 
+### 3.8 `pipeId`（stream）：tunnel 两端流的关联标识
+
+`StreamStateDTO` 追加 additive 字段：
+
+```go
+PipeID string `json:"pipeId,omitempty"` // pipe 配对标识，未配对时省略
+```
+
+经 tunnel 中转的一条端到端连接在本 agent 上表现为两条流（listen 侧 + target 侧），两者现携带**相同** `pipeId`（形如 `服务名#序号`，仅进程运行期内唯一），桌面端可按键 `pipeId` 把两条流聚合为一个"逻辑连接"视图（字节数/速率求和，或并列展示两端）。语义与 `serviceName` 一致：活跃流在快照与 `stream.opened`/`stream.stats`/`stream.update(opened)` 中按可识别标注；连接关闭即注销，已关闭流与 `stream.closed` 不携带。未经过 tunnel 配对的流（如直连监听）无此字段。
+
 ## 4. 桌面端适配指南
 
 ### 4.1 types.ts 镜像
@@ -133,6 +143,7 @@ interface StreamStateDTO {
   // ...既有字段不变...
   createdAtMs: number;   // 流发起时刻（Unix 毫秒）
   closedAtMs?: number;   // 仅已关闭流
+  pipeId?: string;       // pipe 配对标识：tunnel 两端流同值（§3.8），未配对省略
 }
 
 // NetworkStateDTO 新增
