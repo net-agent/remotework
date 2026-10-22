@@ -122,14 +122,15 @@ Host                                     sidecar
   "mode": "normal|degraded",
   "version": "0.2.0",
   "commit": "abc1234",
-  "protocol": 1,
-  "uptimeMs": 12345,
+  "protocol": 3,
+  "startedAtMs": 1708243200000,
   "configPath": "/abs/path/active-config.json",
   "configError": ""
 }
 ```
 
 - `mode` 为 `degraded` 时 `configError` **MUST** 非空。
+- v3 起 `uptimeMs` 由 `startedAtMs`（Unix 毫秒）取代，uptime 由 Host 自行换算。
 - Host 健康检查与 Frontend 关于页/降级引导均 **MUST** 使用本端点。
 
 ### 6.2 优雅停止 `POST /api/v1/stop`
@@ -195,11 +196,13 @@ sidecar **MUST NOT** 为热挂载提供任何形式的持久化。
 
 ## 9. 版本协商
 
-1. 本协议版本 `protocol: 2`（v2 新增 WS 主题订阅/快照/序列号与流生命周期即时事件，全部为 additive 变更；REST 契约不变），sidecar 在 `ready` 消息与 `/api/v1/status` 中均 **MUST** 携带。
+1. 本协议版本 `protocol: 3`，sidecar 在 `ready` 消息与 `/api/v1/status` 中均 **MUST** 携带。
+   - v2 新增（additive）：WS 主题订阅/快照/序列号与流生命周期即时事件。
+   - v3 变更（**breaking**，Host 必须配套升级）：DTO 移除时间派生字段——`aliveMs`（网络/流）与 `uptimeMs`（/status）删除，存活时长由 `startedAtMs`/`createdAtMs`/`closedAtMs` 换算；`stream.stats` 改为增量 upsert 语义（仅携带状态变化的流，`full=true` 锚点帧整体替换该网络活跃流集合，无变化不发帧）；`network.stats`/`service.stats` 无变化同样不发帧。stats 类锚点间隔 ≤30s。
 2. sidecar 的 `version`/`commit` **MUST** 经 `-ldflags -X` 在构建期注入。
 3. Host 对 `protocol` 高于自身支持上限的 sidecar **MUST** 报错提示升级，**MUST NOT** 尝试兼容未知协议。
 4. Host 不再以 stderr 文本特征（如 `"invalid run-mode"`）探测二进制能力。
-5. v2 的 WS 事件契约（主题、快照、seq/resync、背压与心跳）以 `api/README.md` 的「WebSocket 实时事件」章节为准。
+5. WS 事件契约（主题、快照、seq/resync、stats 增量与锚点、背压与心跳）以 `api/README.md` 的「WebSocket 实时事件」章节为准。
 
 ---
 

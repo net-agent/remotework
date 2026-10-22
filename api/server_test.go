@@ -197,13 +197,13 @@ func TestStatusMeta(t *testing.T) {
 	var envelope struct {
 		ErrCode int `json:"ErrCode"`
 		Data    struct {
-			Running    bool   `json:"running"`
-			Mode       string `json:"mode"`
-			Version    string `json:"version"`
-			Commit     string `json:"commit"`
-			Protocol   int    `json:"protocol"`
-			UptimeMs   int64  `json:"uptimeMs"`
-			ConfigPath string `json:"configPath"`
+			Running     bool   `json:"running"`
+			Mode        string `json:"mode"`
+			Version     string `json:"version"`
+			Commit      string `json:"commit"`
+			Protocol    int    `json:"protocol"`
+			StartedAtMs int64  `json:"startedAtMs"`
+			ConfigPath  string `json:"configPath"`
 		} `json:"Data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
@@ -218,8 +218,8 @@ func TestStatusMeta(t *testing.T) {
 		d.ConfigPath != testMeta.ConfigPath {
 		t.Errorf("meta mismatch: %+v", d)
 	}
-	if d.UptimeMs < 0 {
-		t.Errorf("uptimeMs should be >= 0, got %d", d.UptimeMs)
+	if d.StartedAtMs <= 0 {
+		t.Errorf("startedAtMs should be > 0, got %d", d.StartedAtMs)
 	}
 }
 
@@ -471,8 +471,8 @@ func TestToStreamDTOMapping(t *testing.T) {
 	if dto.ReadBytes != 1024 || dto.WriteBytes != 512 || dto.IsClosed {
 		t.Errorf("bytes/isClosed mismatch: %+v", dto)
 	}
-	if dto.AliveMs <= 0 {
-		t.Errorf("aliveMs should be > 0, got %d", dto.AliveMs)
+	if dto.CreatedAtMs <= 0 {
+		t.Errorf("createdAtMs should be > 0, got %d", dto.CreatedAtMs)
 	}
 	// 速率与归属服务保持零值，由调用方二次填充
 	if dto.ReadBps != 0 || dto.WriteBps != 0 || dto.ServiceName != "" {
@@ -546,7 +546,7 @@ func TestPollerStreamStatsAndUpdate(t *testing.T) {
 	c := &WSClient{send: make(chan []byte, 64)}
 	hub.addClient(c)
 
-	// 首轮：service.stats / network.stats 慢节拍快照 + stream.stats 快节拍快照 + stream.update 差分（opened）
+	// 首轮：service.stats / network.stats 慢节拍锚点 + stream.stats 全量锚点 + stream.update 差分（opened）
 	poller.poll()
 	poller.pollStreamStats()
 
@@ -561,6 +561,9 @@ func TestPollerStreamStatsAndUpdate(t *testing.T) {
 	statsData := stats.Data.(map[string]interface{})
 	if statsData["network"] != "mynet" {
 		t.Errorf("stats network mismatch: %v", statsData["network"])
+	}
+	if statsData["full"] != true {
+		t.Errorf("first stream.stats should be a full anchor frame, got %v", statsData["full"])
 	}
 	streams := statsData["streams"].([]interface{})
 	if len(streams) != 1 {
@@ -599,14 +602,21 @@ func TestPollerStreamStatsAndUpdate(t *testing.T) {
 		t.Errorf("opened dto pipeId mismatch: %v", openedDTO["pipeId"])
 	}
 
-	// 次轮：字节数增长 → 速率非零；流集合不变 → 不再推 stream.update
+	// 次轮：字节数增长 → 增量帧仅携带变化的流（无 full 标记）；流集合不变 → 不再推 stream.update
 	st.BytesRead += 2000
 	st.BytesWritten += 1000
 	poller.pollStreamStats()
 
-	evts = collectWSEvents(t, c, 1) // 仅 stream.stats
+	evts = collectWSEvents(t, c, 1) // 仅 stream.stats 增量帧
 	stats = evts["stream.stats"]
-	streams = stats.Data.(map[string]interface{})["streams"].([]interface{})
+	statsData = stats.Data.(map[string]interface{})
+	if _, isFull := statsData["full"]; isFull {
+		t.Errorf("delta frame should not carry full flag, got %v", statsData)
+	}
+	streams = statsData["streams"].([]interface{})
+	if len(streams) != 1 {
+		t.Fatalf("delta frame should carry only the changed stream, got %d", len(streams))
+	}
 	dto0 = streams[0].(map[string]interface{})
 	if dto0["readBytes"].(float64) != 3024 || dto0["writeBytes"].(float64) != 1512 {
 		t.Errorf("second poll bytes should be updated, got read=%v write=%v",
@@ -617,17 +627,59 @@ func TestPollerStreamStatsAndUpdate(t *testing.T) {
 			dto0["readBps"], dto0["writeBps"])
 	}
 
+	// 第三轮：字节数不变 → 速率归零是真实状态变化，增量帧推送一次
+	poller.pollStreamStats()
+	evts = collectWSEvents(t, c, 1)
+	dto0 = evts["stream.stats"].Data.(map[string]interface{})["streams"].([]interface{})[0].(map[string]interface{})
+	if dto0["readBps"].(float64) != 0 || dto0["writeBps"].(float64) != 0 {
+		t.Errorf("third poll rates should settle to 0, got read=%v write=%v",
+			dto0["readBps"], dto0["writeBps"])
+	}
+
+	// 第四轮：完全无变化 → 静默（增量去重生效，且不消耗 seq）
+	poller.pollStreamStats()
 	select {
 	case msg := <-c.send:
-		t.Fatalf("unexpected extra event: %s", msg)
+		t.Fatalf("unchanged tick should not broadcast, got %s", msg)
 	default:
+	}
+
+	// 锚点：距上次全量帧超过 statsAnchorInterval → 即使无变化也发全量帧
+	poller.streamAnchorAt["mynet"] = time.Now().Add(-time.Hour)
+	poller.pollStreamStats()
+	evts = collectWSEvents(t, c, 1)
+	stats = evts["stream.stats"]
+	statsData = stats.Data.(map[string]interface{})
+	if statsData["full"] != true {
+		t.Errorf("anchor frame should carry full=true, got %v", statsData)
+	}
+	if len(statsData["streams"].([]interface{})) != 1 {
+		t.Errorf("anchor frame should carry the full active set, got %v", statsData["streams"])
+	}
+
+	// 慢节拍 stats 去重：再次 poll 无变化 → 静默；锚点到期 → 重发
+	poller.poll()
+	select {
+	case msg := <-c.send:
+		t.Fatalf("unchanged slow tick should not broadcast, got %s", msg)
+	default:
+	}
+	poller.serviceAnchorAt = time.Now().Add(-time.Hour)
+	poller.networkAnchorAt = time.Now().Add(-time.Hour)
+	poller.poll()
+	evts = collectWSEvents(t, c, 2)
+	if _, ok := evts["service.stats"]; !ok {
+		t.Errorf("want service.stats anchor frame, got %v", evts)
+	}
+	if _, ok := evts["network.stats"]; !ok {
+		t.Errorf("want network.stats anchor frame, got %v", evts)
 	}
 }
 
 // TestPollerFastStatsTicker 验证 stream.stats 由独立快节拍驱动：
 // 慢节拍设为足够长（测试期间不触发），快节拍 50ms，字节数变化应在秒级以内送达
 func TestPollerFastStatsTicker(t *testing.T) {
-	b := &atomicStreamBackend{}
+	b := &atomicStreamBackend{st: makeTestStreamState()}
 	b.readBytes.Store(1024)
 	hub := NewWSHub(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	poller := NewStatePoller(b, hub, nil, time.Hour, 50*time.Millisecond)
@@ -660,10 +712,10 @@ func TestPollerFastStatsTicker(t *testing.T) {
 		}
 	}
 
-	nextStats(true) // 首个 stream.stats 由快节拍独立发出
+	nextStats(true) // 首个 stream.stats（全量锚点帧）由快节拍独立发出
 
 	// 字节数增长后，后续快节拍推送应反映新值（readed/wrote 实时推送链路验证）。
-	// 变更前已采样的 tick 可能仍携带旧值，循环等到新值为止
+	// 无变化的 tick 被增量去重跳过（静默），变更后下一 tick 必然送达新值
 	b.readBytes.Add(4096)
 	deadline := time.After(2 * time.Second)
 	for {
@@ -686,14 +738,16 @@ func TestPollerFastStatsTicker(t *testing.T) {
 	}
 }
 
-// atomicStreamBackend 字节数可原子变更的流后端（快节拍测试用，避免数据竞争）
+// atomicStreamBackend 字节数可原子变更的流后端（快节拍测试用，避免数据竞争）。
+// 流对象固定复用（createdAtMs 稳定），不变更字节数时相邻 tick 的快照完全一致，
+// 以匹配增量去重的真实工作条件
 type atomicStreamBackend struct {
 	fakeBackend
 	readBytes atomic.Int64
+	st        *stream.State
 }
 
 func (b *atomicStreamBackend) GetDataStreamState(limit int, networks ...string) []*DataStreamState {
-	st := makeTestStreamState()
-	st.BytesRead = b.readBytes.Load()
-	return []*DataStreamState{{Network: "mynet", Actives: []*stream.State{st}}}
+	b.st.BytesRead = b.readBytes.Load()
+	return []*DataStreamState{{Network: "mynet", Actives: []*stream.State{b.st}}}
 }

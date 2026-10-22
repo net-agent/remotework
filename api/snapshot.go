@@ -91,7 +91,7 @@ func (s *Server) serviceSnapshot() []ServiceStateDTO {
 }
 
 // streamSnapshot 各网络活跃流的扁平数组（已关闭流历史不进推送通道，留给 REST /streams）。
-// 活跃流附带实时速率与归属服务标注，语义同 stream.stats。
+// 活跃流附带实时速率与归属服务标注（DTO 填充规则与 stream.stats 一致；本事件始终为全量基线）。
 func (s *Server) streamSnapshot() []StreamStateDTO {
 	reports, err := s.backend.GetAllNetworkState()
 	if err != nil {

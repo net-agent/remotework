@@ -15,7 +15,10 @@ var (
 // protocolVersion 为 sidecar 协议版本（docs/tauri-sidecar-protocol.md）。
 // v2 新增：WS 主题订阅（snapshot-on-subscribe / resync / 事件信封 seq+topic）、
 // 流生命周期即时事件（stream.opened/closed）、每 tick 计数器快照（network.stats/service.stats）。
-const protocolVersion = 2
+// v3 变更：DTO 去时间派生字段（aliveMs/uptimeMs 移除，由 startedAtMs/createdAtMs/closedAtMs
+// 客户端自行换算）；stream.stats 改为增量 upsert 语义（仅携带状态变化的流，full=true 锚点帧
+// 整体替换，无变化不发帧）；network.stats/service.stats 无变化同样不发帧（锚点 ≤30s）。
+const protocolVersion = 3
 
 // managedMode 仅当 -log-format=json（Host 托管模式）时为 true，
 // 此时 stdout 承载 C3 控制行与结构化日志；文本模式完全不输出控制行。

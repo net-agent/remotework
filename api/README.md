@@ -141,7 +141,7 @@ streamStatsInterval = 1
 | `enable` | bool | `false` | 是否启用 API 服务器 |
 | `listen` | string | `"127.0.0.1:8080"` | 监听地址。默认仅本地访问，如需远程访问改为 `"0.0.0.0:8080"` |
 | `pollInterval` | int | `5` | 网络/服务状态轮询间隔（秒） |
-| `streamStatsInterval` | int | `1` | 数据流字节数/速率快照（`stream.stats`）与开/关差分（`stream.update`）的推送间隔（秒） |
+| `streamStatsInterval` | int | `1` | 数据流采样节拍（秒）：`stream.stats` 增量推送（仅状态变化的流；无变化不发帧，全量锚点 ≤30s）与 `stream.update` 开/关差分 |
 
 ### 编程方式启动
 
@@ -161,14 +161,14 @@ host.Load(apiplugin.New(config.API, func() {
     // /stop 被调用时的宿主停止回调，例如触发 Shutdown
 }, apiplugin.Options{
     Token: os.Getenv("REMOTEWORK_API_TOKEN"), // 可空，见「认证与来源校验」
-    Meta:  api.Meta{Protocol: 2, Mode: "normal", ConfigPath: resolvedPath},
+    Meta:  api.Meta{Protocol: 3, Mode: "normal", ConfigPath: resolvedPath},
 }))
 
 // 方式二：不用 kernel，自行实现 api.Backend 接口后直接起服务
 apiServer := api.New(myBackend, api.Config{
     Listen: "127.0.0.1:8080",
     Token:  "...",          // 可空
-    Meta:   api.Meta{Protocol: 2, Mode: "normal"},
+    Meta:   api.Meta{Protocol: 3, Mode: "normal"},
 }, nil) // nil 使用默认 logger
 if err := apiServer.Start(); err != nil {
     // 端口绑定失败会同步返回错误
@@ -241,8 +241,8 @@ HTTP 请求的 Host 头去端口后必须在白名单内：`127.0.0.1`、`localh
     "mode": "normal",
     "version": "v1.2.0",
     "commit": "abc1234",
-    "protocol": 1,
-    "uptimeMs": 12345,
+    "protocol": 3,
+    "startedAtMs": 1708243200000,
     "configPath": "/abs/path/active-config.json",
     "configError": ""
   }
@@ -254,8 +254,8 @@ HTTP 请求的 Host 头去端口后必须在白名单内：`127.0.0.1`、`localh
 | `running` | `true` 表示控制面后端运行中；`false` 表示宿主已进入停止流程（插件正在卸载） |
 | `mode` | `normal` 或 `degraded`（配置损坏时仅运行 API 的降级模式） |
 | `version` / `commit` | 构建期经 `-ldflags -X` 注入的版本信息 |
-| `protocol` | sidecar 协议版本，当前为 `2` |
-| `uptimeMs` | API 服务器启动至今的毫秒数 |
+| `protocol` | sidecar 协议版本，当前为 `3` |
+| `startedAtMs` | API 服务器启动时刻（Unix 毫秒）；uptime 由客户端自行换算 |
 | `configPath` | 当前配置文件路径 |
 | `configError` | 降级模式时的配置错误汇总；正常模式下省略（`omitempty`） |
 
@@ -278,7 +278,7 @@ HTTP 请求的 Host 头去端口后必须在白名单内：`127.0.0.1`、`localh
       "domain": "my-pc",
       "state": "online",
       "lastErr": "",
-      "aliveMs": 360000,
+      "startedAtMs": 1708243200000,
       "listens": 2,
       "dials": 5,
       "reconnects": 1,
@@ -292,7 +292,7 @@ HTTP 请求的 Host 头去端口后必须在白名单内：`127.0.0.1`、`localh
       "address": "",
       "domain": "",
       "state": "",
-      "aliveMs": 0,
+      "startedAtMs": 0,
       "listens": 0,
       "dials": 0,
       "reconnects": 0,
@@ -375,7 +375,6 @@ GET /api/v1/streams?limit=20&network=mynet
       "remoteAddr": "2:50001",
       "readBytes": 102400,
       "writeBytes": 51200,
-      "aliveMs": 15000,
       "isClosed": false,
       "readClosed": false,
       "writeClosed": false,
@@ -685,7 +684,7 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 
 ### 可靠性与背压
 
-- 事件分两类投递策略：**可靠事件**（生命周期/状态类：`*.snapshot`、`stream.opened`、`stream.closed`、`network.state`、`service.status`、`hub.stopped`）客户端缓冲区满时服务端会**主动断开该连接**（客户端重连后走快照+增量恢复，不会静默丢事件）；**可丢弃事件**（计数器/速率类：`stream.stats`、`network.stats`、`service.stats`）缓冲区满时丢旧，客户端等下一 tick 的全量 stats 补齐
+- 事件分两类投递策略：**可靠事件**（生命周期/状态类：`*.snapshot`、`stream.opened`、`stream.closed`、`network.state`、`service.status`、`hub.stopped`）客户端缓冲区满时服务端会**主动断开该连接**（客户端重连后走快照+增量恢复，不会静默丢事件）；**可丢弃事件**（计数器/速率类：`stream.stats`、`network.stats`、`service.stats`）缓冲区满时丢旧；stats 类事件无变化不发帧，丢失后由 ≤30s 的全量锚点帧兜底收敛
 - 客户端发送缓冲区为 256 条消息
 - 心跳：服务端每 30s 发送 ping，60s 未收到 pong 判定死连并断开；写操作超时 10s。浏览器 WebSocket 会自动应答 ping
 
@@ -697,7 +696,7 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 
 | 事件 | 载荷 |
 |------|------|
-| `hub.snapshot` | Agent 状态全量：`running` / `mode` / `version` / `commit` / `protocol` / `startedAtMs` / `configPath` / `configError`。`mode`、`configError` 在进程生命周期内不变；`uptimeMs` 不再随事件重复发送，由 `startedAtMs` 客户端自行换算 |
+| `hub.snapshot` | Agent 状态全量：`running` / `mode` / `version` / `commit` / `protocol` / `startedAtMs` / `configPath` / `configError`。`mode`、`configError` 在进程生命周期内不变；uptime 不随事件发送，由 `startedAtMs` 客户端自行换算 |
 | `network.snapshot` | `NetworkStateDTO[]` 全量（与 REST `/networks` 一致，过滤内置 `tcp4`/`tcp6`） |
 | `service.snapshot` | `ServiceStateDTO[]` 全量 |
 | `stream.snapshot` | 各网络活跃流的扁平数组（`StreamStateDTO`，含 `network` 字段、速率与归属服务标注）。**已关闭流历史不进推送通道**，排障查询仍用 REST `/streams` |
@@ -710,7 +709,7 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
   "seq": 0,
   "data": {
     "running": true, "mode": "normal", "version": "v1.2.0", "commit": "abc1234",
-    "protocol": 2, "startedAtMs": 1708243200000, "configPath": "/abs/path/active-config.json"
+    "protocol": 3, "startedAtMs": 1708243200000, "configPath": "/abs/path/active-config.json"
   }
 }
 ```
@@ -733,7 +732,6 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
       "address": "server.example.com:9000",
       "domain": "my-pc",
       "state": "connecting",
-      "aliveMs": 0,
       "listens": 0,
       "dials": 0
     }
@@ -826,7 +824,6 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
         "remoteAddr": "2:50001",
         "readBytes": 0,
         "writeBytes": 0,
-        "aliveMs": 100,
         "isClosed": false,
         "readClosed": false,
         "writeClosed": false,
@@ -853,7 +850,7 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 
 #### stream.stats
 
-活跃流的周期快照推送。由后台轮询器（StatePoller）的快节拍对每个网络广播一次，延迟取决于 `streamStatsInterval` 配置（默认 1 秒）；与 `stream.update` 并存——前者是全量快照（含实时流速），后者是开/关差分。
+活跃流状态的周期增量推送（协议 v3 起）。由后台轮询器（StatePoller）的快节拍驱动，采样间隔取决于 `streamStatsInterval` 配置（默认 1 秒），但**不再每 tick 发帧**——每条流的 DTO 与上次已广播值逐字段比对（DTO 全部为时间无关字段，存活时长等派生量由客户端按 `createdAtMs` 自行换算），仅**状态有变化的流**进入当次帧：
 
 ```json
 {
@@ -872,7 +869,7 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
         "remoteAddr": "2:50001",
         "readBytes": 102400,
         "writeBytes": 51200,
-        "aliveMs": 15000,
+        "createdAtMs": 1708243200000,
         "isClosed": false,
         "readClosed": false,
         "writeClosed": false,
@@ -891,12 +888,17 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 }
 ```
 
-- `streams` — 该网络当前全部活跃流的完整快照（[StreamStateDTO](#streamstatedto)），无活跃流时为空数组
-- `readBps`/`writeBps` — 按相邻两次轮询的字节差计算的实时流速（字节/秒），流首次出现时为 0
+- `streams` — 自上次广播以来状态有变化的流（[StreamStateDTO](#streamstatedto)），**upsert 语义**：客户端按 `(network, index)` 合并，整条 DTO 替换本地副本
+- `full: true`（仅锚点帧携带）— 每 30 秒及网络首帧发送一次全量锚点：`streams` 为该网络当前**全部**活跃流（可为空数组），客户端**整体替换**该网络的活跃流集合；可丢弃帧丢失后由锚点帧兜底收敛
+- 该网络无任何变化时不发帧（不消耗主题 seq，不会产生 seq 空洞）；**不得**把本事件的到帧节奏当作心跳或定时器
+- 流的移除不走本事件，由可靠事件 `stream.closed`（及兜底的 `stream.update`）送达
+- `readBps`/`writeBps` — 按相邻两次轮询的字节差计算的实时流速（字节/秒），流首次出现时为 0；流速随流量归零也是一次状态变化，会触发一帧增量
 
 #### network.stats
 
-协议 v2。每 tick 推送一次全部网络的计数器快照（含 `listens`/`dials`/`reconnects`、`bytesRead`/`bytesWritten`/`rttMs`、`startedAtMs`），计数器不再需要 REST 轮询：
+协议 v2。每 tick 推送一次全部网络的计数器快照（含 `listens`/`dials`/`reconnects`、`bytesRead`/`bytesWritten`/`rttMs`、`startedAtMs`），计数器不再需要 REST 轮询。
+
+协议 v3 起：快照与上次发送完全一致时不发帧（无变化不消耗 seq），至多 30s 有一帧保底；载荷数组按 `name` 排序。
 
 ```json
 {
@@ -909,7 +911,9 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 
 #### service.stats
 
-协议 v2。每 tick 推送一次全部服务的计数器快照（`actives`/`dones`/`lastErr`），替代轮询 `GET /services`：
+协议 v2。每 tick 推送一次全部服务的计数器快照（`actives`/`dones`/`lastErr`），替代轮询 `GET /services`。
+
+协议 v3 起：快照与上次发送完全一致时不发帧（无变化不消耗 seq），至多 30s 有一帧保底；载荷数组按 `name` 排序。
 
 ```json
 {
@@ -948,8 +952,7 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 | `domain` | string | 本机在虚拟网络中的域名 |
 | `state` | string | 当前状态：`offline` / `connecting` / `online` / `closed` |
 | `lastErr` | string | 最近一次错误信息（无错误时省略） |
-| `aliveMs` | int64 | 网络对象存活时间（毫秒，自创建/热挂载起；不是单次连接在线时长） |
-| `startedAtMs` | int64 | 网络对象创建时刻（Unix 毫秒），与 `aliveMs` 同源，客户端可据此自行换算时长 |
+| `startedAtMs` | int64 | 网络对象创建时刻（Unix 毫秒，自创建/热挂载起算；存活时长由客户端按 now-startedAtMs 自行换算） |
 | `listens` | int32 | 在此网络上创建的 listener 数量 |
 | `dials` | int32 | 通过此网络发起的 dial 数量 |
 | `reconnects` | int64 | 累计断线重连次数（虚拟网络有效，本地网络恒为 0） |
@@ -983,8 +986,7 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 | `remoteAddr` | string | 远程地址 |
 | `readBytes` | int64 | 已读取字节数 |
 | `writeBytes` | int64 | 已写入字节数 |
-| `aliveMs` | int64 | 存活时间（毫秒） |
-| `createdAtMs` | int64 | 流发起时刻（Unix 毫秒） |
+| `createdAtMs` | int64 | 流发起时刻（Unix 毫秒）；存活时长由客户端按 now-createdAtMs（已关闭流按 closedAtMs-createdAtMs）自行换算 |
 | `closedAtMs` | int64 | 流完全关闭时刻（Unix 毫秒），仅已关闭流携带 |
 | `isClosed` | bool | 是否已关闭 |
 | `readClosed` | bool | 读方向已关闭（半关闭状态） |
@@ -1089,7 +1091,11 @@ ws.onmessage = (event) => {
       console.log(`网络 ${evt.data.network}: +${evt.data.opened?.length || 0} -${evt.data.closed?.length || 0}`);
       break;
     case 'stream.stats':
-      console.log(`网络 ${evt.data.network}: ${evt.data.streams?.length || 0} 条活跃流`);
+      if (evt.data.full) {
+        console.log(`网络 ${evt.data.network}: 全量锚点 ${evt.data.streams.length} 条活跃流`);
+      } else {
+        console.log(`网络 ${evt.data.network}: ${evt.data.streams.length} 条流状态变更（upsert）`);
+      }
       break;
     case 'hub.stopped':
       console.log('Agent 已停止');
@@ -1121,10 +1127,10 @@ type APIResponse struct {
 }
 
 type NetworkState struct {
-    Name    string `json:"name"`
-    State   string `json:"state"`
-    Domain  string `json:"domain"`
-    AliveMs int64  `json:"aliveMs"`
+    Name        string `json:"name"`
+    State       string `json:"state"`
+    Domain      string `json:"domain"`
+    StartedAtMs int64  `json:"startedAtMs"`
 }
 
 func main() {
@@ -1152,7 +1158,7 @@ func main() {
 
         for _, n := range networks {
             if n.State == "online" {
-                fmt.Printf("✓ %s (%s) 在线 %dms\n", n.Name, n.Domain, n.AliveMs)
+                fmt.Printf("✓ %s (%s) 在线 %dms\n", n.Name, n.Domain, time.Since(time.UnixMilli(n.StartedAtMs)).Milliseconds())
             }
         }
     }
@@ -1167,7 +1173,7 @@ func main() {
    - `network.state` → 更新网络面板
    - `service.status` → 更新服务面板
    - `stream.update` → 更新数据流列表（开/关差分）
-   - `stream.stats` → 更新数据流列表（活跃流全量快照与实时流速）
+   - `stream.stats` → 按 `(network, index)` upsert 变化的流（增量，含实时流速）；`full=true` 锚点帧整体替换该网络活跃流集合
    - `hub.stopped` → 显示离线状态
 4. **按需查询** — 用户点击 "Ping" 按钮时调用 `/ping`
 5. **断线重连** — WebSocket 断开后指数退避重连，重连后重新拉取全量状态
@@ -1184,7 +1190,7 @@ API 模块使用两种互补的事件推送机制：
 |------|----------|------|------|
 | kernel EventBus | `network.state`、`service.status` | 实时 | 插件在状态变更时向事件总线发布事件 |
 | 流生命周期回调（tcp 连接追踪器 + flex Trace 钩子） | `stream.opened`、`stream.closed` | 实时（flex 的 closed 含约 2s 滞留期；tcp 的 closed 即时） | tcp 追踪器在连接注册/完全关闭时回调、flex 节点在流打开/完全关闭时回调，均经 EventBus 汇入，api 层按约 50ms 窗口合并批量广播 |
-| StatePoller 快节拍 | `stream.update`、`stream.stats` | ≤ streamStatsInterval（默认 1s） | 定期拉取各网络流快照：全量广播（含实时速率）并做开/关差分兜底 |
+| StatePoller 快节拍 | `stream.update`、`stream.stats` | ≤ streamStatsInterval（默认 1s） | 定期拉取各网络流快照：增量广播变化的流（含实时速率；无变化不发，30s 全量锚点兜底）并做开/关差分兜底 |
 | StatePoller 慢节拍 | `network.stats`、`service.stats`、`hub.stopped` | ≤ pollInterval（默认 5s） | 定期快照对比，检测状态差异并刷新计数器 |
 
 网络和服务状态变化频率低但重要性高，采用实时回调；数据流的生命周期事件驱动（tcp 与 flex 均已接入），速率/计数器等高频数据采用快节拍周期快照（stats 类事件可丢弃补新）。
@@ -1209,6 +1215,7 @@ API 模块使用两种互补的事件推送机制：
 - `POST /ping` 会阻塞约 3 秒（ping 超时），不适合高频调用
 - WebSocket 客户端的发送缓冲区为 256 条消息：可丢弃事件（`*.stats` 类）缓冲区满时丢旧补新；可靠事件（生命周期/快照类）投递失败时服务端主动断开该连接，客户端重连后经快照+增量恢复
 - StatePoller 的轮询间隔建议 3-10 秒，过短会增加 CPU 开销
+- stats 类事件（stream/network/service）基于时间无关 DTO 做增量比对：无变化不发帧，每 30s 一帧全量锚点兜底可丢弃帧的丢失；活跃流/网络的存活时长等派生量不进协议，由客户端按 `createdAtMs`/`startedAtMs` 自行换算
 
 ### 错误处理
 

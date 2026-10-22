@@ -1,8 +1,6 @@
 package api
 
 import (
-	"time"
-
 	"github.com/net-agent/flex/v3/stream"
 	"github.com/net-agent/remotework/vnet"
 	"github.com/net-agent/remotework/vservice"
@@ -22,18 +20,19 @@ type ServiceStateDTO struct {
 }
 
 type NetworkStateDTO struct {
-	Name        string `json:"name"`
-	Kind        string `json:"kind"`
-	Protocol    string `json:"protocol"`
-	Address     string `json:"address"`
-	Domain      string `json:"domain"`
-	State       string `json:"state"`
-	LastErr     string `json:"lastErr,omitempty"`
-	AliveMs     int64  `json:"aliveMs"`
-	StartedAtMs int64  `json:"startedAtMs"` // 网络对象创建时刻（Unix 毫秒）；与 aliveMs 同源，客户端可据此自行换算时长
-	Listens     int32  `json:"listens"`
-	Dials       int32  `json:"dials"`
-	Reconnects  int64  `json:"reconnects"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	Protocol string `json:"protocol"`
+	Address  string `json:"address"`
+	Domain   string `json:"domain"`
+	State    string `json:"state"`
+	LastErr  string `json:"lastErr,omitempty"`
+	// StartedAtMs 为时间无关的绝对锚点：存活时长由客户端按 now-startedAtMs 自行换算，
+	// 避免每 tick 必变的派生字段破坏增量比对
+	StartedAtMs int64 `json:"startedAtMs"` // 网络对象创建时刻（Unix 毫秒）
+	Listens     int32 `json:"listens"`
+	Dials       int32 `json:"dials"`
+	Reconnects  int64 `json:"reconnects"`
 
 	BytesRead    int64 `json:"bytesRead"`    // 节点累计读取字节数
 	BytesWritten int64 `json:"bytesWritten"` // 节点累计写入字节数
@@ -48,12 +47,14 @@ type StreamStateDTO struct {
 	LocalAddr    string `json:"localAddr"`
 	RemoteDomain string `json:"remoteDomain"`
 	RemoteAddr   string `json:"remoteAddr"`
-	ReadBytes    int64  `json:"readBytes"`
-	WriteBytes   int64  `json:"writeBytes"`
-	AliveMs      int64  `json:"aliveMs"`
-	CreatedAtMs  int64  `json:"createdAtMs"`          // 流发起时刻（Unix 毫秒）
-	ClosedAtMs   int64  `json:"closedAtMs,omitempty"` // 流完全关闭时刻（Unix 毫秒），仅已关闭流携带
-	IsClosed     bool   `json:"isClosed"`
+
+	ReadBytes  int64 `json:"readBytes"`
+	WriteBytes int64 `json:"writeBytes"`
+	// CreatedAtMs/ClosedAtMs 为时间无关的绝对锚点：存活时长由客户端按
+	// now-createdAtMs（或 closedAtMs-createdAtMs）自行换算
+	CreatedAtMs int64 `json:"createdAtMs"`          // 流发起时刻（Unix 毫秒）
+	ClosedAtMs  int64 `json:"closedAtMs,omitempty"` // 流完全关闭时刻（Unix 毫秒），仅已关闭流携带
+	IsClosed    bool  `json:"isClosed"`
 
 	ReadClosed  bool   `json:"readClosed"`            // 读方向已关闭（半关闭状态）
 	WriteClosed bool   `json:"writeClosed"`           // 写方向已关闭（半关闭状态）
@@ -85,7 +86,7 @@ type statusDTO struct {
 	Version     string `json:"version"`
 	Commit      string `json:"commit"`
 	Protocol    int    `json:"protocol"`
-	UptimeMs    int64  `json:"uptimeMs"`
+	StartedAtMs int64  `json:"startedAtMs"` // API 服务器启动时刻（Unix 毫秒）；uptime 由客户端自行换算
 	ConfigPath  string `json:"configPath"`
 	ConfigError string `json:"configError,omitempty"`
 }
@@ -123,7 +124,6 @@ func toNetworkDTO(r vnet.NetworkReport) NetworkStateDTO {
 		Domain:       r.Domain,
 		State:        r.State,
 		LastErr:      r.LastErr,
-		AliveMs:      r.Alive.Milliseconds(),
 		StartedAtMs:  r.StartedAt.UnixMilli(),
 		Listens:      r.Listens,
 		Dials:        r.Dials,
@@ -146,13 +146,11 @@ func directionString(d stream.Direction) string {
 	}
 }
 
-// toStreamDTO 纯字段映射：flex 状态全量透传；
-// 实时速率（ReadBps/WriteBps）与归属服务（ServiceName）由 handler/poller 二次填充
+// toStreamDTO 纯字段映射：flex 状态全量透传（时间无关，同一状态产出相等 DTO，
+// 供增量比对直接 ==）；实时速率（ReadBps/WriteBps）与归属服务（ServiceName）由 handler/poller 二次填充
 func toStreamDTO(network string, s *stream.State) StreamStateDTO {
-	aliveMs := time.Since(s.Created).Milliseconds()
 	var closedAtMs int64
 	if s.IsClosed {
-		aliveMs = s.Closed.Sub(s.Created).Milliseconds()
 		closedAtMs = s.Closed.UnixMilli()
 	}
 	return StreamStateDTO{
@@ -165,7 +163,6 @@ func toStreamDTO(network string, s *stream.State) StreamStateDTO {
 		RemoteAddr:      s.RemoteAddr.String(),
 		ReadBytes:       s.BytesRead,
 		WriteBytes:      s.BytesWritten,
-		AliveMs:         aliveMs,
 		CreatedAtMs:     s.Created.UnixMilli(),
 		ClosedAtMs:      closedAtMs,
 		IsClosed:        s.IsClosed,

@@ -20,7 +20,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Version:     s.meta.Version,
 		Commit:      s.meta.Commit,
 		Protocol:    s.meta.Protocol,
-		UptimeMs:    time.Since(s.startedAt).Milliseconds(),
+		StartedAtMs: s.startedAt.UnixMilli(),
 		ConfigPath:  s.meta.ConfigPath,
 		ConfigError: s.meta.ConfigError,
 	})
