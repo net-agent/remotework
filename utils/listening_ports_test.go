@@ -171,3 +171,30 @@ func TestDedupeListeningPorts(t *testing.T) {
 		}
 	}
 }
+
+// ListListeningPorts 必须走共享的 listTCPConnections 分派（darwin 为 netstat，
+// 否则 darwin 上回落到 lsof 的权限盲区，root 进程的监听不可见）
+func TestListListeningPortsUsesSharedTCPSource(t *testing.T) {
+	originList := listTCPConnections
+	listTCPConnections = func() ([]gopsnet.ConnectionStat, error) {
+		return []gopsnet.ConnectionStat{
+			{Status: "LISTEN", Type: 1, Pid: 100, Laddr: gopsnet.Addr{IP: "0.0.0.0", Port: 8080}},
+		}, nil
+	}
+	t.Cleanup(func() { listTCPConnections = originList })
+	originStart := getProcessStartMs
+	getProcessStartMs = func(pid int32) int64 { return 1700000000000 + int64(pid) }
+	t.Cleanup(func() { getProcessStartMs = originStart })
+
+	got, err := ListListeningPorts()
+	if err != nil {
+		t.Fatalf("ListListeningPorts() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(ListListeningPorts()) = %d, want 1 (%+v)", len(got), got)
+	}
+	item := got[0]
+	if item.Port != 8080 || item.Protocol != "tcp" || item.PID != 100 || item.Address != "0.0.0.0" {
+		t.Fatalf("item = %+v, want {Port: 8080, Protocol: tcp, PID: 100, Address: 0.0.0.0}", item)
+	}
+}

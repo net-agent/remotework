@@ -36,8 +36,11 @@ var getProcessStartMs = func(pid int32) int64 {
 	return createTime
 }
 
+// ListListeningPorts 枚举本机 TCP 监听端口。连接表数据源见 listTCPConnections：
+// darwin 解析 netstat（无 lsof 的本用户权限盲区，root/其他用户进程的监听可见），
+// 其余平台维持 gopsutil
 func ListListeningPorts() ([]ListeningPortInfo, error) {
-	connections, err := gopsnet.Connections("tcp")
+	connections, err := listTCPConnections()
 	if err != nil {
 		return nil, err
 	}

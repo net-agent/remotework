@@ -101,5 +101,6 @@ interface StreamStateDTO {
 ## 7. 修订记录
 
 - **2026-10-21**（依据桌面端排查反馈修复两处 sidecar 缺陷）：
-  1. **darwin 端点表换源**：gopsutil 在 macOS 上 `Connections("tcp")` 经由 lsof 实现，非 root 运行时看不到 root / 其他用户进程的 socket（典型受害场景：客户端是以 root 运行的系统代理核心），导致 `clientPid` / `clientProcName` 永远缺席。darwin 改为解析 `netstat -anv -p tcp` 输出（无权限盲区，root 进程 socket 携带属主，TIME_WAIT 残留在窗口期内保留 PID）；进程名 / 启动时间仍走 proc_pidinfo（跨用户可用）。其他平台行为不变。已知残留盲区：`utils/listening_ports.go` 的 LISTEN 枚举在 darwin 仍走 lsof 路径，对 root 监听进程有同样限制（本次未改）。
+  1. **darwin 端点表换源**：gopsutil 在 macOS 上 `Connections("tcp")` 经由 lsof 实现，非 root 运行时看不到 root / 其他用户进程的 socket（典型受害场景：客户端是以 root 运行的系统代理核心），导致 `clientPid` / `clientProcName` 永远缺席。darwin 改为解析 `netstat -anv -p tcp` 输出（无权限盲区，root 进程 socket 携带属主，TIME_WAIT 残留在窗口期内保留 PID）；进程名 / 启动时间仍走 proc_pidinfo（跨用户可用）。其他平台行为不变。原遗留的同类盲区（`utils/listening_ports.go` 的 LISTEN 枚举）已于同日一并修复，见下条。
+  3. **系统监听枚举同步换源**：`ListListeningPorts`（REST `GET /system/listening-ports` 与 tunnel 端口占用提示的数据源）原在 darwin 同样经 lsof，root 进程的监听端口不可见；已改为复用 `listTCPConnections` 平台分派。为此 netstat 解析器扩展支持通配监听地址：`*.port` 按协议族映射为 `0.0.0.0`（tcp4）或 `::`（tcp6 / tcp46 双栈），与 DTO 文档示例一致；解析行补充 `Type` 标记使 `protocol` 字段正确输出 `tcp`。非 root 实测：root 的 verge-mihomo 监听端口（9051 / 9097 / 10807）已正确返回。
   2. **closed 流窗口期补查**：此前重试由 `stream.stats` tick 顺带驱动，短连接「开流首查 miss → 秒关」后不再出现于 stats 通道，重试永不发生。现每次 stats tick 由解析器主动遍历仍在重试窗口内的未解条目（含已关闭流）补查（`retryPending`），命中或窗口届满才终止；补解析结果经 REST `/streams` 历史透传。

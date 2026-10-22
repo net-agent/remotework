@@ -531,7 +531,8 @@ POST /api/v1/ping/mynet/remote-pc
 ```
 
 - `pid` / `processName` 无法获取时省略
-- `address` 为监听地址（同一 `(address, port, pid)` 三元组才去重，IPv4/IPv6 双栈与 SO_REUSEPORT 多进程不再合并）
+- `address` 为监听地址（同一 `(address, port, pid)` 三元组才去重，IPv4/IPv6 双栈与 SO_REUSEPORT 多进程不再合并）；通配监听在 macOS 上按协议族报告为 `0.0.0.0`（IPv4）或 `::`（IPv6 / 双栈）
+- 数据源：macOS 解析 `netstat -anv -p tcp`（root / 其他用户进程的监听同样可见），其余平台为 gopsutil 连接表
 - `procStartMs` 为**进程启动时刻**（Unix 毫秒）：系统不暴露 socket 创建时间，此为近似值（进程启动 ≠ 开始监听），无法获取时省略
 
 ---
