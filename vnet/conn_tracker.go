@@ -189,7 +189,7 @@ type connTracker struct {
 
 	mu      sync.Mutex
 	actives map[int32]*trackedConn
-	closeds []*stream.State // 关闭时刻的 State 快照，有界
+	closeds stateRing // 关闭时刻的 State 快照，固定容量环形历史
 }
 
 func newConnTracker(name string, trace *StreamTrace) *connTracker {
@@ -233,10 +233,7 @@ func (t *connTracker) moveToClosed(id int32, snapshot *stream.State) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.actives, id)
-	t.closeds = append(t.closeds, snapshot)
-	if over := len(t.closeds) - maxClosedStreamHist; over > 0 {
-		t.closeds = append([]*stream.State(nil), t.closeds[over:]...)
-	}
+	t.closeds.push(snapshot, maxClosedStreamHist)
 }
 
 // CloseAll 关闭所有活跃连接（Stop 时调用），reason 预置（first-wins 不覆盖已有归因）
@@ -266,9 +263,7 @@ func (t *connTracker) GetStreamStates() (actives, closeds []*stream.State) {
 			actives = append(actives, c.snapshot(t.name))
 		}
 	}
-	if len(t.closeds) > 0 {
-		closeds = append([]*stream.State(nil), t.closeds...)
-	}
+	closeds = t.closeds.snapshot()
 	return actives, closeds
 }
 

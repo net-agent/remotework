@@ -110,6 +110,8 @@ func (p *Plugin) Init(c *kernel.Context) error {
 	svc.TunnelID = p.spec.ID
 	svc.SetStatus(vservice.StatusInit)
 	if err := svc.Controller.Init(); err != nil {
+		svc.SetStatus(vservice.StatusFailed)
+		svc.SetLastErr(err)
 		return err
 	}
 	p.svc = svc
@@ -131,6 +133,9 @@ func (p *Plugin) Start(c *kernel.Context) error {
 		case <-c.Done(): // 正常卸载导致的退出
 		default:
 			if err != nil {
+				// 控制器会在永久失败时写入 StatusFailed/LastErr；
+				// 这里保留日志作为兜底，避免服务静默失效。
+				p.svc.SetLastErr(err)
 				p.log.Error("service loop exited unexpectedly", "err", err)
 			}
 		}
@@ -140,7 +145,9 @@ func (p *Plugin) Start(c *kernel.Context) error {
 
 // Drain 实现 kernel.Drainer：先停止接收新连接，再等待存量连接在时限内结束
 func (p *Plugin) Drain(deadline time.Duration) error {
-	p.closer.Close()
+	if p.closer != nil {
+		_ = p.closer.Close()
+	}
 	if p.svc == nil {
 		return nil
 	}
@@ -151,7 +158,12 @@ func (p *Plugin) Drain(deadline time.Duration) error {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	return fmt.Errorf("%d active connection(s) remain", p.svc.GetActiveCount())
+	// 排空超时：强制关闭残留连接，避免 kernel 的 cleanup 超时后进程退出
+	// 直接把活跃 RDP/SSH 会话 RST。Controller.Close 会关闭 listener 与所有
+	// 已登记连接，并保证幂等。
+	remaining := p.svc.GetActiveCount()
+	_ = p.svc.Controller.Close()
+	return fmt.Errorf("%d active connection(s) remained after drain deadline; forced close", remaining)
 }
 
 //
@@ -165,25 +177,61 @@ type endpoint struct {
 }
 
 // resolveEndpoint 将隧道端点解析为网络能力名与地址。
-// vtcp 端点必须携带 authcode——这是运行时校验兜底，
-// 弥补动态装载路径绕过 configv2.Validate 的缺口。
+//
+// 这是运行时校验兜底，弥补动态装载路径绕过 configv2.Validate 的缺口：
+//   - vtcp 端点必须携带 authcode 或 authcodeRef；authcodeRef 通过
+//     utils.ResolveSecret 解析，失败即返回错误（fail closed），不会把引用
+//     字面量当密钥；
+//   - 同时给出 authcode 与 authcodeRef 时以 authcode 为准；
+//   - 物理端点携带 authcode/authcodeRef 直接报错，避免“以为加密实则明文”。
 func resolveEndpoint(ep configv2.EndpointSpec) (endpoint, error) {
-	if ep.Kind == configv2.EndpointVNet {
-		authcode := utils.FirstString(ep.Authcode, ep.AuthcodeRef)
+	redacted := utils.RedactURL(ep.RawURL)
+
+	switch ep.Kind {
+	case configv2.EndpointVNet:
+		authcode, err := resolveAuthcode(ep)
+		if err != nil {
+			return endpoint{}, fmt.Errorf("vtcp endpoint %q: %w", redacted, err)
+		}
 		if authcode == "" {
-			return endpoint{}, fmt.Errorf("vtcp endpoint %q requires authcode", ep.RawURL)
+			return endpoint{}, fmt.Errorf("vtcp endpoint %q requires authcode or authcodeRef", redacted)
 		}
 		return endpoint{
 			network:  ep.Alias,
 			addr:     net.JoinHostPort(ep.VHostname, ep.Port),
 			authcode: authcode,
 		}, nil
+
+	case configv2.EndpointNet:
+		if ep.Authcode != "" || ep.AuthcodeRef != "" {
+			return endpoint{}, fmt.Errorf("physical endpoint %q: authcode/authcodeRef is only supported on vtcp endpoints",
+				redacted)
+		}
+		u, err := url.Parse(ep.RawURL)
+		if err != nil {
+			return endpoint{}, fmt.Errorf("parse endpoint %q: %w", redacted, err)
+		}
+		return endpoint{network: u.Scheme, addr: u.Host}, nil
+
+	default:
+		return endpoint{}, fmt.Errorf("endpoint %q: unsupported endpoint kind %s", redacted, ep.Kind)
 	}
-	u, err := url.Parse(ep.RawURL)
+}
+
+// resolveAuthcode 解析端点的传输密钥。
+// 明文 authcode 优先（与配置文档一致）；否则解析 authcodeRef。
+func resolveAuthcode(ep configv2.EndpointSpec) (string, error) {
+	if ep.Authcode != "" {
+		return ep.Authcode, nil
+	}
+	if ep.AuthcodeRef == "" {
+		return "", nil
+	}
+	authcode, err := utils.ResolveSecret(ep.AuthcodeRef)
 	if err != nil {
-		return endpoint{}, fmt.Errorf("parse endpoint %q: %w", ep.RawURL, err)
+		return "", fmt.Errorf("resolve authcodeRef: %w", err)
 	}
-	return endpoint{network: u.Scheme, addr: u.Host}, nil
+	return authcode, nil
 }
 
 // portOwnerHint 在物理端口监听失败时，尽力找出占用该端口的系统进程，
@@ -216,11 +264,14 @@ func portOwnerHint(ep configv2.EndpointSpec, addr string) string {
 // internalURL 生成 ServiceState 中记录的 URL 表示：
 // vnet 端点 -> alias://vhost:port[?authcode=xxx]，其余端点保持原始 URL。
 // 该 URL 供状态展示与 ping 依赖解析使用。
+//
+// 只回填明文 authcode；authcodeRef 是环境变量名而非密钥，不写入状态，
+// 避免把引用名当 authcode 展示/参与依赖解析。
 func internalURL(ep configv2.EndpointSpec) string {
 	if ep.Kind == configv2.EndpointVNet {
 		u := fmt.Sprintf("%s://%s:%s", ep.Alias, ep.VHostname, ep.Port)
-		if authcode := utils.FirstString(ep.Authcode, ep.AuthcodeRef); authcode != "" {
-			u += "?authcode=" + url.QueryEscape(authcode)
+		if ep.Authcode != "" {
+			u += "?authcode=" + url.QueryEscape(ep.Authcode)
 		}
 		return u
 	}

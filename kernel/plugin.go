@@ -99,7 +99,28 @@ var (
 	ErrPluginExists   = errors.New("kernel: plugin already exists")
 	ErrInvalidPlugin  = errors.New("kernel: invalid plugin (nil or empty name)")
 	ErrHostShutdown   = errors.New("kernel: host has shut down")
+
+	// ErrAttemptRunning 插件上一次 Init/Start 回调在超时后仍未返回，
+	// 其暂存副作用尚未回滚。此时 Retry 会被拒绝，须等回调真正结束后再重试。
+	ErrAttemptRunning = errors.New("kernel: plugin callback still running")
 )
+
+// ErrDependencyTimeout Pending 等待依赖的时间超过 HostOptions.DependencyTimeout，
+// 插件被转为 Failed（可通过 Host.Retry 重新尝试）。
+type ErrDependencyTimeout struct {
+	Plugin  string
+	Missing []string
+	Timeout time.Duration
+}
+
+func (e *ErrDependencyTimeout) Error() string {
+	missing := "unknown capabilities"
+	if len(e.Missing) > 0 {
+		missing = strings.Join(e.Missing, ", ")
+	}
+	return fmt.Sprintf("kernel: plugin %q dependency wait timed out after %v (dependency timeout, missing %s)",
+		e.Plugin, e.Timeout, missing)
+}
 
 // ErrCapabilityNotReady 必需的能力尚不可用。
 // 插件回调返回该错误（或其包装）时，插件进入 Pending 而非 Failed，

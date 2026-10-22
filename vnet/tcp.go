@@ -7,6 +7,12 @@ import (
 	"github.com/net-agent/flex/v3/stream"
 )
 
+// tcpDialTimeout 是本地 TCP 拨号的建连超时
+const tcpDialTimeout = 10 * time.Second
+
+// tcpDialer 复用带超时的拨号器（net.Dialer 并发安全）
+var tcpDialer = &net.Dialer{Timeout: tcpDialTimeout}
+
 // tcpNetwork 包装标准 TCP 网络（本地网络），经 connTracker 追踪连接状态
 type tcpNetwork struct {
 	name    string
@@ -21,7 +27,7 @@ func NewTcpNetwork(name string, trace *StreamTrace) *tcpNetwork {
 func (tcp *tcpNetwork) GetName() string { return tcp.name }
 
 func (tcp *tcpNetwork) Dial(network, addr string) (net.Conn, error) {
-	conn, err := net.Dial(network, addr)
+	conn, err := tcpDialer.Dial(network, addr)
 	if err != nil {
 		return nil, err
 	}

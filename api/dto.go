@@ -2,6 +2,7 @@ package api
 
 import (
 	"github.com/net-agent/flex/v3/stream"
+	"github.com/net-agent/remotework/utils"
 	"github.com/net-agent/remotework/vnet"
 	"github.com/net-agent/remotework/vservice"
 )
@@ -113,23 +114,34 @@ func toServiceDTO(s *vservice.ServiceState) ServiceStateDTO {
 		Type:      s.Type,
 		Name:      s.Name,
 		Status:    s.StatusString(),
-		LastErr:   s.LastErr,
-		ListenURL: s.ListenURL,
-		TargetURL: s.TargetURL,
+		LastErr:   redactText(s.GetLastErr()),
+		ListenURL: utils.RedactURL(s.ListenURL),
+		TargetURL: utils.RedactURL(s.TargetURL),
 		Actives:   s.GetActiveCount(),
 		Dones:     s.GetDoneCount(),
 	}
 }
 
+// redactText 对自由文本做敏感信息脱敏。配置/运行时错误可能回显完整 URL
+// （如畸形 link/tunnel 地址），其中含 authcode、userinfo 口令等，不应进入控制面响应。
+// utils.RedactURL 是纯字符串规则（内部复用 RedactText），对非 URL 文本同样安全。
+func redactText(s string) string {
+	if s == "" {
+		return ""
+	}
+	return utils.RedactURL(s)
+}
+
 func toNetworkDTO(r vnet.NetworkReport) NetworkStateDTO {
 	return NetworkStateDTO{
-		Name:         r.Name,
-		Kind:         r.Kind,
-		Protocol:     r.Protocol,
-		Address:      r.Address,
+		Name:     r.Name,
+		Kind:     r.Kind,
+		Protocol: r.Protocol,
+		// relay 地址可能携带 user:password@（userinfo），对外只暴露脱敏结果
+		Address:      utils.RedactURL(r.Address),
 		Domain:       r.Domain,
 		State:        r.State,
-		LastErr:      r.LastErr,
+		LastErr:      redactText(r.LastErr),
 		StartedAtMs:  r.StartedAt.UnixMilli(),
 		Listens:      r.Listens,
 		Dials:        r.Dials,

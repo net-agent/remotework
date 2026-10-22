@@ -1,15 +1,18 @@
 package configv2
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 )
 
 // Normalize converts a RawConfig into its canonical internal representation.
 // It parses all URLs and extracts structured fields, but does NOT validate
 // cross-field constraints (use Validate for that).
+//
+// 遇到当前运行时不支持的选项（via、显式 keepalive）会立即返回带错误码的
+// 错误，而不是静默忽略。
 func Normalize(raw *RawConfig) (*CanonicalConfig, error) {
 	if raw == nil {
 		return nil, fmt.Errorf("raw config is nil")
@@ -57,7 +60,12 @@ func normalizeAll(raw *RawConfig) (*CanonicalConfig, *ValidationErrors) {
 	for alias, rawURL := range raw.Links {
 		spec, err := normalizeLink(alias, rawURL)
 		if err != nil {
-			errs.add(ErrInvalidItem, fmt.Sprintf("link %q: %v", alias, err))
+			var ve *ValidationError
+			if errors.As(err, &ve) {
+				errs.addLink(alias, ve.Code, ve.Message)
+			} else {
+				errs.addLink(alias, ErrInvalidItem, err.Error())
+			}
 			continue
 		}
 		canonical.Links[alias] = spec
@@ -66,7 +74,12 @@ func normalizeAll(raw *RawConfig) (*CanonicalConfig, *ValidationErrors) {
 	for i, t := range raw.Tunnels {
 		spec, err := normalizeTunnel(t)
 		if err != nil {
-			errs.add(ErrInvalidItem, fmt.Sprintf("tunnel[%d] %q: %v", i, t.Name, err))
+			var ve *ValidationError
+			if errors.As(err, &ve) {
+				errs.addTunnel(i, t.Name, ve.Code, ve.Message)
+			} else {
+				errs.addTunnel(i, t.Name, ErrInvalidItem, err.Error())
+			}
 			continue
 		}
 		canonical.Tunnels = append(canonical.Tunnels, spec)
@@ -82,70 +95,48 @@ func normalizeLink(alias, rawURL string) (LinkSpec, error) {
 		return LinkSpec{}, fmt.Errorf("invalid URL: %w", err)
 	}
 
-	spec := LinkSpec{
-		Alias:  alias,
-		Scheme: u.Scheme,
+	q := u.Query()
+
+	// via/keepalive 在 flex v3.1.0 中没有对应能力，接受它们只会造成静默 no-op。
+	// 这里显式拒绝（含空值写法），由 LoadAndCheck 作为坏 link 丢弃。
+	if q.Has("via") {
+		return LinkSpec{}, &ValidationError{
+			Code: ErrViaNotSupported,
+			Message: "option 'via' is not supported by flex v3.1.0; " +
+				"remove it (upstream relay routing is not implemented)",
+		}
+	}
+	if q.Has("keepalive") {
+		return LinkSpec{}, &ValidationError{
+			Code: ErrKeepaliveNotSupported,
+			Message: "explicit 'keepalive' is not supported by flex v3.1.0; " +
+				"remove it (heartbeat interval is controlled by the runtime)",
+		}
 	}
 
-	// Reconstruct relay URL without query params
+	spec := LinkSpec{
+		Alias:     alias,
+		Scheme:    u.Scheme,
+		Keepalive: DefaultKeepalive,
+	}
+
+	// Reconstruct relay URL without query params, fragment and userinfo.
+	// userinfo（wss://user:pass@relay）没有认证语义，保留会经 NetworkReport/API
+	// 泄露；这里一律剥离。
 	relayURL := *u
+	relayURL.User = nil
 	relayURL.RawQuery = ""
+	relayURL.ForceQuery = false
 	relayURL.Fragment = ""
+	relayURL.RawFragment = ""
 	spec.RelayURL = relayURL.String()
 
 	// Extract query parameters
-	q := u.Query()
-
 	spec.As = q.Get("as")
 	spec.Auth = q.Get("auth")
 	spec.AuthRef = q.Get("authRef")
 
-	// Keepalive: default 15, parse if provided
-	spec.Keepalive = 15
-	if ka := q.Get("keepalive"); ka != "" {
-		val, err := strconv.Atoi(ka)
-		if err != nil {
-			return LinkSpec{}, fmt.Errorf("invalid keepalive %q: %w", ka, err)
-		}
-		spec.Keepalive = val
-	}
-
-	// Via: optional upstream relay
-	if via := q.Get("via"); via != "" {
-		viaSpec, err := parseVia(via)
-		if err != nil {
-			return LinkSpec{}, fmt.Errorf("invalid via %q: %w", via, err)
-		}
-		spec.Via = viaSpec
-	}
-
 	return spec, nil
-}
-
-// parseVia parses a via string in the format "host.alias:port".
-func parseVia(raw string) (*ViaSpec, error) {
-	// Split host:port
-	lastColon := strings.LastIndex(raw, ":")
-	if lastColon < 0 {
-		return nil, fmt.Errorf("must match host.alias:port (port missing)")
-	}
-
-	host := raw[:lastColon]
-	port := raw[lastColon+1:]
-
-	if host == "" {
-		return nil, fmt.Errorf("host part is empty")
-	}
-	if port == "" {
-		return nil, fmt.Errorf("port part is empty")
-	}
-
-	// Validate port is numeric
-	if _, err := strconv.Atoi(port); err != nil {
-		return nil, fmt.Errorf("port %q is not a valid number", port)
-	}
-
-	return &ViaSpec{Host: host, Port: port}, nil
 }
 
 // normalizeTunnel converts a TunnelRaw into a TunnelSpec.
@@ -175,6 +166,9 @@ func normalizeTunnel(raw TunnelRaw) (TunnelSpec, error) {
 }
 
 // normalizeEndpoint parses a tunnel endpoint URL into an EndpointSpec.
+//
+// authcode/authcodeRef 对所有 scheme 都提取并保留（便于校验与诊断），
+// 但只有 vtcp 端点允许使用；物理端点带 authcode 会在 Validate 阶段被拒绝。
 func normalizeEndpoint(rawURL string) (EndpointSpec, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -186,13 +180,13 @@ func normalizeEndpoint(rawURL string) (EndpointSpec, error) {
 		RawURL: rawURL,
 	}
 
-	// Extract authcode/authcodeRef from query params
+	// Extract authcode/authcodeRef from query params for every scheme.
 	q := u.Query()
 	spec.Authcode = q.Get("authcode")
 	spec.AuthcodeRef = q.Get("authcodeRef")
 
 	switch u.Scheme {
-	case "tcp":
+	case "tcp", "tcp4", "tcp6":
 		spec.Kind = EndpointNet
 		spec.Host = u.Hostname()
 		spec.Port = u.Port()

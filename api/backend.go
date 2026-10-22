@@ -43,6 +43,20 @@ type Backend interface {
 	SubscribeStreamEvents(buf int) (<-chan StreamLifecycleEvent, func())
 }
 
+// StreamAnnotation 单条流的归属标注：所属服务名与 pipe 配对标识
+type StreamAnnotation struct {
+	ServiceName string
+	PipeID      string
+}
+
+// StreamAnnotator 可选后端能力：一次批量查询多条流的归属标注。
+// 实现方应在一次调用内只做一次服务枚举（如 catalog.List()），
+// 避免逐流调用 GetStreamService/GetStreamPipe 造成的 O(流×隧道) 调度往返。
+// 未实现该接口的 Backend 由 annotateStreams 回退到逐流查询。
+type StreamAnnotator interface {
+	AnnotateStreams(network string, indexes []int64) map[int64]StreamAnnotation
+}
+
 // DataStreamState 单个网络的数据流快照
 type DataStreamState struct {
 	Network string

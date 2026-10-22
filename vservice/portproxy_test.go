@@ -1,7 +1,9 @@
 package vservice
 
 import (
+	"errors"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -131,5 +133,176 @@ func TestPortproxyController_PipePairing(t *testing.T) {
 	}
 	if got := svc.MatchPipe("tcp", 1001); got != "" {
 		t.Errorf("target-side pipe mapping should be removed, got %q", got)
+	}
+}
+
+// newPortproxyTestService 构造一个监听 127.0.0.1 随机端口、目标为 echo 的 portproxy 服务
+func newPortproxyTestService(t *testing.T, ln net.Listener, lf ListenerFactory, echo net.Listener) *Service {
+	t.Helper()
+	df := &mockDialerFactory{dialerFn: func(raw string) (QuickDialer, error) {
+		return func() (net.Conn, error) {
+			c, err := net.Dial("tcp", echo.Addr().String())
+			if err != nil {
+				return nil, err
+			}
+			return &mockConnIDConn{Conn: c, id: 1001}, nil
+		}, nil
+	}}
+	svc := NewPortproxyService(lf, df, "pp-lifecycle", "tcp://127.0.0.1:0", "tcp://"+echo.Addr().String(), nil)
+	if err := svc.Controller.Init(); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	return svc
+}
+
+func waitActiveCount(svc *Service, want int32, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if svc.GetActiveCount() == want {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
+// TestPortproxyController_CloseKillsActiveConns 验证 Close 会强杀已建立的活跃连接，
+// 而不是只关闭 listener；同时 Close 幂等、计数最终归零。
+func TestPortproxyController_CloseKillsActiveConns(t *testing.T) {
+	echo := startEchoServer(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	lf := &mockListenerFactory{listenFn: func(string) (net.Listener, error) {
+		return &idListener{Listener: ln}, nil
+	}}
+	svc := newPortproxyTestService(t, ln, lf, echo)
+	go svc.Controller.Start()
+
+	client, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("client dial failed: %v", err)
+	}
+	defer client.Close()
+
+	// 先确认转发通路已建立（连接处于活跃状态）
+	if _, err := client.Write([]byte("ping")); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+	buf := make([]byte, 8)
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if n, err := client.Read(buf); err != nil || string(buf[:n]) != "ping" {
+		t.Fatalf("echo read = %q, %v, want ping", buf[:n], err)
+	}
+	if !waitActiveCount(svc, 1, 2*time.Second) {
+		t.Fatalf("active count = %d, want 1", svc.GetActiveCount())
+	}
+
+	if err := svc.Controller.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 活跃连接被主动关闭：客户端读取应立即失败而不是继续阻塞
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := client.Read(buf); err == nil {
+		t.Error("client read should fail after controller Close killed active conn")
+	}
+	if !waitActiveCount(svc, 0, 2*time.Second) {
+		t.Errorf("active count = %d after Close, want 0", svc.GetActiveCount())
+	}
+
+	// 第二次 Close 幂等（tunnel 的 Drain 与 cleanup 可能各调用一次）
+	if err := svc.Controller.Close(); err != nil {
+		t.Errorf("second Close should be idempotent, got %v", err)
+	}
+}
+
+// temporaryAcceptError 模拟可恢复的 Accept 错误
+type temporaryAcceptError struct{}
+
+func (temporaryAcceptError) Error() string   { return "temporary accept error" }
+func (temporaryAcceptError) Timeout() bool   { return false }
+func (temporaryAcceptError) Temporary() bool { return true }
+
+// flakyListener 前 fails 次 Accept 返回临时错误，之后透传真实 listener
+type flakyListener struct {
+	net.Listener
+	mu    sync.Mutex
+	fails int
+}
+
+func (l *flakyListener) Accept() (net.Conn, error) {
+	l.mu.Lock()
+	if l.fails > 0 {
+		l.fails--
+		l.mu.Unlock()
+		return nil, temporaryAcceptError{}
+	}
+	l.mu.Unlock()
+	return l.Listener.Accept()
+}
+
+// TestPortproxyController_StartRetriesTemporaryAcceptError 验证临时 Accept 错误
+// 会被指数退避重试而不是让服务永久退出。
+func TestPortproxyController_StartRetriesTemporaryAcceptError(t *testing.T) {
+	echo := startEchoServer(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	flaky := &flakyListener{Listener: ln, fails: 3}
+	lf := &mockListenerFactory{listenFn: func(string) (net.Listener, error) { return flaky, nil }}
+	svc := newPortproxyTestService(t, ln, lf, echo)
+	defer svc.Controller.Close()
+	go svc.Controller.Start()
+
+	client, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("client dial failed: %v", err)
+	}
+	defer client.Close()
+
+	if _, err := client.Write([]byte("ping")); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+	buf := make([]byte, 8)
+	client.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if n, err := client.Read(buf); err != nil || string(buf[:n]) != "ping" {
+		t.Fatalf("echo read = %q, %v, want ping (accept retry should recover)", buf[:n], err)
+	}
+}
+
+// fatalAcceptListener 每次 Accept 都返回不可恢复错误
+type fatalAcceptListener struct {
+	err  error
+	addr net.Addr
+}
+
+func (l *fatalAcceptListener) Accept() (net.Conn, error) { return nil, l.err }
+func (l *fatalAcceptListener) Close() error              { return nil }
+func (l *fatalAcceptListener) Addr() net.Addr            { return l.addr }
+
+// TestPortproxyController_StartPermanentFailureSetsFailed 验证不可恢复错误
+// 会让 controller 永久退出，并记录 StatusFailed/LastErr。
+func TestPortproxyController_StartPermanentFailureSetsFailed(t *testing.T) {
+	sentinel := errors.New("fatal accept failure")
+	ln := &fatalAcceptListener{err: sentinel, addr: mockAddr("fatal:0")}
+	lf := &mockListenerFactory{listenFn: func(string) (net.Listener, error) { return ln, nil }}
+	df := &mockDialerFactory{}
+	svc := NewPortproxyService(lf, df, "pp-fatal", "tcp://127.0.0.1:0", "tcp://127.0.0.1:1", nil)
+	if err := svc.Controller.Init(); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	err := svc.Controller.Start()
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Start err = %v, want %v", err, sentinel)
+	}
+	if got := svc.GetStatus(); got != StatusFailed {
+		t.Errorf("status = %v, want StatusFailed", got)
+	}
+	if got := svc.GetLastErr(); got == "" {
+		t.Error("LastErr should be recorded on permanent failure")
 	}
 }

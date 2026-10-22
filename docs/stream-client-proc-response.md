@@ -1,4 +1,7 @@
-# Sidecar 需求响应：流 DTO 携带客户端进程信息
+# Sidecar 需求响应：流 DTO 携带客户端进程信息（历史：协议 v2）
+
+> **⚠️ 历史文档（superseded）：协议已升至 v3，本文不再更新。**
+> 本文中“`protocol` 保持 2 不变”等版本描述已被 v3 取代；`clientPid` / `clientProcName` / `clientProcStartMs` 字段本身在 v3 中保留，字段契约以 [api/README.md](../api/README.md)「StreamStateDTO」章节为准。整体协议见 [tauri-sidecar-protocol.md](tauri-sidecar-protocol.md)。
 
 > 对应需求文档：`SIDECAR_REQUEST_STREAM_CLIENT_PROC.md`（流 DTO 携带客户端进程信息）。
 > 结论：**需求合理，已实现**。字段为 additive 可选字段（`omitempty`），`protocol` 保持 2 不变。

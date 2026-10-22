@@ -13,18 +13,20 @@ import (
 )
 
 const (
-	defaultInitTimeout    = 30 * time.Second
-	defaultStartTimeout   = 30 * time.Second
-	defaultDrainTimeout   = 10 * time.Second
-	defaultCleanupTimeout = 5 * time.Second
+	defaultInitTimeout       = 30 * time.Second
+	defaultStartTimeout      = 30 * time.Second
+	defaultDrainTimeout      = 10 * time.Second
+	defaultCleanupTimeout    = 5 * time.Second
+	defaultDependencyTimeout = 5 * time.Minute
 )
 
 // HostOptions 宿主可调参数，零值字段取默认值
 type HostOptions struct {
-	InitTimeout    time.Duration // Init 回调超时（超时按失败处理，默认 30s）
-	StartTimeout   time.Duration // Start 回调超时（默认 30s）
-	DrainTimeout   time.Duration // 卸载时 Drain 的默认时限（默认 10s）
-	CleanupTimeout time.Duration // 单条 cleanup 的执行时限（默认 5s）
+	InitTimeout       time.Duration // Init 回调超时（超时按失败处理，默认 30s）
+	StartTimeout      time.Duration // Start 回调超时（默认 30s）
+	DrainTimeout      time.Duration // 卸载时 Drain 的默认时限（默认 10s）
+	CleanupTimeout    time.Duration // 单条 cleanup 的执行时限（默认 5s）
+	DependencyTimeout time.Duration // Pending 等待依赖的最长时限，超时转 Failed（默认 5m）
 }
 
 func (o HostOptions) withDefaults() HostOptions {
@@ -39,6 +41,9 @@ func (o HostOptions) withDefaults() HostOptions {
 	}
 	if o.CleanupTimeout <= 0 {
 		o.CleanupTimeout = defaultCleanupTimeout
+	}
+	if o.DependencyTimeout <= 0 {
+		o.DependencyTimeout = defaultDependencyTimeout
 	}
 	return o
 }
@@ -76,12 +81,14 @@ type node struct {
 	attemptedProvides []capKey        // 曾尝试发布的能力（含已回滚），用于环检测
 	provides          []capKey        // 已提交的能力
 
-	gen           uint64 // 过渡代次，用于丢弃过期的异步回调结果
-	pendingStart  bool   // Pending 的起因是 Start 阶段（重试时回 Ready 而非重新 Init）
-	failStart     bool   // Failed 的起因是 Start 阶段（Retry 时回 Ready）
-	unloadMarked  bool
-	drainTimeout  time.Duration
-	unloadWaiters []chan error
+	gen            uint64    // 过渡代次，用于丢弃过期的异步回调结果
+	attemptRunning bool      // Init/Start 回调（或失败回滚）尚未真正结束，期间禁止新 attempt
+	pendingStart   bool      // Pending 的起因是 Start 阶段（重试时回 Ready 而非重新 Init）
+	failStart      bool      // Failed 的起因是 Start 阶段（Retry 时回 Ready）
+	pendingSince   time.Time // 进入 Pending 的时间，用于依赖等待超时
+	unloadMarked   bool
+	drainTimeout   time.Duration
+	unloadWaiters  []chan error
 }
 
 // Host 插件宿主：插件仓库 + 生命周期编排 + 事件分发。
@@ -97,11 +104,12 @@ type Host struct {
 	done  chan struct{}
 
 	// 以下字段仅调度器 goroutine 访问
-	nodes       map[string]*node
-	order       []string // 装载顺序
-	subs        map[chan Event]struct{}
-	shutdown    bool
-	shutdownRes []chan error
+	nodes        map[string]*node
+	order        []string // 装载顺序
+	subs         map[chan Event]struct{}
+	shutdown     bool
+	shutdownRes  []chan error
+	shutdownErrs []error // shutdown 期间各插件 unload（Drain/cleanup）的错误
 }
 
 // NewHost 创建宿主并启动调度循环
@@ -187,7 +195,9 @@ func (h *Host) List() []PluginState {
 }
 
 // Subscribe 订阅插件事件。每订阅者独立 channel，事件按序投递；
-// channel 满时丢弃（调用方应给足缓冲）。返回的函数用于退订。
+// channel 满时丢弃（调用方应给足缓冲）。
+// 返回的函数用于退订（幂等）：退订后该 channel 被关闭，调用方的 range 可正常退出；
+// 宿主 Shutdown 时也会关闭所有仍存活的订阅 channel。
 func (h *Host) Subscribe(buf int) (<-chan Event, func()) {
 	if buf <= 0 {
 		buf = 64
@@ -204,6 +214,8 @@ func (h *Host) Subscribe(buf int) (<-chan Event, func()) {
 }
 
 // Shutdown 级联卸载全部插件并终止调度循环。幂等。
+// 返回值为 shutdown 期间全部插件 Drain/cleanup 错误的聚合（nil 表示完全成功）；
+// 调用方可用非 nil 结果判断关停不完整（如决定非零退出码）。
 func (h *Host) Shutdown(ctx context.Context) error {
 	res := make(chan error, 1)
 	if err := h.send(cmdShutdown{res: res}); err != nil {
@@ -280,17 +292,27 @@ type cmdUnsubscribe struct {
 }
 
 type evtInitDone struct {
-	name string
-	gen  uint64
-	err  error
-	snap attemptSnapshot
+	name     string
+	gen      uint64
+	err      error
+	snap     attemptSnapshot
+	finished <-chan struct{} // 回调 goroutine 真正结束的信号
+	timedOut bool            // true 时回调可能仍在运行
 }
 
 type evtStartDone struct {
+	name     string
+	gen      uint64
+	err      error
+	snap     attemptSnapshot
+	finished <-chan struct{}
+	timedOut bool
+}
+
+// evtAttemptFinished 超时回调/提交失败回滚真正结束，宿主可解除 attemptRunning。
+type evtAttemptFinished struct {
 	name string
 	gen  uint64
-	err  error
-	snap attemptSnapshot
 }
 
 type evtUnloadDone struct {
@@ -305,17 +327,31 @@ type evtUnloadDone struct {
 
 func (h *Host) loop() {
 	defer close(h.done)
+	// 单一调度器定时器承载全部 Pending 依赖超时，不为每个插件起 goroutine。
+	timer := time.NewTimer(time.Hour)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	defer timer.Stop()
+	var pendingC <-chan time.Time
 	for {
+		pendingC = h.armDependencyTimer(timer, pendingC)
 		select {
 		case cmd := <-h.cmdCh:
 			h.handleCmd(cmd)
 		case evt := <-h.evtCh:
 			h.handleEvt(evt)
+		case <-pendingC:
+			pendingC = nil
+			h.checkDependencyTimeouts()
 		}
 		h.reconcile()
 		if h.shutdown && len(h.nodes) == 0 {
+			// 聚合 shutdown 期间所有节点的 Drain/cleanup 错误：
+			// 调用方（cmd）据此判断关停是否完整并决定退出码。
+			err := errors.Join(h.shutdownErrs...)
 			for _, res := range h.shutdownRes {
-				res <- nil
+				res <- err
 			}
 			for ch := range h.subs {
 				close(ch)
@@ -344,7 +380,12 @@ func (h *Host) handleCmd(cmd any) {
 	case cmdSubscribe:
 		h.subs[c.ch] = struct{}{}
 	case cmdUnsubscribe:
-		delete(h.subs, c.ch)
+		// 调度器内 delete 后再 close：Shutdown 只关闭仍在册的 channel，
+		// 因此同一 channel 不会被关闭两次。退订后接收方 range 能正常退出。
+		if _, ok := h.subs[c.ch]; ok {
+			delete(h.subs, c.ch)
+			close(c.ch)
+		}
 	}
 }
 
@@ -425,6 +466,13 @@ func (h *Host) onCmdRetry(c cmdRetry) {
 	}
 	if n.unloadMarked {
 		c.res <- fmt.Errorf("kernel: plugin %q is unloading", c.name)
+		return
+	}
+	if n.attemptRunning {
+		// 上一次 Init/Start 超时后回调可能仍未返回：此时开始新 attempt
+		// 会与旧回调争用同一 Context 暂存区，必须等其真正结束。
+		c.res <- fmt.Errorf("%w: plugin %q callback is still running; retry after it returns",
+			ErrAttemptRunning, c.name)
 		return
 	}
 	switch n.state {
@@ -520,6 +568,8 @@ func (h *Host) handleEvt(evt any) {
 		h.onStartDone(e)
 	case evtUnloadDone:
 		h.onUnloadDone(e)
+	case evtAttemptFinished:
+		h.onAttemptFinished(e)
 	}
 }
 
@@ -531,14 +581,28 @@ func (h *Host) onInitDone(e evtInitDone) {
 	n.attemptedProvides = keysOf(e.snap.provides)
 	n.deps = e.snap.deps
 	n.depProviders = h.resolveOwners(e.snap.deps)
+	if e.timedOut {
+		// 回调仍在运行：保持 attemptRunning，Retry 会被拒绝；
+		// 暂存区留给 watcher 在回调真正结束后回滚，避免与新 attempt 交错。
+		n.missing = e.snap.missing
+		n.failStart = false
+		n.lastErr = e.err.Error()
+		h.log.Error("plugin init timed out", "plugin", n.info.Name, "err", e.err)
+		h.setState(n, StateFailed)
+		h.watchTimedOutAttempt(n, e.finished, e.gen)
+		return
+	}
+	n.attemptRunning = false
 	if e.err == nil {
 		if err := h.caps.commit(n.info.Name, e.snap.provides); err != nil {
-			// 提交冲突（并发重复发布）：回滚本次 attempt 的副作用，判 Failed
-			go n.ctx.rollbackAttempt(h.log, h.opts.CleanupTimeout)
+			// 提交冲突（并发重复发布）：暂存区回滚期间继续持有 attemptRunning，
+			// 防止 Retry 启动的新 attempt 被回滚清空；回滚完成后才解锁。
+			n.attemptRunning = true
 			n.failStart = false
 			n.lastErr = err.Error()
 			h.log.Error("plugin provide commit failed", "plugin", n.info.Name, "err", err)
 			h.setState(n, StateFailed)
+			h.rollbackAttemptAsync(n, e.gen)
 			return
 		}
 		n.ctx.commitAttempt()
@@ -570,13 +634,24 @@ func (h *Host) onStartDone(e evtStartDone) {
 		n.deps[k] = true
 	}
 	n.depProviders = h.resolveOwners(n.deps)
+	if e.timedOut {
+		n.missing = e.snap.missing
+		n.failStart = true
+		n.lastErr = e.err.Error()
+		h.log.Error("plugin start timed out", "plugin", n.info.Name, "err", e.err)
+		h.setState(n, StateFailed)
+		h.watchTimedOutAttempt(n, e.finished, e.gen)
+		return
+	}
+	n.attemptRunning = false
 	if e.err == nil {
 		if err := h.caps.commit(n.info.Name, e.snap.provides); err != nil {
-			go n.ctx.rollbackAttempt(h.log, h.opts.CleanupTimeout)
+			n.attemptRunning = true
 			n.failStart = true
 			n.lastErr = err.Error()
 			h.log.Error("plugin provide commit failed", "plugin", n.info.Name, "err", err)
 			h.setState(n, StateFailed)
+			h.rollbackAttemptAsync(n, e.gen)
 			return
 		}
 		n.ctx.commitAttempt()
@@ -599,6 +674,33 @@ func (h *Host) onStartDone(e evtStartDone) {
 	h.setState(n, StateFailed)
 }
 
+// watchTimedOutAttempt 等待超时回调真正结束，回滚该 attempt 的暂存副作用，
+// 然后通知调度器解除 attemptRunning。回滚完成前 Retry 始终被拒绝。
+func (h *Host) watchTimedOutAttempt(n *node, finished <-chan struct{}, gen uint64) {
+	go func() {
+		<-finished
+		n.ctx.rollbackAttempt(h.log, h.opts.CleanupTimeout)
+		h.sendEvt(evtAttemptFinished{name: n.info.Name, gen: gen})
+	}()
+}
+
+// rollbackAttemptAsync 回调已结束（提交冲突）时的异步回滚；
+// 完成前维持 attemptRunning，避免新 attempt 复用暂存区。
+func (h *Host) rollbackAttemptAsync(n *node, gen uint64) {
+	go func() {
+		n.ctx.rollbackAttempt(h.log, h.opts.CleanupTimeout)
+		h.sendEvt(evtAttemptFinished{name: n.info.Name, gen: gen})
+	}()
+}
+
+func (h *Host) onAttemptFinished(e evtAttemptFinished) {
+	n := h.nodes[e.name]
+	if n == nil || n.gen != e.gen {
+		return // 插件已进入新 attempt 或已卸载，无需解除
+	}
+	n.attemptRunning = false
+}
+
 func (h *Host) onUnloadDone(e evtUnloadDone) {
 	n := h.nodes[e.name]
 	if n == nil || n.gen != e.gen {
@@ -613,6 +715,10 @@ func (h *Host) onUnloadDone(e evtUnloadDone) {
 		}
 	}
 	err := errors.Join(e.errs...)
+	if h.shutdown && err != nil {
+		// 只在 shutdown 期间累计；普通 Unload 仍只通过 waiter 返回错误。
+		h.shutdownErrs = append(h.shutdownErrs, err)
+	}
 	for _, w := range n.unloadWaiters {
 		w <- err
 	}
@@ -688,6 +794,88 @@ func (h *Host) missingResolved(n *node) bool {
 	return true
 }
 
+//
+// Pending 依赖等待超时：全部插件共用调度循环里的一个定时器，无每插件 goroutine。
+//
+
+// armDependencyTimer 把定时器对准最早的 Pending 截止时刻；无 Pending 插件时停表。
+// 仅在调度循环内调用（timer 与 armed 均由单个 goroutine 访问）。
+func (h *Host) armDependencyTimer(timer *time.Timer, armed <-chan time.Time) <-chan time.Time {
+	deadline, ok := h.earliestPendingDeadline()
+	if !ok {
+		if armed != nil {
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+		}
+		return nil
+	}
+	if armed != nil && !timer.Stop() {
+		// 定时器可能已触发但事件尚在 channel 中，先排空再 Reset。
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	d := time.Until(deadline)
+	if d < 0 {
+		d = 0
+	}
+	timer.Reset(d)
+	return timer.C
+}
+
+// earliestPendingDeadline 返回仍在等待依赖的插件中最早的超时时刻
+func (h *Host) earliestPendingDeadline() (time.Time, bool) {
+	var earliest time.Time
+	for _, name := range h.order {
+		n := h.nodes[name]
+		if n == nil || n.state != StatePending || n.unloadMarked || n.pendingSince.IsZero() {
+			continue
+		}
+		deadline := n.pendingSince.Add(h.opts.DependencyTimeout)
+		if earliest.IsZero() || deadline.Before(earliest) {
+			earliest = deadline
+		}
+	}
+	return earliest, !earliest.IsZero()
+}
+
+// checkDependencyTimeouts 将等待依赖超时的 Pending 插件转为 Failed。
+// 若依赖在截止前出现，插件已离开 Pending，因此不影响正常的自动重试。
+func (h *Host) checkDependencyTimeouts() {
+	timeout := h.opts.DependencyTimeout
+	now := time.Now()
+	for _, name := range h.order {
+		n := h.nodes[name]
+		if n == nil || n.state != StatePending || n.unloadMarked || n.pendingSince.IsZero() {
+			continue
+		}
+		if now.Sub(n.pendingSince) < timeout {
+			continue
+		}
+		if h.missingResolved(n) {
+			// 依赖在定时器触发前已出现：交给随后的 reconcile 自动重试，
+			// 不要因为边界竞态把本可恢复的插件判失败。
+			continue
+		}
+		missing := keySetStrings(n.missing)
+		n.failStart = n.pendingStart
+		n.pendingStart = false
+		n.lastErr = (&ErrDependencyTimeout{
+			Plugin:  name,
+			Missing: missing,
+			Timeout: timeout,
+		}).Error()
+		h.log.Error("plugin dependency wait timed out",
+			"plugin", name, "missing", missing, "timeout", timeout)
+		h.setState(n, StateFailed)
+	}
+}
+
 // builtinOwner 内核预置能力的属主标识
 const builtinOwner = "kernel"
 
@@ -719,16 +907,26 @@ func (h *Host) beginInit(n *node) {
 	h.setState(n, StateInitializing)
 	n.gen++
 	gen := n.gen
+	n.attemptRunning = true
 	n.ctx.beginAttempt(phaseInit)
 	go func() {
-		err := runWithTimeout(h.opts.InitTimeout, func() error {
+		err, finished, timedOut := runWithTimeout(h.opts.InitTimeout, func() error {
 			return n.plugin.Init(n.ctx)
 		})
+		if timedOut {
+			// 回调可能仍在写 Context：先封锁暂存区，使迟到的 Provide/DeferCleanup
+			// 失败；这里绝不回滚（会与旧回调并发清空暂存区），交由宿主在回调
+			// 真正结束后回滚并解除 attemptRunning。
+			n.ctx.sealAttempt()
+		}
 		snap := n.ctx.snapshotAttempt()
-		if err != nil {
+		if err != nil && !timedOut {
 			n.ctx.rollbackAttempt(h.log, h.opts.CleanupTimeout)
 		}
-		h.sendEvt(evtInitDone{name: n.info.Name, gen: gen, err: err, snap: snap})
+		h.sendEvt(evtInitDone{
+			name: n.info.Name, gen: gen, err: err, snap: snap,
+			finished: finished, timedOut: timedOut,
+		})
 	}()
 }
 
@@ -736,16 +934,23 @@ func (h *Host) beginStart(n *node) {
 	h.setState(n, StateStarting)
 	n.gen++
 	gen := n.gen
+	n.attemptRunning = true
 	n.ctx.beginAttempt(phaseStart)
 	go func() {
-		err := runWithTimeout(h.opts.StartTimeout, func() error {
+		err, finished, timedOut := runWithTimeout(h.opts.StartTimeout, func() error {
 			return n.plugin.Start(n.ctx)
 		})
+		if timedOut {
+			n.ctx.sealAttempt()
+		}
 		snap := n.ctx.snapshotAttempt()
-		if err != nil {
+		if err != nil && !timedOut {
 			n.ctx.rollbackAttempt(h.log, h.opts.CleanupTimeout)
 		}
-		h.sendEvt(evtStartDone{name: n.info.Name, gen: gen, err: err, snap: snap})
+		h.sendEvt(evtStartDone{
+			name: n.info.Name, gen: gen, err: err, snap: snap,
+			finished: finished, timedOut: timedOut,
+		})
 	}()
 }
 
@@ -758,7 +963,7 @@ func (h *Host) beginUnload(n *node) {
 	go func() {
 		var errs []error
 		if d, ok := n.plugin.(Drainer); ok {
-			if err := runWithTimeout(drainTimeout, func() error { return d.Drain(drainTimeout) }); err != nil {
+			if err, _, _ := runWithTimeout(drainTimeout, func() error { return d.Drain(drainTimeout) }); err != nil {
 				errs = append(errs, fmt.Errorf("drain: %w", err))
 			}
 		}
@@ -797,6 +1002,11 @@ func (h *Host) setState(n *node, to State) {
 	}
 	n.state = to
 	n.since = time.Now()
+	if to == StatePending {
+		n.pendingSince = n.since
+	} else {
+		n.pendingSince = time.Time{}
+	}
 	h.log.Debug("plugin state changed", "name", n.info.Name, "from", from.String(), "to", to.String())
 	h.emit(Event{Kind: EventStateChanged, Plugin: n.info.Name, From: from, To: to, Err: n.lastErr})
 }

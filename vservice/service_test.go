@@ -177,3 +177,35 @@ func TestNewSocks5Service(t *testing.T) {
 		t.Error("Controller is nil")
 	}
 }
+
+func TestNewServices_AssignUniqueIDs(t *testing.T) {
+	a := NewPortproxyService(&mockListenerFactory{}, &mockDialerFactory{}, "id-a", "tcp://0:1", "tcp://0:2", nil)
+	b := NewPortproxyService(&mockListenerFactory{}, &mockDialerFactory{}, "id-b", "tcp://0:1", "tcp://0:2", nil)
+	c := NewSocks5Service(&mockListenerFactory{}, "id-c", "tcp://0:3", "", "", "tcp", nil, nil)
+
+	if a.ID <= 0 || b.ID <= 0 || c.ID <= 0 {
+		t.Fatalf("service IDs should be positive, got %d/%d/%d", a.ID, b.ID, c.ID)
+	}
+	seen := map[int32]string{a.ID: a.Name, b.ID: b.Name, c.ID: c.Name}
+	if len(seen) != 3 {
+		t.Fatalf("service IDs should be unique, got %d/%d/%d", a.ID, b.ID, c.ID)
+	}
+	if a.ID >= b.ID || b.ID >= c.ID {
+		t.Errorf("service IDs should increase with construction order, got %d/%d/%d", a.ID, b.ID, c.ID)
+	}
+}
+
+func TestServiceState_SetLastErr(t *testing.T) {
+	s := &ServiceState{}
+	if got := s.GetLastErr(); got != "" {
+		t.Fatalf("initial LastErr = %q, want empty", got)
+	}
+	s.SetLastErr(errors.New("boom"))
+	if got := s.GetLastErr(); got != "boom" {
+		t.Errorf("LastErr = %q, want boom", got)
+	}
+	s.SetLastErr(nil) // nil 不应覆盖已有错误
+	if got := s.GetLastErr(); got != "boom" {
+		t.Errorf("LastErr = %q after nil SetLastErr, want boom", got)
+	}
+}

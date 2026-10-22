@@ -188,9 +188,6 @@ func InjectOptional[T any](c *Context, name string) (T, bool) {
 // Provide 发布能力供其他插件注入。回调成功后才对其他插件可见（事务提交）。
 // 仅允许在 Init/Start 回调内调用。
 func Provide[T any](c *Context, name string, v T) error {
-	if err := c.checkCallable(); err != nil {
-		return err
-	}
 	key := keyOf[T](name)
 	// 乐观检查：全局已存在同名能力
 	if e, ok := c.caps.get(key); ok {
@@ -198,6 +195,11 @@ func Provide[T any](c *Context, name string, v T) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// 阶段检查与写入必须在同一临界区：回调超时后宿主会封锁 phase，
+	// 迟到的 Provide 必须失败，绝不能写进下一次 attempt 的暂存区。
+	if c.phase != phaseInit && c.phase != phaseStart {
+		return errors.New("kernel: Inject/Provide/DeferCleanup only allowed during Init/Start")
+	}
 	if _, ok := c.stagedProvides[key]; ok {
 		return &ErrDuplicateCapability{Key: key.String(), Owner: c.owner}
 	}
@@ -294,13 +296,29 @@ func (c *Context) commitAttempt() {
 	c.phase = phaseIdle
 }
 
-// rollbackAttempt 回调失败后回滚：LIFO 执行暂存 cleanup，丢弃暂存能力
+// sealAttempt 封锁暂存区写入（Init/Start 回调超时后由宿主调用）。
+// 已暂存的 provides/cleanups 保留，待回调真正结束后由 rollbackAttempt 统一回滚；
+// 迟到的 DeferCleanup/Provide/Inject 因 phase 不再是 Init/Start 而失败，
+// 因此不会写进后续 attempt 的暂存区。
+func (c *Context) sealAttempt() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.phase == phaseClosed {
+		return
+	}
+	c.phase = phaseIdle
+}
+
+// rollbackAttempt 回调失败后回滚：LIFO 执行暂存 cleanup，丢弃暂存能力。
+// phaseClosed 不可逆：插件卸载后迟到的回滚不得把 Context 重新变为可写。
 func (c *Context) rollbackAttempt(log *slog.Logger, timeout time.Duration) {
 	c.mu.Lock()
 	staged := c.stagedCleanups
 	c.stagedProvides = nil
 	c.stagedCleanups = nil
-	c.phase = phaseIdle
+	if c.phase != phaseClosed {
+		c.phase = phaseIdle
+	}
 	c.mu.Unlock()
 
 	runCleanupStack(log, c.owner, staged, timeout)
@@ -388,19 +406,29 @@ func safely(fn func() error) (err error) {
 }
 
 // runWithTimeout 带超时执行插件回调；超时不保证回调 goroutine 退出
-// （插件契约要求其在超时内返回），仅保证宿主状态机继续推进
-func runWithTimeout(d time.Duration, fn func() error) error {
+// （插件契约要求其在超时内返回），仅保证宿主状态机继续推进。
+//
+// finished 在回调 goroutine 真正结束时关闭；正常完成返回时它保证已关闭。
+// timedOut 表示本次调用因超时返回，此时回调可能仍在运行，
+// 调用方不得在此期间并发回滚/重置该 attempt 的暂存区。
+func runWithTimeout(d time.Duration, fn func() error) (err error, finished <-chan struct{}, timedOut bool) {
 	done := make(chan error, 1)
-	go func() { done <- safely(fn) }()
+	fin := make(chan struct{})
+	finished = fin
+	go func() {
+		runErr := safely(fn)
+		close(fin) // 先发结束信号再投递结果：调用方拿到正常结果时 finished 必已关闭
+		done <- runErr
+	}()
 	if d <= 0 {
-		return <-done
+		return <-done, finished, false
 	}
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
-	case err := <-done:
-		return err
+	case err = <-done:
+		return err, finished, false
 	case <-timer.C:
-		return fmt.Errorf("kernel: callback timeout after %v", d)
+		return fmt.Errorf("kernel: callback timeout after %v", d), finished, true
 	}
 }

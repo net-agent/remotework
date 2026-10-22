@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/net-agent/flex/v3/stream"
@@ -13,11 +15,11 @@ import (
 // 可丢弃帧丢失后由锚点帧兜底收敛
 const statsAnchorInterval = 30 * time.Second
 
-// svcSnapshot 记录单个 service 的上次状态快照
+// svcSnapshot 记录单个 service 的上次状态快照。
+// 计数（actives/dones）刻意不参与差分：它们由可丢弃的 service.stats 通道承载，
+// 纳入 service.status（可靠事件）会让每条连接完成都触发一次可靠广播。
 type svcSnapshot struct {
 	status  string
-	actives int32
-	dones   int32
 	lastErr string
 }
 
@@ -42,6 +44,9 @@ type StatePoller struct {
 	interval      time.Duration
 	statsInterval time.Duration
 	stopCh        chan struct{}
+	stopOnce      sync.Once
+	done          chan struct{}
+	started       atomic.Bool
 
 	// 上次快照（stream.update 差分与 service.status v1 差分用）
 	lastStreams   map[string]map[string]bool // network -> "localAddr->remoteAddr" set
@@ -72,6 +77,7 @@ func NewStatePoller(backend Backend, wsHub *WSHub, meter *streamMeter, resolver 
 		interval:        interval,
 		statsInterval:   statsInterval,
 		stopCh:          make(chan struct{}),
+		done:            make(chan struct{}),
 		lastStreams:     make(map[string]map[string]bool),
 		lastRunning:     true,
 		lastSvcStates:   make(map[string]svcSnapshot),
@@ -81,14 +87,24 @@ func NewStatePoller(backend Backend, wsHub *WSHub, meter *streamMeter, resolver 
 }
 
 func (p *StatePoller) Start() {
+	p.started.Store(true)
 	go p.run()
 }
 
+// Stop 停止轮询并等待后台 goroutine 退出；幂等。
 func (p *StatePoller) Stop() {
-	close(p.stopCh)
+	p.stopOnce.Do(func() { close(p.stopCh) })
+	if !p.started.Load() {
+		return
+	}
+	select {
+	case <-p.done:
+	case <-time.After(eventLoopStopTimeout):
+	}
 }
 
 func (p *StatePoller) run() {
+	defer close(p.done)
 	ticker := time.NewTicker(p.interval)
 	statsTicker := time.NewTicker(p.statsInterval)
 	defer ticker.Stop()
@@ -169,6 +185,15 @@ func (p *StatePoller) pollStreamStats() {
 
 	streamStates := p.backend.GetDataStreamState(100, networks...)
 
+	// activeStream 把差分 key 与 DTO 绑定在一起，
+	// 避免依赖 ds.Actives 的下标耦合（Actives 含 nil 时不再解引用 panic）
+	type activeStream struct {
+		key   string
+		index int32
+		state *stream.State
+		dto   StreamStateDTO
+	}
+
 	now := time.Now()
 	seen := make(map[string]bool, len(streamStates))
 	for _, ds := range streamStates {
@@ -180,21 +205,34 @@ func (p *StatePoller) pollStreamStats() {
 		// 活跃流采样实时速率（每 tick 必做：驱动 meter 淘汰与解析重试，与是否发帧无关）
 		rates := p.meter.sample(ds.Network, ds.Actives, now)
 
-		// 构建当前活跃流的 key 集合与完整 dto（含速率与归属服务）
-		currentKeys := make(map[string]bool)
-		currentDTOs := make([]StreamStateDTO, 0, len(ds.Actives))
+		current := make([]activeStream, 0, len(ds.Actives))
+		currentKeys := make(map[string]bool, len(ds.Actives))
+		indexes := make([]int64, 0, len(ds.Actives))
 		for _, st := range ds.Actives {
+			if st == nil {
+				continue
+			}
 			key := streamKeyFromState(st)
-			currentKeys[key] = true
 			dto := toStreamDTO(ds.Network, st)
 			if rate, ok := rates[st.Index]; ok {
 				dto.ReadBps = rate[0]
 				dto.WriteBps = rate[1]
 			}
-			dto.ServiceName = p.backend.GetStreamService(ds.Network, int64(st.Index))
-			dto.PipeID = p.backend.GetStreamPipe(ds.Network, int64(st.Index))
-			p.resolver.enrich(ds.Network, st, &dto)
-			currentDTOs = append(currentDTOs, dto)
+			currentKeys[key] = true
+			indexes = append(indexes, int64(st.Index))
+			current = append(current, activeStream{key: key, index: st.Index, state: st, dto: dto})
+		}
+
+		// 一次批量标注归属服务（后端未实现 StreamAnnotator 时回退逐流查询）
+		annotations := annotateStreams(p.backend, ds.Network, indexes)
+		currentDTOs := make([]StreamStateDTO, 0, len(current))
+		for i := range current {
+			if ann, ok := annotations[int64(current[i].index)]; ok {
+				current[i].dto.ServiceName = ann.ServiceName
+				current[i].dto.PipeID = ann.PipeID
+			}
+			p.resolver.enrich(ds.Network, current[i].state, &current[i].dto)
+			currentDTOs = append(currentDTOs, current[i].dto)
 		}
 
 		p.pushStreamStats(ds.Network, currentDTOs, now)
@@ -206,10 +244,9 @@ func (p *StatePoller) pollStreamStats() {
 
 		// 找出新增的流
 		var opened []StreamStateDTO
-		for i, dto := range currentDTOs {
-			key := streamKeyFromState(ds.Actives[i])
-			if !prevKeys[key] {
-				opened = append(opened, dto)
+		for i := range current {
+			if !prevKeys[current[i].key] {
+				opened = append(opened, current[i].dto)
 			}
 		}
 
@@ -217,6 +254,9 @@ func (p *StatePoller) pollStreamStats() {
 		// 关闭流的归属服务大概率已注销，ServiceName 保持空值即可
 		var closed []StreamStateDTO
 		for _, st := range ds.Closeds {
+			if st == nil {
+				continue
+			}
 			key := streamKeyFromState(st)
 			if prevKeys[key] && !currentKeys[key] {
 				dto := toStreamDTO(ds.Network, st)
@@ -241,6 +281,13 @@ func (p *StatePoller) pollStreamStats() {
 		if !seen[name] {
 			delete(p.lastStreamStats, name)
 			delete(p.streamAnchorAt, name)
+			delete(p.lastStreams, name)
+		}
+	}
+	// lastStreams 与 stats 基线的网络集合应一致；单独清理防御下游过滤导致的残留
+	for name := range p.lastStreams {
+		if !seen[name] {
+			delete(p.lastStreams, name)
 		}
 	}
 
@@ -322,13 +369,16 @@ func (p *StatePoller) pollServices() {
 		return
 	}
 
+	seen := make(map[string]bool, len(states))
 	for _, s := range states {
+		if s == nil {
+			continue
+		}
+		seen[s.Name] = true
 		prev, exists := p.lastSvcStates[s.Name]
 		curr := svcSnapshot{
 			status:  s.StatusString(),
-			actives: s.GetActiveCount(),
-			dones:   s.GetDoneCount(),
-			lastErr: s.LastErr,
+			lastErr: s.GetLastErr(),
 		}
 
 		if !exists || prev != curr {
@@ -344,6 +394,13 @@ func (p *StatePoller) pollServices() {
 				"service":   dto,
 			})
 			p.lastSvcStates[s.Name] = curr
+		}
+	}
+
+	// 服务已移除（卸载）：清理差分基线，同名服务重新挂载时不会误判为"无变化"
+	for name := range p.lastSvcStates {
+		if !seen[name] {
+			delete(p.lastSvcStates, name)
 		}
 	}
 }

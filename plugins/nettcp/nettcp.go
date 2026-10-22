@@ -2,6 +2,8 @@
 package nettcp
 
 import (
+	"context"
+
 	"github.com/net-agent/flex/v3/stream"
 	"github.com/net-agent/remotework/kernel"
 	"github.com/net-agent/remotework/vnet"
@@ -36,8 +38,15 @@ func (p *Plugin) Init(c *kernel.Context) error {
 			bus.Publish(vnet.TopicStreamClosed, vnet.StreamEvent{Network: alias, State: st})
 		},
 	}
-	return kernel.Provide[vnet.Network](c, alias,
-		vnet.NewReportingNetwork(vnet.NewTcpNetwork(alias, trace)))
+	network := vnet.NewReportingNetwork(vnet.NewTcpNetwork(alias, trace))
+	// 插件卸载/进程关停时关闭追踪表中的活跃连接，让 connTracker.CloseAll("stopped") 真正执行
+	if err := c.DeferCleanup(func(context.Context) error {
+		network.Stop()
+		return nil
+	}); err != nil {
+		return err
+	}
+	return kernel.Provide[vnet.Network](c, alias, network)
 }
 
 func (p *Plugin) Start(c *kernel.Context) error { return nil }

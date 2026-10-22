@@ -22,6 +22,9 @@ const (
 	// clientProcEntryIdleTTL 单条流解析结果的闲置保留时长：活跃流每次被引用都会刷新，
 	// 流关闭后结果仍保留一段窗口供 stream.closed / REST 历史透传
 	clientProcEntryIdleTTL = 10 * time.Minute
+	// clientProcMaxEntries 解析结果条目上限：高 churn 场景下条目会随流速率增长，
+	// 超过上限按插入顺序做简单 FIFO 淘汰，保证内存有界
+	clientProcMaxEntries = 4096
 )
 
 // streamIdentity 一条流的稳定标识：四元组 + 序号 + 创建时刻。
@@ -51,11 +54,19 @@ type clientProcEntry struct {
 
 // clientProcResolver 把「inbound 且 remoteAddr 为 loopback」的流反查为本机客户端进程。
 // 解析结果按流记忆一次，后续快照与事件透传；线程安全。
+//
+// 加锁约定：entries 锁（r.mu）内绝不做系统调用。端点表枚举（listEndpoints）
+// 通过 refreshing 单飞标志在锁外执行，避免慢速 netstat 阻塞所有快照/事件。
 type clientProcResolver struct {
 	mu      sync.Mutex
 	entries map[streamIdentity]*clientProcEntry
-	table   map[utils.TCPEndpointKey]int32
-	tableAt time.Time
+	// order 记录条目插入顺序，供容量上限的 FIFO 淘汰；orderHead 之前的槽位已失效
+	order     []streamIdentity
+	orderHead int
+
+	table      map[utils.TCPEndpointKey]int32
+	tableAt    time.Time
+	refreshing bool // 端点表枚举单飞标志：同一时刻只允许一个 goroutine 执行系统调用
 
 	// 以下依赖做成可替换字段，便于单测（默认走 gopsutil 真实系统调用）
 	now           func() time.Time
@@ -89,9 +100,6 @@ func (r *clientProcResolver) enrich(network string, st *stream.State, dto *Strea
 	}
 
 	now := r.now()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	id := streamIdentity{
 		network:   network,
 		index:     st.Index,
@@ -99,35 +107,76 @@ func (r *clientProcResolver) enrich(network string, st *stream.State, dto *Strea
 		local:     st.LocalAddr.String(),
 		remote:    st.RemoteAddr.String(),
 	}
+
+	r.mu.Lock()
 	e, exists := r.entries[id]
 	if !exists {
 		e = &clientProcEntry{firstAt: now, endpoint: endpoint, hasEndpoint: true}
-		r.entries[id] = e
+		r.addEntryLocked(id, e)
 	}
 	e.touchedAt = now
-
-	if !e.resolved {
-		r.tryResolveLocked(e, now)
+	if e.resolved {
+		// 命中记忆：单次加锁完成 DTO 填充，不触发任何系统调用
+		dto.ClientPid = e.pid
+		dto.ClientProcName = e.name
+		dto.ClientProcStartMs = e.startMs
+		r.mu.Unlock()
+		return
 	}
+	r.mu.Unlock()
 
+	// 系统调用只在锁外执行
+	r.ensureTable(now)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tryResolveLocked(e, now)
 	dto.ClientPid = e.pid
 	dto.ClientProcName = e.name
 	dto.ClientProcStartMs = e.startMs
 }
 
-// tryResolveLocked 查表推进单条目的解析：查到端点归属即终态
-// （pid<=0 视为合法的"未知"，不再重试）；窗口届满仍未命中放弃解析，字段留空
+// tryResolveLocked 查表推进单条条目的解析：查到端点归属即终态
+// （pid<=0 视为合法的"未知"，不再重试）；窗口届满仍未命中放弃解析，字段留空。
+// 仅读取 r.table，不执行系统调用。
 func (r *clientProcResolver) tryResolveLocked(e *clientProcEntry, now time.Time) {
-	if pid, found := r.lookupLocked(e.endpoint, now); found {
-		e.resolved = true
-		if pid > 0 {
-			e.pid = pid
-			e.name = r.procName(pid)
-			e.startMs = r.procStartMs(pid)
+	if r.table != nil {
+		if pid, found := r.table[e.endpoint]; found {
+			e.resolved = true
+			if pid > 0 {
+				e.pid = pid
+				e.name = r.procName(pid)
+				e.startMs = r.procStartMs(pid)
+			}
+			return
 		}
-	} else if now.Sub(e.firstAt) >= clientProcResolveWindow {
+	}
+	if now.Sub(e.firstAt) >= clientProcResolveWindow {
 		e.resolved = true // 重试窗口届满，放弃解析
 	}
+}
+
+// ensureTable 在缓存过期时重建端点表；refreshing 保证同一时刻只有一个
+// goroutine 在锁外执行全量枚举，其余调用立即返回并复用旧表（下一 tick 再补查）。
+func (r *clientProcResolver) ensureTable(now time.Time) {
+	r.mu.Lock()
+	if r.refreshing || now.Sub(r.tableAt) < clientProcTableTTL {
+		r.mu.Unlock()
+		return
+	}
+	r.refreshing = true
+	r.mu.Unlock()
+
+	table, err := r.listEndpoints()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err == nil {
+		r.table = table
+	}
+	// 枚举失败也推进 tableAt：避免系统调用失败期间每条流都触发全量枚举
+	r.tableAt = now
+	r.refreshing = false
 }
 
 // retryPending 对仍处于重试窗口内的未解析条目补查一轮，由 stats tick 驱动
@@ -139,6 +188,22 @@ func (r *clientProcResolver) retryPending() {
 		return
 	}
 	now := r.now()
+
+	r.mu.Lock()
+	pending := false
+	for _, e := range r.entries {
+		if !e.resolved && e.hasEndpoint {
+			pending = true
+			break
+		}
+	}
+	r.mu.Unlock()
+	if !pending {
+		return
+	}
+
+	r.ensureTable(now)
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, e := range r.entries {
@@ -147,19 +212,6 @@ func (r *clientProcResolver) retryPending() {
 		}
 		r.tryResolveLocked(e, now)
 	}
-}
-
-// lookupLocked 查端点表，缓存过期时先重建；枚举失败沿用旧表并把 tableAt 照常推进，
-// 避免系统调用失败期间每条流都触发全量枚举
-func (r *clientProcResolver) lookupLocked(endpoint utils.TCPEndpointKey, now time.Time) (int32, bool) {
-	if now.Sub(r.tableAt) >= clientProcTableTTL {
-		if table, err := r.listEndpoints(); err == nil {
-			r.table = table
-		}
-		r.tableAt = now
-	}
-	pid, found := r.table[endpoint]
-	return pid, found
 }
 
 // sweep 淘汰闲置超过 clientProcEntryIdleTTL 的解析结果；nil 接收者安全
@@ -173,6 +225,31 @@ func (r *clientProcResolver) sweep(now time.Time) {
 		if now.Sub(e.touchedAt) >= clientProcEntryIdleTTL {
 			delete(r.entries, id)
 		}
+	}
+	r.compactOrderLocked()
+}
+
+// addEntryLocked 登记新条目并维持容量上限：超限时按插入顺序淘汰最旧条目。
+// 调用方必须持有 r.mu。
+func (r *clientProcResolver) addEntryLocked(id streamIdentity, e *clientProcEntry) {
+	r.entries[id] = e
+	r.order = append(r.order, id)
+	for len(r.entries) > clientProcMaxEntries && r.orderHead < len(r.order) {
+		evict := r.order[r.orderHead]
+		r.orderHead++
+		delete(r.entries, evict)
+	}
+	r.compactOrderLocked()
+}
+
+// compactOrderLocked 回收 order 前缀，避免无界增长。调用方必须持有 r.mu。
+func (r *clientProcResolver) compactOrderLocked() {
+	if r.orderHead == 0 {
+		return
+	}
+	if r.orderHead >= 1024 && r.orderHead*2 >= len(r.order) {
+		r.order = append([]streamIdentity(nil), r.order[r.orderHead:]...)
+		r.orderHead = 0
 	}
 }
 

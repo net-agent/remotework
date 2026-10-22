@@ -7,11 +7,22 @@ import (
 	"net/http"
 )
 
+// maxJSONBodySize 请求体上限（1MB）：控制面请求都是小对象，
+// 限制读取量可防止大 body 造成内存峰值。
+const maxJSONBodySize = 1 << 20
+
 func ReadJSON(r *http.Request, v interface{}) error {
 	defer r.Body.Close()
-	body, err := io.ReadAll(r.Body)
+	if r.Body == nil {
+		return errors.New("empty request body")
+	}
+	// 多读 1 字节用于判定是否超限，避免静默截断后产生晦涩的 JSON 解析错误
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBodySize+1))
 	if err != nil {
 		return err
+	}
+	if len(body) > maxJSONBodySize {
+		return errors.New("request body too large (max 1MB)")
 	}
 	return json.Unmarshal(body, v)
 }
@@ -38,6 +49,7 @@ func WriteJSON(w http.ResponseWriter, errMsg error, data interface{}) {
 		w.Write([]byte("json marshal failed"))
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	w.Write(buf)
 }
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -37,9 +38,15 @@ func main() {
 
 	switch flags.RunMode {
 	case "agent":
-		runAgent(flags.ConfigFileName)
+		if err := runAgent(flags.ConfigFileName); err != nil {
+			syslog.Error("agent exited with error", "err", err)
+			os.Exit(1)
+		}
 	case "server":
-		server.RunServer(flags.ConfigFileName)
+		if err := server.RunServer(flags.ConfigFileName); err != nil {
+			syslog.Error("server exited with error", "err", err)
+			os.Exit(1)
+		}
 	case "validate":
 		validateConfig(flags.ConfigFileName)
 	default:
@@ -97,7 +104,7 @@ func startAPIPlugin(host *kernel.Host, cfg configv2.APIInfo, requestStop func(),
 	}
 }
 
-func runAgent(configFile string) {
+func runAgent(configFile string) error {
 	token := os.Getenv("REMOTEWORK_API_TOKEN")
 
 	resolved, err := utils.ResolveConfigFile(configFile)
@@ -108,19 +115,29 @@ func runAgent(configFile string) {
 
 	config, cfgErrs := configv2.LoadAndCheck(resolved)
 	if config == nil {
-		syslog.Error("config parse failed, starting in degraded mode", "err", cfgErrs)
-		runDegradedAgent(resolved, token, cfgErrs.Error())
-		return
+		// 配置整体不可解析：错误文本可能含畸形 URL 中的凭证，先脱敏再展示/上报
+		configError := utils.RedactText(cfgErrs.Error())
+		syslog.Error("config parse failed, starting in degraded mode", "err", configError)
+		return runDegradedAgent(resolved, token, configError)
 	}
-	// 坏项（link/tunnel）跳过并逐个给出原因，好项照常加载——单项失败互不影响
+	// 坏项（link/tunnel）已被 LoadAndCheck 丢弃；逐项给出原因，好项照常加载
 	for _, e := range cfgErrs.Errors {
-		syslog.Error("config item invalid, skipped", "err", e.Error())
+		syslog.Error("config item invalid, skipped", "err", utils.RedactText(e.Error()))
+	}
+
+	if managedMode && !config.API.Enable {
+		// 托管模式依赖 stdout 的 ready 控制行；API 关闭时进程无法完成握手，
+		// 宿主只能等 5s 超时。启动前直接报配置错误，给出明确 stage/error。
+		fatalExit("config", 1, errors.New("api.enable must be true when -log-format=json (managed mode)"))
 	}
 
 	if config.Pprof.Enable {
 		pp := utils.NewPprofServer(syslog.With("module", "pprof"))
-		pp.Start(config.Pprof.Listen)
-		defer pp.Stop()
+		if err := pp.Start(config.Pprof.Listen); err != nil {
+			syslog.Error("pprof server start failed", "err", err)
+		} else {
+			defer pp.Stop()
+		}
 	}
 
 	host := kernel.NewHost(nil, nil)
@@ -148,16 +165,20 @@ func runAgent(configFile string) {
 
 	waitStop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// 关停预算覆盖最坏路径：Drain(10s) + 两条 cleanup(2×5s) + API(5s)。
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	if err := host.Shutdown(ctx); err != nil {
-		syslog.Warn("shutdown incomplete", "err", err)
+	err = host.Shutdown(ctx)
+	if err != nil {
+		syslog.Error("shutdown incomplete", "err", err)
+		return fmt.Errorf("shutdown: %w", err)
 	}
 	syslog.Info("main process exit")
+	return nil
 }
 
 // runDegradedAgent 配置损坏时启动降级模式：只运行 API 插件，便于修复配置
-func runDegradedAgent(configPath, token, configError string) {
+func runDegradedAgent(configPath, token, configError string) error {
 	apiInfo := configv2.APIInfo{Enable: true, Listen: "127.0.0.1:8080"}
 	if raw, err := configv2.LoadFile(configPath); err == nil {
 		if raw.API.Enable {
@@ -182,13 +203,19 @@ func runDegradedAgent(configPath, token, configError string) {
 
 	waitStop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	host.Shutdown(ctx)
+	if err := host.Shutdown(ctx); err != nil {
+		syslog.Error("degraded shutdown incomplete", "err", err)
+		return fmt.Errorf("shutdown: %w", err)
+	}
 	syslog.Info("degraded agent exit")
+	return nil
 }
 
-// stopTrigger 返回停止触发器与等待器：OS 信号或 API /stop 请求均可触发
+// stopTrigger 返回停止触发器与等待器：OS 信号或 API /stop 请求均可触发。
+// 第一次信号触发优雅关闭；等待器返回后会监听第二次信号并立即退出，
+// 避免关停卡住时只能 SIGKILL。
 func stopTrigger() (requestStop func(), waitStop func()) {
 	stopCh := make(chan struct{})
 	var once sync.Once
@@ -204,6 +231,11 @@ func stopTrigger() (requestStop func(), waitStop func()) {
 			case <-stopCh:
 				syslog.Info("close with stop request")
 			}
+			go func() {
+				sig := <-sigCh
+				syslog.Warn("second signal received, forcing exit", "signal", sig)
+				os.Exit(130)
+			}()
 		}
 }
 
@@ -214,9 +246,20 @@ func validateConfig(configFile string) {
 		os.Exit(1)
 	}
 	_, cfgErrs := configv2.LoadAndCheck(resolved)
-	if len(cfgErrs.Errors) > 0 {
-		fmt.Fprintf(os.Stderr, "%v\n", cfgErrs)
+	if len(cfgErrs.Errors) == 0 {
+		fmt.Println("OK")
+		return
+	}
+	// 同一 -mode validate 也支持 relay 配置：agent 配置严格解码会因
+	// 顶层 "server" 字段失败，此时回退到 server 配置校验。
+	if _, serr := server.NewConfig(resolved); serr == nil {
+		fmt.Println("OK")
+		return
+	} else if strings.Contains(cfgErrs.Error(), `unknown field "server"`) {
+		// 明确是 relay 配置：展示 server 校验的具体错误，而不是 agent schema 的报错。
+		fmt.Fprintf(os.Stderr, "%s\n", utils.RedactText(serr.Error()))
 		os.Exit(1)
 	}
-	fmt.Println("OK")
+	fmt.Fprintf(os.Stderr, "%s\n", utils.RedactText(cfgErrs.Error()))
+	os.Exit(1)
 }

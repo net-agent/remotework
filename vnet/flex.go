@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
 	"time"
@@ -20,6 +21,15 @@ import (
 var (
 	ErrNodeClosed = errors.New("connect failed, node closed")
 )
+
+// flexDialTimeout 是 link 建连（TCP 拨号 / WebSocket 握手）的超时
+const flexDialTimeout = 10 * time.Second
+
+// flexWSDialer 独立的 WebSocket 拨号器：不修改全局 websocket.DefaultDialer
+var flexWSDialer = &websocket.Dialer{
+	Proxy:            http.ProxyFromEnvironment,
+	HandshakeTimeout: flexDialTimeout,
+}
 
 // FlexLinkConfig holds the parameters needed to create a flex network from a link spec.
 type FlexLinkConfig struct {
@@ -80,6 +90,15 @@ func NewFlexNetworkFromLink(cfg FlexLinkConfig) (Network, error) {
 	}
 	sess.SetLogger(log)
 
+	fair := node.DefaultSchedulerConfig()
+	log.Info("enabling fair connection scheduling",
+		"enabled", true,
+		"policy", nodeSchedulerPolicyName(fair.Policy),
+		"quantumBytes", fair.QuantumBytes,
+		"minChargeBytes", fair.MinChargeBytes,
+		"quantumPackets", fair.QuantumPackets,
+	)
+
 	if cfg.OnStreamOpen != nil || cfg.OnStreamClosed != nil {
 		// SetTrace 需在 Serve 前调用；重连后新建的 Node 由 Session 自动注入同一组钩子
 		sess.SetTrace(&node.Trace{
@@ -119,7 +138,7 @@ func buildConnector(scheme, relayURL string) (func() (packet.Conn, error), strin
 	switch scheme {
 	case "ws", "wss":
 		return func() (packet.Conn, error) {
-			wsConn, _, err := websocket.DefaultDialer.Dial(relayURL, nil)
+			wsConn, _, err := flexWSDialer.Dial(relayURL, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -134,7 +153,7 @@ func buildConnector(scheme, relayURL string) (func() (packet.Conn, error), strin
 		}
 		addr := u.Host
 		return func() (packet.Conn, error) {
-			conn, err := net.Dial("tcp", addr)
+			conn, err := net.DialTimeout("tcp", addr, flexDialTimeout)
 			if err != nil {
 				return nil, err
 			}
@@ -218,4 +237,12 @@ func (fnet *flexNetwork) Meta() NetworkMeta {
 		meta.RTT = n.GetLastRTT()
 	}
 	return meta
+}
+
+// nodeSchedulerPolicyName 把 flex node 的调度策略枚举转成可读名称。
+func nodeSchedulerPolicyName(p node.SchedulerPolicy) string {
+	if p == node.SchedulerPolicyPackets {
+		return "packets"
+	}
+	return "cost-budget"
 }

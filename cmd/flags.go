@@ -8,14 +8,12 @@ import (
 
 type ClientFlags struct {
 	RunMode        string
-	HomePath       string
 	ConfigFileName string
 	LogFormat      string
 }
 
 func (f *ClientFlags) Parse() {
 	flag.StringVar(&f.RunMode, "mode", "agent", "optional: agent/server/validate")
-	flag.StringVar(&f.HomePath, "home", "", "home path for files")
 	flag.StringVar(&f.ConfigFileName, "c", "./config.json", "default name of config file")
 	flag.StringVar(&f.LogFormat, "log-format", "text", "log output format: text|json (json for host-managed mode)")
 	flag.Parse()

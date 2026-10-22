@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -69,16 +70,16 @@ func (h *ConsoleHandler) Handle(_ context.Context, r slog.Record) error {
 	if module != "" {
 		buf = append(buf, '[')
 		if h.group != "" {
-			buf = append(buf, h.group...)
+			buf = appendLogText(buf, h.group)
 			buf = append(buf, '.')
 		}
-		buf = append(buf, module...)
+		buf = appendLogText(buf, module)
 		buf = append(buf, ']')
 		buf = append(buf, ' ')
 	}
 
-	// 消息
-	buf = append(buf, r.Message...)
+	// 消息（转义换行等控制字符，防止用户数据伪造日志行）
+	buf = appendLogText(buf, r.Message)
 
 	// 结构化 key=value
 	for _, a := range otherAttrs {
@@ -133,10 +134,11 @@ func formatLevel(l slog.Level) string {
 
 func appendAttr(buf []byte, group string, a slog.Attr) []byte {
 	if group != "" {
-		buf = append(buf, group...)
+		buf = appendLogText(buf, group)
 		buf = append(buf, '.')
 	}
-	buf = append(buf, a.Key...)
+	// key 通常由代码提供，仍转义控制字符以封死注入路径
+	buf = appendLogText(buf, a.Key)
 	buf = append(buf, '=')
 	buf = appendValue(buf, a.Value)
 	return buf
@@ -145,7 +147,7 @@ func appendAttr(buf []byte, group string, a slog.Attr) []byte {
 func appendValue(buf []byte, v slog.Value) []byte {
 	switch v.Kind() {
 	case slog.KindString:
-		buf = append(buf, v.String()...)
+		buf = appendStringValue(buf, v.String())
 	case slog.KindTime:
 		buf = append(buf, v.Time().Format(time.RFC3339)...)
 	case slog.KindDuration:
@@ -159,9 +161,47 @@ func appendValue(buf []byte, v slog.Value) []byte {
 			buf = appendAttr(buf, "", a)
 		}
 	default:
-		buf = append(buf, fmt.Sprintf("%v", v.Any())...)
+		buf = appendStringValue(buf, fmt.Sprintf("%v", v.Any()))
 	}
 	return buf
+}
+
+// appendLogText 写入普通文本：仅把 CR/LF/NUL 转义为可见转义序列，
+// 防止日志注入（伪造日志行），同时保持既有可读格式。
+func appendLogText(buf []byte, s string) []byte {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\n':
+			buf = append(buf, '\\', 'n')
+		case '\r':
+			buf = append(buf, '\\', 'r')
+		case 0:
+			buf = append(buf, '\\', '0')
+		default:
+			buf = append(buf, s[i])
+		}
+	}
+	return buf
+}
+
+// appendStringValue 写入字符串 attr：普通值保持裸文本（兼容既有日志格式），
+// 含空白/引号/反斜杠/控制字符时用 Go 引号包裹并转义。
+func appendStringValue(buf []byte, s string) []byte {
+	if needsQuoting(s) {
+		return strconv.AppendQuote(buf, s)
+	}
+	return append(buf, s...)
+}
+
+// needsQuoting 判断字符串值是否需要引号包裹
+func needsQuoting(s string) bool {
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if b < 0x20 || b == 0x7f || b == ' ' || b == '"' || b == '\\' {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneAttrs(attrs []slog.Attr) []slog.Attr {

@@ -1,0 +1,16 @@
+# 保持 Docker 构建上下文精简（dist/ 下的历史产物可达数百 MB）。
+.git
+.github
+.gitignore
+.vscode
+.claude
+dist
+docs
+*.md
+.DS_Store
+__debug_bin*
+*.exe
+cmd/traces
+cmd/traces-logs
+node_modules
+target

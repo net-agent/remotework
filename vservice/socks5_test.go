@@ -3,6 +3,7 @@ package vservice
 import (
 	"errors"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -169,4 +170,186 @@ func waitMatchConn(svc *Service, network string, index int64, want bool, timeout
 		time.Sleep(20 * time.Millisecond)
 	}
 	return false
+}
+
+// blockingConn 模拟一条完成 TCP 建连后一直不发送握手数据的连接。
+// Read 阻塞到 Close；SetReadDeadline 仅记录，用于断言握手 deadline。
+type blockingConn struct {
+	closed    chan struct{}
+	closeOnce sync.Once
+	mu        sync.Mutex
+	deadline  time.Time
+}
+
+func newBlockingConn() *blockingConn {
+	return &blockingConn{closed: make(chan struct{})}
+}
+
+func (c *blockingConn) Read([]byte) (int, error) {
+	<-c.closed
+	return 0, net.ErrClosed
+}
+
+func (c *blockingConn) Write(p []byte) (int, error) {
+	select {
+	case <-c.closed:
+		return 0, net.ErrClosed
+	default:
+		return len(p), nil
+	}
+}
+
+func (c *blockingConn) Close() error {
+	c.closeOnce.Do(func() { close(c.closed) })
+	return nil
+}
+
+func (c *blockingConn) LocalAddr() net.Addr  { return mockAddr("local:0") }
+func (c *blockingConn) RemoteAddr() net.Addr { return mockAddr("remote:0") }
+
+func (c *blockingConn) SetDeadline(time.Time) error { return nil }
+func (c *blockingConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+func (c *blockingConn) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.deadline = t
+	c.mu.Unlock()
+	return nil
+}
+func (c *blockingConn) readDeadline() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.deadline
+}
+
+// TestSocks5Controller_HandshakeDeadlineAndClose 验证：
+// Accept 时设置约 5s 的握手读 deadline；握手未完成时 Close 不阻塞，
+// 会强关握手中的连接并让 Start 返回。socks 库的 Server.Close 未被调用
+// （未 Start 时调用它会 nil panic，已 Start 时会 connWait 阻塞）。
+func TestSocks5Controller_HandshakeDeadlineAndClose(t *testing.T) {
+	ml := newMockListener("mock:0")
+	lf := &mockListenerFactory{listenFn: func(string) (net.Listener, error) { return ml, nil }}
+	svc := NewSocks5Service(lf, "sox-close", "tcp://127.0.0.1:0", "", "", "tcp", nil, nil)
+	if err := svc.Controller.Init(); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	startResult := make(chan error, 1)
+	go func() { startResult <- svc.Controller.Start() }()
+
+	conn := newBlockingConn()
+	ml.acceptCh <- conn
+
+	// 等待 tracking listener 设置握手 deadline
+	var deadline time.Time
+	deadlineOK := false
+	for i := 0; i < 100; i++ {
+		if d := conn.readDeadline(); !d.IsZero() {
+			deadline, deadlineOK = d, true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !deadlineOK {
+		t.Fatal("accepted conn should get a handshake read deadline")
+	}
+	if remain := time.Until(deadline); remain < 3*time.Second || remain > 7*time.Second {
+		t.Errorf("handshake deadline = %v from now, want ~5s", remain)
+	}
+
+	// Close 必须立即返回，不能等待 socks 库的 connWait
+	begin := time.Now()
+	if err := svc.Controller.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	if elapsed := time.Since(begin); elapsed > time.Second {
+		t.Errorf("Close blocked for %v, want immediate return", elapsed)
+	}
+
+	select {
+	case <-startResult:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start should return after listener/active conns are closed")
+	}
+
+	select {
+	case <-conn.closed:
+	default:
+		t.Error("handshake conn should be force-closed by controller Close")
+	}
+
+	waitUntil := time.Now().Add(2 * time.Second)
+	for time.Now().Before(waitUntil) {
+		if svc.GetActiveCount() == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("active count = %d after Close, want 0", svc.GetActiveCount())
+}
+
+// TestSocks5Controller_CloseWithoutStart 验证未 Start 时 Close 不 panic、幂等。
+func TestSocks5Controller_CloseWithoutStart(t *testing.T) {
+	ml := newMockListener("mock:0")
+	lf := &mockListenerFactory{listenFn: func(string) (net.Listener, error) { return ml, nil }}
+	svc := NewSocks5Service(lf, "sox-nostart", "tcp://127.0.0.1:0", "", "", "tcp", nil, nil)
+	if err := svc.Controller.Init(); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	// socks.Server.Close 会在 Run 未启动时解引用 nil listener 而 panic；
+	// 此调用不应触发它
+	if err := svc.Controller.Close(); err != nil {
+		t.Errorf("first Close failed: %v", err)
+	}
+	if err := svc.Controller.Close(); err != nil {
+		t.Errorf("second Close should be idempotent, got %v", err)
+	}
+	if got := svc.GetStatus(); got == StatusFailed {
+		t.Error("normal Close should not mark service failed")
+	}
+}
+
+// TestSocksTrackedConn_MarkActiveClearsDeadline 验证握手完成后清除读 deadline。
+func TestSocksTrackedConn_MarkActiveClearsDeadline(t *testing.T) {
+	raw := newBlockingConn()
+	tc := &socksTrackedConn{Conn: raw, ctl: &Socks5Controller{state: &ServiceState{}}}
+	tc.handshaking.Store(true)
+	if err := raw.SetReadDeadline(time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+
+	tc.markActive()
+	if got := raw.readDeadline(); !got.IsZero() {
+		t.Errorf("read deadline = %v after markActive, want zero", got)
+	}
+	// 幂等：重复调用不应重新设置 deadline
+	tc.markActive()
+	if got := raw.readDeadline(); !got.IsZero() {
+		t.Errorf("read deadline = %v after second markActive, want zero", got)
+	}
+}
+
+// TestSocks5Controller_StartPermanentFailureSetsFailed 验证 socks 库 Run 返回
+// 不可恢复错误时，controller 永久退出并记录 StatusFailed/LastErr。
+func TestSocks5Controller_StartPermanentFailureSetsFailed(t *testing.T) {
+	sentinel := errors.New("fatal socks accept failure")
+	ln := &fatalAcceptListener{err: sentinel, addr: mockAddr("fatal:0")}
+	lf := &mockListenerFactory{listenFn: func(string) (net.Listener, error) { return ln, nil }}
+	svc := NewSocks5Service(lf, "sox-fatal", "tcp://127.0.0.1:0", "", "", "tcp", nil, nil)
+	if err := svc.Controller.Init(); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	err := svc.Controller.Start()
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Start err = %v, want %v", err, sentinel)
+	}
+	if got := svc.GetStatus(); got != StatusFailed {
+		t.Errorf("status = %v, want StatusFailed", got)
+	}
+	if got := svc.GetLastErr(); got == "" {
+		t.Error("LastErr should be recorded on permanent failure")
+	}
 }

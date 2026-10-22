@@ -1,4 +1,7 @@
-# Sidecar 需求响应文档（协议 v2）
+# Sidecar 需求响应文档（协议 v2，已被 v3 取代）
+
+> **⚠️ 历史文档（superseded）：已被 sidecar 协议 v3 取代，不再更新。**
+> 本文中的 `protocol=2`、`aliveMs` 保留、每 tick 全量 stats 等描述已经过时。当前协议为 **3**：DTO 移除了 `aliveMs`/`uptimeMs` 等时间派生字段，`stream.stats` 改为增量 upsert（`full=true` 锚点帧），`network.stats`/`service.stats` 无变化不发帧。权威定义见 [tauri-sidecar-protocol.md](tauri-sidecar-protocol.md) 与 [api/README.md](../api/README.md)。
 
 > 对应需求文档：`SIDECAR_REQUESTS.md`（R1–R4）与 `SIDECAR_SUBSCRIPTION.md`（订阅推送改造）。
 > 本版 sidecar `protocol` 升至 **2**。所有协议变更为 additive，REST 接口全部保留。

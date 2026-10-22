@@ -215,3 +215,101 @@ func TestLinkReadWriteCloser_ReportsFirstErrorAndBytes(t *testing.T) {
 		t.Fatal("link result timeout")
 	}
 }
+
+// TestRelayConns_LargePayloadBufferReuse 用远超 32KB 池化缓冲区的数据做多轮双向
+// 转发，验证 buffer 从 sync.Pool 取用/归还后数据仍完整、字节计数正确。
+func TestRelayConns_LargePayloadBufferReuse(t *testing.T) {
+	request := bytes.Repeat([]byte("request-"), 12*1024)   // ~96KB
+	response := bytes.Repeat([]byte("response-"), 10*1024) // ~90KB
+	if len(request) <= relayBufferSize || len(response) <= relayBufferSize {
+		t.Fatalf("test payload must exceed pool buffer (%d bytes)", relayBufferSize)
+	}
+
+	for round := 0; round < 3; round++ {
+		client, linkA := newHalfClosePair()
+		linkB, server := newHalfClosePair()
+
+		resultCh := make(chan linkResult, 1)
+		go func() {
+			bytesToA, bytesToB, err := RelayConns(linkA, linkB)
+			resultCh <- linkResult{bytesToA: bytesToA, bytesToB: bytesToB, err: err}
+		}()
+
+		serverErrCh := make(chan error, 1)
+		go func() {
+			got := make([]byte, len(request))
+			if _, err := io.ReadFull(server, got); err != nil {
+				serverErrCh <- err
+				return
+			}
+			if !bytes.Equal(got, request) {
+				serverErrCh <- errors.New("request payload mismatch")
+				return
+			}
+			if _, err := server.Write(response); err != nil {
+				serverErrCh <- err
+				return
+			}
+			serverErrCh <- server.CloseWrite()
+		}()
+
+		if _, err := client.Write(request); err != nil {
+			t.Fatalf("round %d: client write failed: %v", round, err)
+		}
+		if err := client.CloseWrite(); err != nil {
+			t.Fatalf("round %d: client CloseWrite failed: %v", round, err)
+		}
+
+		clientDataCh := make(chan struct {
+			data []byte
+			err  error
+		}, 1)
+		go func() {
+			data, err := io.ReadAll(client)
+			clientDataCh <- struct {
+				data []byte
+				err  error
+			}{data: data, err: err}
+		}()
+
+		select {
+		case err := <-serverErrCh:
+			if err != nil {
+				t.Fatalf("round %d: server failed: %v", round, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("round %d: server timeout", round)
+		}
+
+		var clientData struct {
+			data []byte
+			err  error
+		}
+		select {
+		case clientData = <-clientDataCh:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("round %d: client read timeout", round)
+		}
+		if clientData.err != nil {
+			t.Fatalf("round %d: client read failed: %v", round, clientData.err)
+		}
+		if !bytes.Equal(clientData.data, response) {
+			t.Fatalf("round %d: response payload mismatch (got %d bytes, want %d)", round, len(clientData.data), len(response))
+		}
+
+		select {
+		case result := <-resultCh:
+			if result.err != nil {
+				t.Fatalf("round %d: relay error: %v", round, result.err)
+			}
+			if result.bytesToA != int64(len(response)) {
+				t.Errorf("round %d: bytesToA = %d, want %d", round, result.bytesToA, len(response))
+			}
+			if result.bytesToB != int64(len(request)) {
+				t.Errorf("round %d: bytesToB = %d, want %d", round, result.bytesToB, len(request))
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("round %d: relay result timeout", round)
+		}
+	}
+}

@@ -2,7 +2,6 @@ package utils
 
 import (
 	"net/netip"
-	"runtime"
 	"strings"
 
 	gopsnet "github.com/shirou/gopsutil/v4/net"
@@ -14,24 +13,8 @@ type TCPEndpointKey struct {
 	Port uint16
 }
 
-// connectionsTCP 非 darwin 平台的连接表枚举（包内变量便于单测替换）
-var connectionsTCP = func() ([]gopsnet.ConnectionStat, error) {
-	return gopsnet.Connections("tcp")
-}
-
-// listTCPConnections 按平台选择连接表数据源：
-// darwin 解析 netstat（无 lsof 的本用户权限盲区，TIME_WAIT 残留仍带属主）；
-// 其余平台维持 gopsutil。包内变量便于单测替换
-var listTCPConnections = func() ([]gopsnet.ConnectionStat, error) {
-	if runtime.GOOS == "darwin" {
-		out, err := netstatTCP()
-		if err != nil {
-			return nil, err
-		}
-		return parseNetstatTCP(out), nil
-	}
-	return connectionsTCP()
-}
+// listTCPConnections 由平台文件提供（darwin: netstat；其余平台: gopsutil），
+// 定义见 conn_owner_darwin.go / conn_owner_notdarwin.go。包内变量便于单测替换。
 
 // GetProcessName 查询进程名；pid 非法或查询失败返回 ""
 func GetProcessName(pid int32) string { return getProcessName(pid) }

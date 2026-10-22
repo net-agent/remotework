@@ -74,6 +74,7 @@ func (p *Plugin) Init(c *kernel.Context) error {
 		PollInterval:        p.cfg.PollInterval,
 		StreamStatsInterval: p.cfg.StreamStatsInterval,
 		Token:               p.opts.Token,
+		AllowNonLoopback:    p.cfg.AllowNonLoopback,
 		Meta:                p.opts.Meta,
 	}, c.Logger())
 	c.DeferCleanup(func(ctx context.Context) error {
@@ -108,6 +109,8 @@ type backend struct {
 	log     *slog.Logger
 	running atomic.Bool
 }
+
+var _ api.StreamAnnotator = (*backend)(nil)
 
 func (b *backend) IsRunning() bool { return b.running.Load() }
 
@@ -201,6 +204,53 @@ func (b *backend) GetStreamService(network string, index int64) string {
 	return ""
 }
 
+// AnnotateStreams 一次枚举隧道服务并批量标注流的归属服务与 pipe 配对，
+// 实现 api.StreamAnnotator：poller/handlers/snapshot 每条流不再各触发一次
+// catalog.List() 与调度器往返。
+func (b *backend) AnnotateStreams(network string, indexes []int64) map[int64]api.StreamAnnotation {
+	if len(indexes) == 0 {
+		return nil
+	}
+	var services []*vservice.Service
+	for _, ps := range b.catalog.List() {
+		if ps.Info.Kind != "tunnel" {
+			continue
+		}
+		name := strings.TrimPrefix(ps.Info.Name, tunnelNamePrefix)
+		if svc, ok := kernel.Lookup[*vservice.Service](b.ctx, name); ok {
+			services = append(services, svc)
+		}
+	}
+	return annotateWithServices(services, network, indexes)
+}
+
+// annotateWithServices 纯标注逻辑：按服务顺序"首命中优先"，
+// 与逐流调用 GetStreamService/GetStreamPipe 的结果保持一致。
+func annotateWithServices(services []*vservice.Service, network string, indexes []int64) map[int64]api.StreamAnnotation {
+	out := make(map[int64]api.StreamAnnotation, len(indexes))
+	for _, index := range indexes {
+		out[index] = api.StreamAnnotation{}
+	}
+	for _, svc := range services {
+		if svc == nil {
+			continue
+		}
+		for _, index := range indexes {
+			ann := out[index]
+			if ann.ServiceName == "" && svc.MatchConn(network, index) {
+				ann.ServiceName = svc.Name
+			}
+			if ann.PipeID == "" {
+				if pipeID := svc.MatchPipe(network, index); pipeID != "" {
+					ann.PipeID = pipeID
+				}
+			}
+			out[index] = ann
+		}
+	}
+	return out
+}
+
 // GetStreamPipe 遍历隧道服务查询流的 pipe 配对标识，未配对返回 ""
 func (b *backend) GetStreamPipe(network string, index int64) string {
 	for _, ps := range b.catalog.List() {
@@ -261,17 +311,25 @@ func (b *backend) MountTunnel(spec configv2.TunnelSpec) error {
 	return b.waitSettled(p.Info().Name)
 }
 
-// waitSettled 等待插件进入稳定态：Failed 时卸载并返回错误；
-// Running/Pending 视为成功（Pending 会在依赖就绪后自动启动）
+const waitSettledPollInterval = 20 * time.Millisecond
+
+// waitSettledTimeout 等待插件进入 Running 的上限；测试可覆盖。
+var waitSettledTimeout = 3 * time.Second
+
+// waitSettled 等待插件真正进入 Running：
+//   - Running → 成功；
+//   - Failed → 卸载并返回错误（清理半成品，避免重试时同名冲突）；
+//   - 超时仍 Pending/其他非运行态 → 返回错误（Pending 只是"依赖未就绪"，
+//     不代表挂载成功；旧实现直接返回成功会让 UI 误判）。
 func (b *backend) waitSettled(name string) error {
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
+	deadline := time.Now().Add(waitSettledTimeout)
+	for {
 		st, err := b.catalog.State(name)
 		if err != nil {
 			return err
 		}
 		switch st.State {
-		case kernel.StateRunning, kernel.StatePending:
+		case kernel.StateRunning:
 			return nil
 		case kernel.StateFailed:
 			b.catalog.Unload(name, kernel.UnloadOptions{})
@@ -279,10 +337,20 @@ func (b *backend) waitSettled(name string) error {
 				return errors.New(st.LastErr)
 			}
 			return errors.New("plugin init failed")
+		case kernel.StateUnloaded, kernel.StateStopping:
+			return fmt.Errorf("plugin %q stopped before becoming running", name)
 		}
-		time.Sleep(20 * time.Millisecond)
+
+		if !time.Now().Before(deadline) {
+			if len(st.Missing) > 0 {
+				return fmt.Errorf("plugin %q pending: missing capabilities [%s]",
+					name, strings.Join(st.Missing, ", "))
+			}
+			return fmt.Errorf("plugin %q not running after %s (state=%s)",
+				name, waitSettledTimeout, st.State)
+		}
+		time.Sleep(waitSettledPollInterval)
 	}
-	return nil // 超时：仍在初始化，交由异步推进
 }
 
 func (b *backend) RequestStop() {

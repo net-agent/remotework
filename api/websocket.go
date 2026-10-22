@@ -23,6 +23,10 @@ const (
 // 客户端发送缓冲区容量；溢出策略见 Broadcast 的 droppable 语义
 const wsSendBufferSize = 256
 
+// wsMaxClients 并发 WebSocket 客户端上限：控制面观察器面向单桌面端，
+// 超限直接拒绝升级，避免无界连接消耗内存与广播扇出成本。
+const wsMaxClients = 64
+
 var upgrader = websocket.Upgrader{
 	// Origin 为空（非浏览器客户端）直接允许；否则必须在白名单内
 	CheckOrigin: func(r *http.Request) bool {
@@ -86,6 +90,9 @@ type WSClient struct {
 	conn   *websocket.Conn
 	send   chan []byte
 	kicked chan struct{} // 可靠事件投递失败时关闭，通知 writePump 断连
+	// kickOnce 保证 kicked 只关闭一次：多个广播 goroutine 可同时命中满缓冲，
+	// 无幂等保护时第二次 close 会 panic: close of closed channel 并打崩进程。
+	kickOnce sync.Once
 
 	mu     sync.RWMutex
 	events map[string]bool // 事件类型过滤（v1 events 订阅），nil 表示不过滤
@@ -106,6 +113,24 @@ func (h *WSHub) addClient(c *WSClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.clients[c] = struct{}{}
+}
+
+// atCapacity 报告 hub 是否已达客户端上限
+func (h *WSHub) atCapacity() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients) >= wsMaxClients
+}
+
+// tryAddClient 在容量允许时登记客户端；超限返回 false（调用方负责关闭连接）
+func (h *WSHub) tryAddClient(c *WSClient) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.clients) >= wsMaxClients {
+		return false
+	}
+	h.clients[c] = struct{}{}
+	return true
 }
 
 func (h *WSHub) removeClient(c *WSClient) {
@@ -130,6 +155,11 @@ func (h *WSHub) BroadcastDroppable(eventType string, data interface{}) {
 }
 
 func (h *WSHub) broadcast(eventType string, data interface{}, droppable bool) {
+	// 无客户端时零成本返回：避免高频 stats 事件的无意义序列化
+	if !h.hasClients() {
+		return
+	}
+
 	topic := topicOf(eventType)
 	evt := Event{
 		Type:      eventType,
@@ -163,19 +193,24 @@ func (h *WSHub) broadcast(eventType string, data interface{}, droppable bool) {
 	}
 }
 
+// hasClients 报告当前是否有已登记的客户端
+func (h *WSHub) hasClients() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients) > 0
+}
+
 // kickLocked 踢掉慢客户端：关闭 kicked 通知 writePump 主动断开连接。
-// 调用方必须持有 h.mu（读锁即可，kicked 只关闭一次）。
-// 测试路径构造的 WSClient 可能没有 kicked channel，直接跳过。
+// 调用方必须持有 h.mu（读锁即可）。关闭动作由 kickOnce 保护——
+// 多个广播者并发命中同一慢客户端的满缓冲时，只有第一个真正 close。
+// 测试路径构造的 WSClient 可能没有 kicked channel，直接跳过关闭。
 func (h *WSHub) kickLocked(c *WSClient) {
-	if c.kicked == nil {
-		return
-	}
-	select {
-	case <-c.kicked:
-	default:
-		close(c.kicked)
+	c.kickOnce.Do(func() {
+		if c.kicked != nil {
+			close(c.kicked)
+		}
 		h.log.Warn("ws client kicked: send buffer full on reliable event")
-	}
+	})
 }
 
 // nextSeq 分配主题内单调递增的序列号
@@ -240,7 +275,9 @@ func (h *WSHub) CloseAll() {
 	h.mu.RUnlock()
 
 	for _, c := range clients {
-		c.conn.Close()
+		if c.conn != nil {
+			c.conn.Close()
+		}
 	}
 }
 
@@ -292,11 +329,33 @@ func (c *WSClient) setEvents(events []string) {
 	c.topics = nil
 }
 
+// wsAuthorized 校验 WebSocket 访问凭证：
+// 兼容 webview 的 ?token=（无法自定义请求头）与标准 Authorization: Bearer。
+// token 为空（standalone 模式）时直接放行。
+func (s *Server) wsAuthorized(r *http.Request) bool {
+	if s.token == "" {
+		return true
+	}
+	if token := r.URL.Query().Get("token"); token != "" && secureEqual(token, s.token) {
+		return true
+	}
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		if secureEqual(strings.TrimPrefix(auth, "Bearer "), s.token) {
+			return true
+		}
+	}
+	return false
+}
+
 // handleWebSocket 处理 WebSocket 连接升级
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// webview 无法自定义 WS 请求头，token 经查询参数传递
-	if s.token != "" && r.URL.Query().Get("token") != s.token {
+	if !s.wsAuthorized(r) {
 		writeError(w, http.StatusUnauthorized, errors.New("unauthorized"))
+		return
+	}
+	// 升级前先做容量预检：超限返回明确错误，避免先接管连接再关闭
+	if s.wsHub.atCapacity() {
+		writeError(w, http.StatusServiceUnavailable, errors.New("too many websocket clients"))
 		return
 	}
 
@@ -312,7 +371,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		kicked:     make(chan struct{}),
 		snapshotFn: s.snapshotOf,
 	}
-	s.wsHub.addClient(client)
+	// 预检与登记之间可能有并发连接，登记失败时关闭连接（严格上限）
+	if !s.wsHub.tryAddClient(client) {
+		s.log.Warn("ws client rejected: hub at capacity")
+		conn.Close()
+		return
+	}
 
 	go s.wsWritePump(client)
 	go s.wsReadPump(client)

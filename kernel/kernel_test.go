@@ -74,6 +74,18 @@ func (r *recorder) index(s string) int {
 	return -1
 }
 
+func (r *recorder) count(s string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, e := range r.ev {
+		if e == s {
+			n++
+		}
+	}
+	return n
+}
+
 // before 断言 a 与 b 均被记录且 a 在 b 之前
 func (r *recorder) before(a, b string) bool {
 	ia, ib := r.index(a), r.index(b)

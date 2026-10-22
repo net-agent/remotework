@@ -21,7 +21,7 @@ type streamStateTracker struct {
 	mu     sync.Mutex
 	source streamStateSource // 上次见到的来源实例；Session 重连后会换新 Node
 	pos    int64             // GetClosedStates 增量游标
-	hist   []*stream.State   // 已关闭流历史，有界
+	hist   stateRing         // 已关闭流历史，有界（固定环形缓冲，避免每次淘汰复制整个切片）
 }
 
 // collect 采集一次快照。src 为 nil 表示 session 离线/重连中：actives 为空，仅返回历史。
@@ -30,7 +30,7 @@ func (t *streamStateTracker) collect(src streamStateSource) (actives, closeds []
 	defer t.mu.Unlock()
 
 	if src == nil {
-		return nil, append([]*stream.State(nil), t.hist...)
+		return nil, t.hist.snapshot()
 	}
 
 	// 重连换了新 Node：新实例的环形缓冲从 0 开始，游标重置；
@@ -42,10 +42,53 @@ func (t *streamStateTracker) collect(src streamStateSource) (actives, closeds []
 
 	batch, next := src.GetClosedStates(t.pos)
 	t.pos = next
-	t.hist = append(t.hist, batch...)
-	if over := len(t.hist) - maxClosedStreamHist; over > 0 {
-		t.hist = append([]*stream.State(nil), t.hist[over:]...)
+	for _, st := range batch {
+		t.hist.push(st, maxClosedStreamHist)
 	}
 
-	return src.GetStreamStates(), append([]*stream.State(nil), t.hist...)
+	return src.GetStreamStates(), t.hist.snapshot()
+}
+
+// stateRing 是固定容量的环形缓冲：push 只覆盖最旧槽位，避免历史满后
+// 每次关闭都复制整个切片；snapshot 按写入先后顺序返回快照。
+type stateRing struct {
+	buf  []*stream.State
+	next int // 下一个写入槽位
+	size int // 当前元素数（<= len(buf)）
+}
+
+func (r *stateRing) push(st *stream.State, capacity int) {
+	if capacity <= 0 {
+		return
+	}
+	if len(r.buf) != capacity {
+		// 容量固定；仅在首次使用（或容量变化）时分配
+		r.buf = make([]*stream.State, capacity)
+		r.next = 0
+		r.size = 0
+	}
+	if r.size < capacity {
+		r.size++
+	}
+	r.buf[r.next] = st
+	r.next++
+	if r.next == capacity {
+		r.next = 0
+	}
+}
+
+// snapshot 返回按写入顺序（旧→新）排列的切片；调用方可以安全修改切片本身。
+func (r *stateRing) snapshot() []*stream.State {
+	if r.size == 0 || len(r.buf) == 0 {
+		return nil
+	}
+	start := r.next - r.size
+	if start < 0 {
+		start += len(r.buf)
+	}
+	out := make([]*stream.State, 0, r.size)
+	for i := 0; i < r.size; i++ {
+		out = append(out, r.buf[(start+i)%len(r.buf)])
+	}
+	return out
 }

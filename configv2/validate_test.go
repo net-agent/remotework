@@ -8,8 +8,8 @@ import (
 func TestValidate_ValidFullConfig(t *testing.T) {
 	cfg := &CanonicalConfig{
 		Links: map[string]LinkSpec{
-			"office": {Alias: "office", Scheme: "tcp", As: "pc-01", Keepalive: 15},
-			"home":   {Alias: "home", Scheme: "wss", As: "macbook", Keepalive: 10},
+			"office": {Alias: "office", Scheme: "tcp", As: "pc-01", Keepalive: DefaultKeepalive},
+			"home":   {Alias: "home", Scheme: "wss", As: "macbook", Keepalive: DefaultKeepalive},
 		},
 		Tunnels: []TunnelSpec{
 			{
@@ -83,18 +83,40 @@ func TestValidate_InvalidKeepalive(t *testing.T) {
 	assertValidationError(t, err, ErrInvalidKeepalive)
 }
 
-func TestValidate_InvalidViaFormat(t *testing.T) {
+func TestValidate_ViaUnsupported(t *testing.T) {
 	cfg := &CanonicalConfig{
 		Links: map[string]LinkSpec{
 			"office": {
-				Alias: "office", Scheme: "tcp", As: "node", Keepalive: 15,
-				Via: &ViaSpec{Host: "nodot", Port: "7000"},
+				Alias: "office", Scheme: "tcp", As: "node", Keepalive: DefaultKeepalive,
+				Via: &ViaSpec{Host: "gateway.office", Port: "7000"},
 			},
 		},
 	}
 
 	err := Validate(cfg)
-	assertValidationError(t, err, ErrInvalidVia)
+	assertValidationError(t, err, ErrViaNotSupported)
+}
+
+func TestValidate_ExplicitKeepaliveUnsupported(t *testing.T) {
+	cfg := &CanonicalConfig{
+		Links: map[string]LinkSpec{
+			"office": {Alias: "office", Scheme: "tcp", As: "node", Keepalive: 10},
+		},
+	}
+
+	err := Validate(cfg)
+	assertValidationError(t, err, ErrKeepaliveNotSupported)
+}
+
+func TestValidate_UnsupportedLinkScheme(t *testing.T) {
+	cfg := &CanonicalConfig{
+		Links: map[string]LinkSpec{
+			"office": {Alias: "office", Scheme: "udp", As: "node", Keepalive: DefaultKeepalive},
+		},
+	}
+
+	err := Validate(cfg)
+	assertValidationError(t, err, ErrInvalidScheme)
 }
 
 func TestValidate_TunnelMissingID(t *testing.T) {
@@ -194,8 +216,8 @@ func TestValidate_TunnelViaNotAllowed(t *testing.T) {
 		},
 		Tunnels: []TunnelSpec{
 			{
-				ID:   "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1",
-				Name: "test",
+				ID:     "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1",
+				Name:   "test",
 				Listen: tcpEndpoint("127.0.0.1", "13306"),
 				Target: EndpointSpec{
 					Kind: EndpointVNet, Scheme: "vtcp",
@@ -220,8 +242,8 @@ func TestValidate_ForbiddenScheme(t *testing.T) {
 				Links: map[string]LinkSpec{},
 				Tunnels: []TunnelSpec{
 					{
-						ID:   "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1",
-						Name: "test",
+						ID:     "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1",
+						Name:   "test",
 						Listen: tcpEndpoint("127.0.0.1", "80"),
 						Target: EndpointSpec{
 							Kind: EndpointNet, Scheme: scheme,
@@ -243,8 +265,8 @@ func TestValidate_VtcpAliasNotFound(t *testing.T) {
 		Links: map[string]LinkSpec{}, // no links defined
 		Tunnels: []TunnelSpec{
 			{
-				ID:   "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1",
-				Name: "test",
+				ID:     "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1",
+				Name:   "test",
 				Listen: tcpEndpoint("127.0.0.1", "13306"),
 				Target: EndpointSpec{
 					Kind: EndpointVNet, Scheme: "vtcp",
@@ -268,8 +290,8 @@ func TestValidate_VtcpAuthRequired(t *testing.T) {
 		},
 		Tunnels: []TunnelSpec{
 			{
-				ID:   "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1",
-				Name: "test",
+				ID:     "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1",
+				Name:   "test",
 				Listen: tcpEndpoint("127.0.0.1", "13306"),
 				Target: EndpointSpec{
 					Kind: EndpointVNet, Scheme: "vtcp",
@@ -293,8 +315,8 @@ func TestValidate_VtcpAuthWithAuthcode(t *testing.T) {
 		},
 		Tunnels: []TunnelSpec{
 			{
-				ID:   "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1",
-				Name: "test",
+				ID:     "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1",
+				Name:   "test",
 				Listen: tcpEndpoint("127.0.0.1", "13306"),
 				Target: EndpointSpec{
 					Kind: EndpointVNet, Scheme: "vtcp",
@@ -404,8 +426,8 @@ func TestValidate_NetToNetNoAuth(t *testing.T) {
 func TestValidate_VnetToVnetRequiresAuth(t *testing.T) {
 	cfg := &CanonicalConfig{
 		Links: map[string]LinkSpec{
-			"office": {Alias: "office", Scheme: "tcp", As: "pc-01", Keepalive: 15},
-			"home":   {Alias: "home", Scheme: "wss", As: "macbook", Keepalive: 10},
+			"office": {Alias: "office", Scheme: "tcp", As: "pc-01", Keepalive: DefaultKeepalive},
+			"home":   {Alias: "home", Scheme: "wss", As: "macbook", Keepalive: DefaultKeepalive},
 		},
 		Tunnels: []TunnelSpec{
 			{
@@ -431,6 +453,346 @@ func TestValidate_VnetToVnetRequiresAuth(t *testing.T) {
 
 	err := Validate(cfg)
 	assertValidationError(t, err, ErrVtcpAuthRequired)
+}
+
+func TestValidate_PhysicalEndpointAuthcodeRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		spec TunnelSpec
+	}{
+		{
+			name: "listen authcode",
+			spec: TunnelSpec{
+				ID:   "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1",
+				Name: "listen-authcode",
+				Listen: EndpointSpec{
+					Kind: EndpointNet, Scheme: "tcp",
+					Host: "127.0.0.1", Port: "8080",
+					Authcode: "super-secret",
+					RawURL:   "tcp://127.0.0.1:8080?authcode=super-secret",
+				},
+				Target: tcpEndpoint("10.0.0.1", "80"),
+			},
+		},
+		{
+			name: "target authcodeRef",
+			spec: TunnelSpec{
+				ID:     "f56d9858-5d57-4a35-a7b7-3e683fe2a8ce",
+				Name:   "target-authcode-ref",
+				Listen: tcpEndpoint("127.0.0.1", "8080"),
+				Target: EndpointSpec{
+					Kind: EndpointNet, Scheme: "tcp",
+					Host: "10.0.0.1", Port: "80",
+					AuthcodeRef: "PHYSICAL_SECRET",
+					RawURL:      "tcp://10.0.0.1:80?authcodeRef=PHYSICAL_SECRET",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(&CanonicalConfig{Tunnels: []TunnelSpec{tt.spec}})
+			assertValidationError(t, err, ErrAuthcodeNotAllowed)
+			if strings.Contains(err.Error(), "super-secret") {
+				t.Errorf("validation error leaked authcode: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidate_TunnelDuplicateName(t *testing.T) {
+	cfg := &CanonicalConfig{
+		Tunnels: []TunnelSpec{
+			{
+				ID: "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1", Name: "same-name",
+				Listen: tcpEndpoint("127.0.0.1", "8080"),
+				Target: tcpEndpoint("10.0.0.1", "80"),
+			},
+			{
+				ID: "f56d9858-5d57-4a35-a7b7-3e683fe2a8ce", Name: "same-name",
+				Listen: tcpEndpoint("127.0.0.1", "8081"),
+				Target: tcpEndpoint("10.0.0.1", "81"),
+			},
+		},
+	}
+
+	err := Validate(cfg)
+	assertValidationError(t, err, ErrDuplicateTunnelName)
+
+	verrs := err.(*ValidationErrors)
+	if len(verrs.Errors) != 1 {
+		t.Fatalf("expected only the second tunnel to be rejected, got %v", verrs)
+	}
+	if verrs.Errors[0].ItemIndex != 1 || verrs.Errors[0].Item != "same-name" {
+		t.Fatalf("duplicate name should point at index 1, got %+v", verrs.Errors[0])
+	}
+}
+
+func TestValidate_UnknownTunnelScheme(t *testing.T) {
+	cfg := &CanonicalConfig{
+		Tunnels: []TunnelSpec{
+			{
+				ID: "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1", Name: "udp",
+				Listen: tcpEndpoint("127.0.0.1", "8080"),
+				Target: EndpointSpec{
+					Kind: EndpointNet, Scheme: "udp",
+					Host: "10.0.0.1", Port: "53",
+					RawURL: "udp://10.0.0.1:53",
+				},
+			},
+		},
+	}
+	assertValidationError(t, Validate(cfg), ErrInvalidScheme)
+
+	socksListen := &CanonicalConfig{
+		Tunnels: []TunnelSpec{
+			{
+				ID: "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1", Name: "socks-listen",
+				Listen: EndpointSpec{
+					Kind: EndpointBuiltin, Scheme: "socks5", RawURL: "socks5://",
+				},
+				Target: tcpEndpoint("10.0.0.1", "80"),
+			},
+		},
+	}
+	assertValidationError(t, Validate(socksListen), ErrInvalidScheme)
+}
+
+func TestValidate_EndpointMissingHostPort(t *testing.T) {
+	tests := []struct {
+		name   string
+		listen EndpointSpec
+		target EndpointSpec
+	}{
+		{
+			name:   "missing listen host",
+			listen: EndpointSpec{Kind: EndpointNet, Scheme: "tcp", Host: "", Port: "8080", RawURL: "tcp://:8080"},
+			target: tcpEndpoint("10.0.0.1", "80"),
+		},
+		{
+			name:   "missing target port",
+			listen: tcpEndpoint("127.0.0.1", "8080"),
+			target: EndpointSpec{Kind: EndpointNet, Scheme: "tcp", Host: "10.0.0.1", RawURL: "tcp://10.0.0.1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &CanonicalConfig{
+				Tunnels: []TunnelSpec{{
+					ID: "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1", Name: "missing",
+					Listen: tt.listen, Target: tt.target,
+				}},
+			}
+			assertValidationError(t, Validate(cfg), ErrMissingField)
+		})
+	}
+}
+
+func TestValidate_Socks5OpenProxyPolicy(t *testing.T) {
+	socksTarget := func(user, pass string) EndpointSpec {
+		return EndpointSpec{
+			Kind: EndpointBuiltin, Scheme: "socks5",
+			Username: user, Password: pass,
+			RawURL: "socks5://",
+		}
+	}
+
+	tests := []struct {
+		name    string
+		listen  EndpointSpec
+		target  EndpointSpec
+		links   map[string]LinkSpec
+		wantErr bool
+	}{
+		{
+			name:    "non-loopback without credentials rejected",
+			listen:  tcpEndpoint("0.0.0.0", "1080"),
+			target:  socksTarget("", ""),
+			wantErr: true,
+		},
+		{
+			name:   "non-loopback with credentials allowed",
+			listen: tcpEndpoint("0.0.0.0", "1080"),
+			target: socksTarget("user", "pass"),
+		},
+		{
+			name:   "loopback without credentials allowed",
+			listen: tcpEndpoint("127.0.0.1", "1080"),
+			target: socksTarget("", ""),
+		},
+		{
+			name: "vnet listen without credentials allowed",
+			listen: EndpointSpec{
+				Kind: EndpointVNet, Scheme: "vtcp",
+				Host: "pc.office", Port: "1080",
+				VHostname: "pc", Alias: "office",
+				Authcode: "code",
+				RawURL:   "vtcp://pc.office:1080?authcode=code",
+			},
+			target: socksTarget("", ""),
+			links: map[string]LinkSpec{
+				"office": {Alias: "office", Scheme: "tcp", As: "node", Keepalive: DefaultKeepalive},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &CanonicalConfig{
+				Links: tt.links,
+				Tunnels: []TunnelSpec{{
+					ID: "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1", Name: "socks",
+					Listen: tt.listen, Target: tt.target,
+				}},
+			}
+			err := Validate(cfg)
+			if tt.wantErr {
+				assertValidationError(t, err, ErrSocks5AuthRequired)
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidate_ServerListenPolicy(t *testing.T) {
+	validLink := map[string]LinkSpec{}
+
+	tests := []struct {
+		name    string
+		cfg     CanonicalConfig
+		wantErr string
+	}{
+		{
+			name:    "pprof non-loopback rejected",
+			cfg:     CanonicalConfig{Links: validLink, Pprof: PprofInfo{Enable: true, Listen: "0.0.0.0:6060"}},
+			wantErr: ErrPprofNonLoopback,
+		},
+		{
+			name: "pprof localhost allowed",
+			cfg:  CanonicalConfig{Links: validLink, Pprof: PprofInfo{Enable: true, Listen: "localhost:6060"}},
+		},
+		{
+			name:    "pprof invalid listen",
+			cfg:     CanonicalConfig{Links: validLink, Pprof: PprofInfo{Enable: true, Listen: "6060"}},
+			wantErr: ErrInvalidListen,
+		},
+		{
+			name:    "pprof enabled without listen",
+			cfg:     CanonicalConfig{Links: validLink, Pprof: PprofInfo{Enable: true}},
+			wantErr: ErrMissingField,
+		},
+		{
+			name:    "api non-loopback rejected by default",
+			cfg:     CanonicalConfig{Links: validLink, API: APIInfo{Enable: true, Listen: "0.0.0.0:8080"}},
+			wantErr: ErrAPINonLoopback,
+		},
+		{
+			name: "api non-loopback explicitly allowed",
+			cfg: CanonicalConfig{Links: validLink, API: APIInfo{
+				Enable: true, Listen: "0.0.0.0:8080", AllowNonLoopback: true,
+			}},
+		},
+		{
+			name: "api loopback allowed",
+			cfg:  CanonicalConfig{Links: validLink, API: APIInfo{Enable: true, Listen: "127.0.0.1:8080"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(&tt.cfg)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			assertValidationError(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestValidate_ErrorCarriesScopeAndItem(t *testing.T) {
+	cfg := &CanonicalConfig{
+		Links: map[string]LinkSpec{
+			"office": {Alias: "office", Scheme: "tcp", As: "", Keepalive: DefaultKeepalive},
+		},
+		Tunnels: []TunnelSpec{
+			{Name: "broken"},
+		},
+		Pprof: PprofInfo{Enable: true, Listen: "0.0.0.0:6060"},
+	}
+
+	err := Validate(cfg)
+	verrs, ok := err.(*ValidationErrors)
+	if !ok {
+		t.Fatalf("expected *ValidationErrors, got %T", err)
+	}
+
+	var linkErr, tunnelErr, configErr *ValidationError
+	for i := range verrs.Errors {
+		e := &verrs.Errors[i]
+		switch e.Scope {
+		case ScopeLink:
+			linkErr = e
+		case ScopeTunnel:
+			tunnelErr = e
+		case ScopeConfig:
+			configErr = e
+		}
+	}
+	if linkErr == nil || linkErr.Item != "office" || linkErr.ItemIndex != -1 {
+		t.Fatalf("bad link scope fields: %+v", linkErr)
+	}
+	if tunnelErr == nil || tunnelErr.Item != "broken" || tunnelErr.ItemIndex != 0 {
+		t.Fatalf("bad tunnel scope fields: %+v", tunnelErr)
+	}
+	if configErr == nil || configErr.Item != "" || configErr.ItemIndex != -1 {
+		t.Fatalf("bad config scope fields: %+v", configErr)
+	}
+}
+
+func TestValidate_CrossChecksIgnoreIntrinsicBadItems(t *testing.T) {
+	// 坏项（缺 name / 缺 id）会整条被丢弃，不应把同 listen/同 id 的好项
+	// 误判为冲突并连带丢弃。
+	badID := "c45a8ffb-1a5f-4f78-b9ef-a0e7189bd8c1"
+	cfg := &CanonicalConfig{
+		Tunnels: []TunnelSpec{
+			{
+				ID:     badID,
+				Name:   "", // intrinsic error: missing name
+				Listen: tcpEndpoint("127.0.0.1", "8080"),
+				Target: tcpEndpoint("10.0.0.1", "80"),
+			},
+			{
+				ID:     badID, // same id, but first tunnel is dropped
+				Name:   "good",
+				Listen: tcpEndpoint("127.0.0.1", "8080"), // same listen too
+				Target: tcpEndpoint("10.0.0.2", "80"),
+			},
+		},
+	}
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected intrinsic error for the bad tunnel")
+	}
+	verrs := err.(*ValidationErrors)
+	for _, e := range verrs.Errors {
+		if e.Code == ErrDuplicateTunnelID || e.Code == ErrListenConflict {
+			t.Fatalf("good tunnel wrongly flagged as conflict: %v", e)
+		}
+	}
+	for _, e := range verrs.Errors {
+		if e.ItemIndex != 0 {
+			t.Fatalf("all errors should belong to the bad tunnel at index 0, got %+v", e)
+		}
+	}
 }
 
 func TestValidationError_Error(t *testing.T) {

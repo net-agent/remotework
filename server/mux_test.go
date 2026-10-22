@@ -153,3 +153,44 @@ func TestMux_FlexByteBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestConnChanOfferAfterClose(t *testing.T) {
+	l := newConnChan(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	a, b := net.Pipe()
+	defer b.Close()
+	l.Offer(a)
+
+	_ = a.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := a.Read(make([]byte, 1)); err == nil {
+		t.Fatal("connection offered after Close should be closed")
+	}
+}
+
+func TestMux_HTTPDisabledClosesConnection(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	m := NewMux(l, testLogger)
+	m.CloseHTTP()
+	go m.Serve()
+
+	conn, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte("GET / HTTP/1.1\r\nHost: test\r\n\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("HTTP connection should be closed when WsEnable=false")
+	}
+}

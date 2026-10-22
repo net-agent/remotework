@@ -96,10 +96,10 @@ Remotework 中所有连接都使用 URL 格式寻址，这在 API 返回的 `lis
 | Scheme | 含义 | 示例 |
 |--------|------|------|
 | `tcp://` | 本地 TCP 连接 | `tcp://0.0.0.0:3389` |
-| `vtcp://` | Flex 虚拟网络连接 | `vtcp://remote-pc:3389?secret=mykey` |
+| `vtcp://` | Flex 虚拟网络连接 | `vtcp://remote-pc.mynet:3389?authcode=***` |
 | `ws://` | WebSocket 传输 | `ws://server.example.com:8080/ws` |
 
-`?secret=` 参数表示启用了预共享密钥加密。
+`?authcode=` 参数表示启用了预共享密钥加密，且只允许出现在 `vtcp://` 端点上；物理 `tcp://` 端点携带会被配置校验拒绝（`ERR_AUTHCODE_NOT_ALLOWED`）。`?authcodeRef=` 是它的环境变量引用形式（`env:NAME` 或裸 `NAME`），未设置时失败关闭。API DTO 返回的 URL 中，该参数已脱敏为 `***`。
 
 ### 数据流（Stream）
 
@@ -139,9 +139,12 @@ streamStatsInterval = 1
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enable` | bool | `false` | 是否启用 API 服务器 |
-| `listen` | string | `"127.0.0.1:8080"` | 监听地址。默认仅本地访问，如需远程访问改为 `"0.0.0.0:8080"` |
+| `listen` | string | `"127.0.0.1:8080"` | 监听地址。默认仅本地访问；如需远程访问改为 `"0.0.0.0:8080"`，并同时设置 `allowNonLoopback=true` 与非空 token |
 | `pollInterval` | int | `5` | 网络/服务状态轮询间隔（秒） |
 | `streamStatsInterval` | int | `1` | 数据流采样节拍（秒）：`stream.stats` 增量推送（仅状态变化的流；无变化不发帧，全量锚点 ≤30s）与 `stream.update` 开/关差分 |
+| `allowNonLoopback` | bool | `false` | 显式允许 `listen` 绑定非回环地址。开启后进程仍必须设置非空 token，否则 `Start()` 拒绝启动 |
+
+> 默认只允许回环监听；`allowNonLoopback=false` 时配置层会拒绝非回环 `listen`（`ERR_API_NON_LOOPBACK`）。即使开启该选项，空 token + 非回环地址也会在 `Start()` 阶段被拒绝。
 
 ### 编程方式启动
 
@@ -174,7 +177,8 @@ if err := apiServer.Start(); err != nil {
     // 端口绑定失败会同步返回错误
 }
 defer apiServer.Stop()
-// apiServer.Addr() 返回实际绑定地址（Listen 配 ":0" 时为系统分配端口）
+// apiServer.Addr() 返回本机可连接的地址：Listen 配 ":0" 时为系统分配端口；
+// 通配监听（0.0.0.0/[::]）会收敛为 loopback 地址后再对外报告
 ```
 
 `api.New()` 接收三个参数：
@@ -182,30 +186,37 @@ defer apiServer.Stop()
 - `api.Config` — 运行时选项（监听地址、轮询间隔、token、元信息），与文件配置解耦
 - `*slog.Logger` — 日志器，传 `nil` 使用默认
 
-`Start()` 是**同步绑定**：端口被占用等错误立即返回，不会等到首次请求才暴露。
+`Start()` 是**同步绑定**：端口被占用等错误立即返回，不会等到首次请求才暴露。非回环监听必须同时满足 `AllowNonLoopback=true` 与非空 token，否则 `Start()` 关闭 listener 并返回错误。
 
 ---
 
 ## 认证与来源校验
 
-自 sidecar 协议 v1 起，API 具备完整的安全层（standalone 开放模式下同样生效）：
+自 sidecar 协议 v1 起，API 具备完整的安全层（standalone 无 token 时仅在回环地址开放，其余校验同样生效）：
 
 ### Bearer token
 
 - 进程经环境变量 `REMOTEWORK_API_TOKEN` 获取 token（Host 每次 spawn 重新生成），token 不落盘、不出现在命令行参数中。
-- token 存在时，所有 `/api/v1/*` HTTP 请求必须携带 `Authorization: Bearer <token>`，缺失或错误返回 **401**（统一错误信封）。
-- WebSocket 握手经 `?token=<token>` 查询参数传递（webview 无法自定义 WS 请求头），校验失败返回 **401** 且不升级连接。
-- token 为空（standalone CLI 场景）时 API 保持开放，启动日志输出 warn 提示 `api server running without auth token`。
+- token 存在时，所有 `/api/v1/*` HTTP 请求必须携带 `Authorization: Bearer <token>`，缺失或错误返回 **401**（统一错误信封）。token 使用常量时间比较，避免时序侧信道。
+- WebSocket 握手经 `?token=<token>` 查询参数传递（webview 无法自定义 WS 请求头），也接受 `Authorization: Bearer` 头；校验失败返回 **401** 且不升级连接。
+- token 为空（standalone CLI 场景）时 API 只在回环地址上保持开放，启动日志输出 warn 提示 `api server running without auth token`；若实际绑定到非回环地址，`Start()` 会关闭 listener 并返回错误，不会以开放模式暴露到局域网/公网。
 
 ### Host 头白名单（防 DNS rebinding）
 
-HTTP 请求的 Host 头去端口后必须在白名单内：`127.0.0.1`、`localhost`、`::1`、`[::1]`，否则返回 **403**。
+默认只允许回环 Host：HTTP 请求的 Host 头去端口后必须在 `127.0.0.1`、`localhost`、`::1`、`[::1]` 内，否则返回 **403**。
+
+当 `api.allowNonLoopback=true`、`listen` 实际绑定到非回环地址且 token 非空时，`Start()` 允许启动；此时 Host 校验放行任意 Host，认证边界由 token 承担（浏览器不知道 token 时无法借 DNS rebinding 发起有效请求）。其余情况（未显式开启、监听仍是回环、或 token 为空）仍按回环白名单返回 403 或拒绝启动。
 
 ### CORS / WebSocket Origin 白名单
 
 - 允许的 Origin：`tauri://localhost`（macOS 生产）、`http://tauri.localhost`（Windows 生产）、`http://localhost:1420`（dev）。
 - 命中时反射 Origin 并允许 `Content-Type, Authorization` 头；未命中不设置 `Access-Control-Allow-Origin`。
+- **写请求（POST/PUT/DELETE 等）携带非白名单 Origin 时直接返回 403**——仅省略 CORS 响应头不足以阻止 CSRF；非浏览器客户端不带 Origin，仍按原有规则放行。
 - WebSocket 握手校验 Origin：Origin 为空（非浏览器客户端）直接允许，否则必须在白名单内。
+
+### pprof
+
+pprof 服务与 API 分离，但同样只允许回环地址：未指定 host 或写成 `0.0.0.0`/`::` 时收敛到 `127.0.0.1`，显式指定非回环地址会拒绝启动。
 
 ---
 
@@ -322,10 +333,11 @@ HTTP 请求的 Host 头去端口后必须在白名单内：`127.0.0.1`、`localh
   "Data": [
     {
       "id": 1,
+      "tunnelId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
       "type": "portproxy",
       "name": "rdp-forward",
       "status": "running",
-      "listenURL": "vtcp://0:13389?secret=mykey",
+      "listenURL": "vtcp://0:13389?authcode=***",
       "targetURL": "tcp://localhost:3389",
       "actives": 1,
       "dones": 12
@@ -339,6 +351,8 @@ HTTP 请求的 Host 头去端口后必须在白名单内：`127.0.0.1`、`localh
 `actives` 和 `dones` 是实时计数器：
 - `actives` — 当前正在处理的活跃连接数
 - `dones` — 已完成的连接总数
+
+`id` 由服务构造时按进程内序号分配（同一进程生命周期内稳定）；`tunnelId` 来自配置中的 tunnel `id`；`lastErr` 记录运行时错误（如控制循环永久退出），无错误时省略。`listenURL`/`targetURL` 中的 `authcode`/`authcodeRef`、用户信息口令等敏感内容已由 `utils.RedactURL` 脱敏为 `***`（示例如此，不是明文密钥）。
 
 ---
 
@@ -432,7 +446,7 @@ DELETE /api/v1/streams/mynet/7
 
 ### POST /api/v1/ping
 
-对所有服务依赖的远程域名执行 ping 测试。此接口会阻塞约 3 秒（每个域名的超时时间）。
+对所有服务依赖的远程域名执行 ping 测试。后端探测仍按每个域名约 3 秒超时串行执行；API 侧同时最多允许 4 个 ping 后台任务，全量请求最多等待 8 秒，超出后返回 `"ping request timeout"`，并发槽位已满时立即返回 `"too many concurrent ping requests"`。后台任务结束前会持续占用槽位，客户端断开不会产生无界 goroutine。
 
 **响应：**
 
@@ -465,6 +479,8 @@ DELETE /api/v1/streams/mynet/7
 ```
 POST /api/v1/ping/mynet/remote-pc
 ```
+
+单次请求最多等待 5 秒；与全量 ping 共用 4 个并发槽位，槽位已满时立即返回错误。
 
 **响应：**
 
@@ -512,6 +528,8 @@ POST /api/v1/ping/mynet/remote-pc
 
 枚举本机当前处于 LISTEN 状态的端口（用于隧道配置时辅助选端口）。
 
+结果有 2 秒短缓存：同一实例内 2 秒以内的重复请求复用同一份采集结果，避免高频调用放大系统调用/子进程开销（macOS 上会执行 `netstat`）。
+
 **响应：**
 
 ```json
@@ -546,7 +564,7 @@ POST /api/v1/ping/mynet/remote-pc
 ```json
 {
   "alias": "mynet",
-  "url": "tcp://server.example.com:9000?as=mypc&auth=secret"
+  "url": "tcp://server.example.com:9000?as=mypc&auth=***"
 }
 ```
 
@@ -610,7 +628,7 @@ POST /api/v1/ping/mynet/remote-pc
 }
 ```
 
-调用后宿主会异步执行停止流程：按逆依赖顺序卸载全部插件（隧道 → 网络 → API），随后进程以退出码 0 退出（停机宽限 15 秒）。
+调用后宿主会异步执行停止流程：按逆依赖顺序卸载全部插件（隧道 → 网络 → API），随后进程以退出码 0 退出（关停总预算 35 秒；若关停不完整则记录错误并以退出码 1 退出）。关停期间再次收到 SIGINT/SIGTERM 会强制以 130 退出。
 
 ---
 
@@ -687,6 +705,9 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 
 - 事件分两类投递策略：**可靠事件**（生命周期/状态类：`*.snapshot`、`stream.opened`、`stream.closed`、`network.state`、`service.status`、`hub.stopped`）客户端缓冲区满时服务端会**主动断开该连接**（客户端重连后走快照+增量恢复，不会静默丢事件）；**可丢弃事件**（计数器/速率类：`stream.stats`、`network.stats`、`service.stats`）缓冲区满时丢旧；stats 类事件无变化不发帧，丢失后由 ≤30s 的全量锚点帧兜底收敛
 - 客户端发送缓冲区为 256 条消息
+- 并发 WebSocket 客户端上限为 64；超限握手返回 **503**（`too many websocket clients`），避免无界连接消耗内存与广播扇出成本
+- 慢客户端踢除是幂等的：多个广播并发命中同一满缓冲时只触发一次断连
+- 单条客户端消息读取上限 4KB；消息 JSON 无法解析时忽略
 - 心跳：服务端每 30s 发送 ping，60s 未收到 pong 判定死连并断开；写操作超时 10s。浏览器 WebSocket 会自动应答 ping
 
 ### 事件类型
@@ -764,7 +785,7 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
       "type": "portproxy",
       "name": "rdp-forward",
       "status": "running",
-      "listenURL": "vtcp://0:13389?secret=mykey",
+      "listenURL": "vtcp://0:13389?authcode=***",
       "targetURL": "tcp://localhost:3389",
       "actives": 0,
       "dones": 0
@@ -965,12 +986,14 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `id` | int32 | 服务注册序号 |
-| `type` | string | 服务类型：`portproxy` / `socks5` / `rdpserver` |
-| `name` | string | 服务名称（配置中的 `log` 字段或默认名） |
-| `status` | string | 当前状态：`uninit` / `init` / `running` / `stopped` / `init failed` |
-| `listenURL` | string | 监听地址 URL |
-| `targetURL` | string | 目标地址 URL（socks5 类型无此字段） |
+| `id` | int32 | 服务注册序号（服务构造时按进程内序号分配） |
+| `tunnelId` | string | 配置中该 tunnel 的 UUID（`id` 字段） |
+| `type` | string | 服务类型：`portproxy` / `socks5` |
+| `name` | string | 服务名称（配置中的 `name` 字段或默认名） |
+| `status` | string | 当前状态：`uninit` / `init` / `running` / `pending` / `stopped` / `init failed` |
+| `lastErr` | string | 最近一次运行时错误（无错误时省略） |
+| `listenURL` | string | 监听地址 URL（敏感参数已脱敏） |
+| `targetURL` | string | 目标地址 URL（socks5 类型为空字符串；敏感参数已脱敏） |
 | `actives` | int32 | 当前活跃连接数 |
 | `dones` | int32 | 已完成连接总数 |
 
@@ -1057,7 +1080,7 @@ curl -X PUT http://127.0.0.1:8080/api/v1/loglevel \
 # 热挂载 link / tunnel
 curl -X POST http://127.0.0.1:8080/api/v1/links \
   -H "Content-Type: application/json" \
-  -d '{"alias":"mynet","url":"tcp://server.example.com:9000?as=mypc&auth=secret"}'
+  -d '{"alias":"mynet","url":"tcp://server.example.com:9000?as=mypc&auth=***"}'
 curl -X POST http://127.0.0.1:8080/api/v1/tunnels \
   -H "Content-Type: application/json" \
   -d '{"name":"rdp-forward","listen":"tcp://127.0.0.1:13389","target":"vtcp://remote-pc.mynet:3389?authcode=key"}'
@@ -1201,11 +1224,14 @@ API 模块使用两种互补的事件推送机制：
 
 ### 安全性
 
-- 默认监听 `127.0.0.1`，仅本机可访问
-- token 鉴权：`Authorization: Bearer <token>`（HTTP）/ `?token=`（WS），token 经 env 注入不落盘；standalone 无 token 时保持开放并输出 warn 日志
-- Host 头白名单（`127.0.0.1` / `localhost` / `::1`）防 DNS rebinding
+- 默认监听 `127.0.0.1`，仅本机可访问；非回环监听必须 `allowNonLoopback=true` 且 token 非空，否则拒绝启动
+- token 鉴权：`Authorization: Bearer <token>`（HTTP）/ `?token=` 或 Bearer 头（WS），token 经 env 注入不落盘；常量时间比较；standalone 无 token 且绑定回环时保持开放并输出 warn 日志
+- 写请求（POST/PUT/DELETE）的 Origin 不在白名单时直接 403；无 Origin 的非浏览器客户端允许
+- Host 头白名单（`127.0.0.1` / `localhost` / `::1`）防 DNS rebinding；仅在显式开启非回环监听且 token 非空时放行任意 Host（认证由 token 承担）
 - CORS 与 WS Origin 收敛为白名单（`tauri://localhost`、`http://tauri.localhost`、`http://localhost:1420`）
-- API 不暴露密码等敏感配置信息
+- `listenURL`/`targetURL`、`lastErr`、`configError` 中的 `authcode`/`authcodeRef`/`auth`/`token`/`password` 与 URL userinfo 经 `utils.RedactURL` 脱敏后返回
+- pprof 服务强制回环监听，非回环地址拒绝启动
+- HTTP 读头/读/写/空闲超时为 5s/15s/30s/60s；JSON 请求体上限 1MB
 
 ### 并发安全
 

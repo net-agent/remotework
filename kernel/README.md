@@ -46,7 +46,8 @@
                Initializing ──ok────► Ready ──依赖全部Running──► Starting ──ok────► Running
                       │                                                              │
         缺依赖 ──────► Pending ──缺失能力出现──► 回到 Initializing 重试                │
-        其他错误 ────► Failed ◄── Host.Retry 重试                                    │
+        依赖等待超时 ─► Failed                                                         │
+        其他错误 ────► Failed ◄── Host.Retry 重试                                     │
                       ▲                                                              │
                       │                                                    Unload / Shutdown
                       │                                                              ▼
@@ -57,7 +58,7 @@
 |---|---|
 | `Added` | 已装载登记，等待 Init |
 | `Initializing` | Init 执行中 |
-| `Pending` | 依赖未就绪，等待自动重试 |
+| `Pending` | 依赖未就绪，等待自动重试；等待超过 `DependencyTimeout`（默认 5m）转 `Failed`（`ErrDependencyTimeout`） |
 | `Ready` | Init 完成，等待依赖提供者进入 Running |
 | `Starting` | Start 执行中 |
 | `Running` | 运行中 |
@@ -93,6 +94,12 @@
 
 依赖注入失败时应**直接 return 该 err**，不要消化或误包装为非 Cause 错误。
 
+**回调超时：** Init 超时后，宿主先封锁该 Context 的暂存区（`sealAttempt`），随后才允许重试。若旧回调此时仍在运行：
+
+- 迟到的 `Provide`/`DeferCleanup` 会因阶段已结束而失败，不能写进下一次 attempt；
+- `Host.Retry` 返回 `ErrAttemptRunning`；必须等旧回调真正结束、宿主完成其暂存 cleanup 回滚后，Retry 才会被接受；
+- 同一插件的回调绝不会并发执行。
+
 ## Start 契约
 
 **唯一触发条件：** 插件已 `Ready`，且其所有已记录的必需依赖的提供者均处于 `Running`（内核预置能力视为永远就绪）。
@@ -104,6 +111,8 @@ Start 门槛按插件独立判定，全局自然形成拓扑启动序列——�
 - **必须快速返回**（默认 30s `StartTimeout`）。常驻循环（Accept 循环等）放入插件自有 goroutine，通过 `c.Done()` 感知卸载；
 - Start 内同样允许 Inject/Provide/DeferCleanup（事务语义同 Init）；Start 阶段新注入的依赖并入依赖边，卸载排序对其同样生效；
 - 结果分支：成功 → `Running`；返回 NotReady → `Pending`（重试时直接回 `Ready` 再 Start，不重跑 Init）；其他失败 → `Failed`（`Retry` 只重跑 Start）。
+
+Start 超时与 Init 超时遵循同一规则：超时后旧回调若仍在运行，`Retry` 返回 `ErrAttemptRunning`；迟到的 Inject/Provide/DeferCleanup 一律失败；等旧回调结束并完成暂存 cleanup 回滚后才允许重试。
 
 ## Running 与动态查询
 
@@ -126,6 +135,8 @@ Start 门槛按插件独立判定，全局自然形成拓扑启动序列——�
 5. cleanup 栈 **LIFO** 逐条执行，每条带超时（默认 5s `CleanupTimeout`）、panic 隔离、单条失败不阻断后续，错误汇聚后作为 `Unload` 返回值；
 6. 摘除该插件发布的全部能力，移除插件，广播 `EventUnloaded`。
 
+`Shutdown` 会对全部插件执行同样的卸载流程，并返回所有 Drain/cleanup 错误的聚合（`errors.Join`）；返回 nil 才表示完全关停成功。失败调用方可以据此选择非零退出码。
+
 `Pending`/`Added`/`Failed` 状态的插件直接卸载：仅执行已提交的 cleanup（未提交的暂存已在失败时回滚）。
 
 ## 失败与重试语义
@@ -137,10 +148,14 @@ Start 门槛按插件独立判定，全局自然形成拓扑启动序列——�
 | Init 失败 | 状态回 `Added`，重新完整 Init |
 | Start 失败 | 状态回 `Ready`，仅重跑 Start |
 | `Pending` | 强制立即重新尝试（正常场景由依赖出现自动触发） |
+| 回调超时且旧回调仍在运行 | 返回 `ErrAttemptRunning`；等旧回调真正结束后才能重试 |
+| `Pending` 超过 `DependencyTimeout` | 转 `Failed`（`ErrDependencyTimeout`），此后可 `Retry` |
 
 所有插件回调 panic 都会被隔离：该插件判 `Failed`，宿主与其他插件不受影响。
 
-Init/Start 超时（默认各 30s）按失败处理；超时不保证回调 goroutine 退出——**插件契约要求回调在超时内返回**，cleanup 必须尊重传入的 `ctx`。
+Init/Start 超时（默认各 30s）按失败处理；超时只保证状态机继续推进，不保证回调 goroutine 已退出。宿主会封锁该 attempt 的暂存区，旧回调迟到的写入会失败；`Retry` 在旧回调真正结束前返回 `ErrAttemptRunning`。插件契约仍要求回调在超时内返回，cleanup 必须尊重传入的 `ctx`。
+
+`Pending` 的依赖等待有全局时限 `DependencyTimeout`（默认 5m，按插件进入 Pending 的起点计时）；超时后插件转 `Failed` 并记录 `ErrDependencyTimeout`（含缺失能力列表），不会无限期占用调度资源。依赖在超时前出现时仍会自动重试。
 
 ## 依赖环检测
 
@@ -157,7 +172,7 @@ catalog, err := kernel.Inject[kernel.Catalog](c, "") // 插件目录与生命周
 ```
 
 - **`EventBus`**：领域事件（如网络会话状态变化）的发布/订阅。`Publish` 可从任意 goroutine 调用，非阻塞（订阅者缓冲满则丢弃）。与插件生命周期 `Event` 不同，`DomainEvent` 不经过调度器。
-- **`Catalog`**：`List`/`State`/`Subscribe`（生命周期事件）+ `Load`/`Unload`/`Retry`（动态装载管理）。观察器类插件（如 api）经此驱动管理界面。
+- **`Catalog`**：`List`/`State`/`Subscribe`（生命周期事件）+ `Load`/`Unload`/`Retry`（动态装载管理）。观察器类插件（如 api）经此驱动管理界面。`Subscribe` 返回的退订函数幂等：退订会从宿主注销并**关闭订阅 channel**，接收方 `range` 可正常退出；`Shutdown` 时宿主也会关闭所有仍在册的订阅 channel。
 
 ## 插件开发指南
 
@@ -241,19 +256,20 @@ svc := vservice.NewPortproxyService(lf, df, name, listenURL, targetURL, nil)
 
 ```go
 host := kernel.NewHost(logger, &kernel.HostOptions{
-    InitTimeout:    30 * time.Second, // 默认值
-    StartTimeout:   30 * time.Second,
-    DrainTimeout:   10 * time.Second, // Drain 默认时限
-    CleanupTimeout: 5 * time.Second,  // 单条 cleanup 时限
+    InitTimeout:       30 * time.Second, // 默认值
+    StartTimeout:      30 * time.Second,
+    DrainTimeout:      10 * time.Second, // Drain 默认时限
+    CleanupTimeout:    5 * time.Second,  // 单条 cleanup 时限
+    DependencyTimeout: 5 * time.Minute,  // Pending 等待依赖上限
 })
 
 err  := host.Load(plugin)                              // 登记并异步驱动 Init
 err  := host.Unload(name, kernel.UnloadOptions{Cascade: true}) // 等待卸载完成
-err  := host.Retry(name)                               // 重试 Failed/Pending
+err  := host.Retry(name)                               // 重试 Failed/Pending；旧回调未结束返回 ErrAttemptRunning
 st   := host.State(name)                               // 状态快照
 list := host.List()                                    // 按装载顺序列出
-ch, unsub := host.Subscribe(64)                        // 生命周期事件流
-err  := host.Shutdown(ctx)                             // 逆依赖序卸载全部并终止
+ch, unsub := host.Subscribe(64)                        // 生命周期事件流；退订关闭 ch
+err  := host.Shutdown(ctx)                             // 逆依赖序卸载全部并终止；返回 Drain/cleanup 错误聚合
 ```
 
 状态快照 `PluginState` 含 `Info`/`State`/`Since`/`LastErr`/`Provides`/`Deps`/`Missing`，全部为只读拷贝。

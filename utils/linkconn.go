@@ -1,12 +1,20 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 )
+
+const relayBufferSize = 32 * 1024
+
+// relayBufferPool 复用双向转发缓冲区，避免每条连接、每个方向重复分配 32KB。
+var relayBufferPool = sync.Pool{
+	New: func() any { return make([]byte, relayBufferSize) },
+}
 
 var (
 	linkConnLoggerOnce sync.Once
@@ -38,6 +46,12 @@ func getLinkConnLogger() *slog.Logger {
 func RelayConns(a, b io.ReadWriteCloser) (bytesToA, bytesToB int64, err error) {
 	logger := getLinkConnLogger()
 	linkID := atomic.AddUint64(&linkConnAutoID, 1)
+	debug := logger.Enabled(context.Background(), slog.LevelDebug)
+	// %T 仅在 Debug 开启时计算，避免热路径上的反射式字符串分配
+	aType, bType := "", ""
+	if debug {
+		aType, bType = fmt.Sprintf("%T", a), fmt.Sprintf("%T", b)
+	}
 
 	var wg sync.WaitGroup
 	var closeOnce sync.Once
@@ -57,8 +71,8 @@ func RelayConns(a, b io.ReadWriteCloser) (bytesToA, bytesToB int64, err error) {
 		logger.Debug("link closing",
 			"id", linkID,
 			"reason", reason,
-			"a_type", fmt.Sprintf("%T", a),
-			"b_type", fmt.Sprintf("%T", b),
+			"a_type", aType,
+			"b_type", bType,
 		)
 		_ = a.Close()
 		_ = b.Close()
@@ -67,7 +81,10 @@ func RelayConns(a, b io.ReadWriteCloser) (bytesToA, bytesToB int64, err error) {
 	relayOneDir := func(src, dst io.ReadWriteCloser, direction string, written *int64) {
 		defer wg.Done()
 
-		n, copyErr := io.Copy(dst, src)
+		// 池化缓冲区：CopyBuffer 返回后即可归还，内容不影响下次使用
+		buf := relayBufferPool.Get().([]byte)
+		n, copyErr := io.CopyBuffer(dst, src, buf)
+		relayBufferPool.Put(buf)
 		*written = n
 
 		logger.Debug("relay finished",
@@ -113,8 +130,8 @@ func RelayConns(a, b io.ReadWriteCloser) (bytesToA, bytesToB int64, err error) {
 
 	logger.Debug("link started",
 		"id", linkID,
-		"a_type", fmt.Sprintf("%T", a),
-		"b_type", fmt.Sprintf("%T", b),
+		"a_type", aType,
+		"b_type", bType,
 	)
 
 	wg.Add(2)

@@ -57,7 +57,7 @@ func (s *Server) hubSnapshot() hubSnapshotData {
 		Protocol:    s.meta.Protocol,
 		StartedAtMs: s.startedAt.UnixMilli(),
 		ConfigPath:  s.meta.ConfigPath,
-		ConfigError: s.meta.ConfigError,
+		ConfigError: redactText(s.meta.ConfigError),
 	}
 }
 
@@ -108,15 +108,28 @@ func (s *Server) streamSnapshot() []StreamStateDTO {
 		if ds == nil {
 			continue
 		}
+		indexes := make([]int64, 0, len(ds.Actives))
+		for _, st := range ds.Actives {
+			if st != nil {
+				indexes = append(indexes, int64(st.Index))
+			}
+		}
+		annotations := annotateStreams(s.backend, ds.Network, indexes)
+
 		rates := s.meter.sample(ds.Network, ds.Actives, now)
 		for _, st := range ds.Actives {
+			if st == nil {
+				continue
+			}
 			dto := toStreamDTO(ds.Network, st)
 			if rate, ok := rates[st.Index]; ok {
 				dto.ReadBps = rate[0]
 				dto.WriteBps = rate[1]
 			}
-			dto.ServiceName = s.backend.GetStreamService(ds.Network, int64(st.Index))
-			dto.PipeID = s.backend.GetStreamPipe(ds.Network, int64(st.Index))
+			if ann, ok := annotations[int64(st.Index)]; ok {
+				dto.ServiceName = ann.ServiceName
+				dto.PipeID = ann.PipeID
+			}
 			s.resolver.enrich(ds.Network, st, &dto)
 			dtos = append(dtos, dto)
 		}
@@ -160,11 +173,24 @@ func (b *streamEventBatcher) flush(hub *WSHub, backend Backend, resolver *client
 	b.mu.Unlock()
 
 	for network, states := range opened {
+		indexes := make([]int64, 0, len(states))
+		for _, st := range states {
+			if st != nil {
+				indexes = append(indexes, int64(st.Index))
+			}
+		}
+		annotations := annotateStreams(backend, network, indexes)
+
 		dtos := make([]StreamStateDTO, 0, len(states))
 		for _, st := range states {
+			if st == nil {
+				continue
+			}
 			dto := toStreamDTO(network, st)
-			dto.ServiceName = backend.GetStreamService(network, int64(st.Index))
-			dto.PipeID = backend.GetStreamPipe(network, int64(st.Index))
+			if ann, ok := annotations[int64(st.Index)]; ok {
+				dto.ServiceName = ann.ServiceName
+				dto.PipeID = ann.PipeID
+			}
 			resolver.enrich(network, st, &dto)
 			dtos = append(dtos, dto)
 		}
@@ -176,6 +202,9 @@ func (b *streamEventBatcher) flush(hub *WSHub, backend Backend, resolver *client
 	for network, states := range closed {
 		dtos := make([]StreamStateDTO, 0, len(states))
 		for _, st := range states {
+			if st == nil {
+				continue
+			}
 			dto := toStreamDTO(network, st)
 			resolver.enrich(network, st, &dto)
 			dtos = append(dtos, dto)

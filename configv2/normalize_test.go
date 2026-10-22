@@ -1,6 +1,8 @@
 package configv2
 
 import (
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -13,9 +15,9 @@ func TestNormalize_Links(t *testing.T) {
 		check   func(t *testing.T, spec LinkSpec)
 	}{
 		{
-			name:  "basic tcp link",
-			alias: "office",
-			rawURL: "tcp://relay.corp.com:7000?as=pc-01&auth=work-secret&keepalive=15",
+			name:   "basic tcp link",
+			alias:  "office",
+			rawURL: "tcp://relay.corp.com:7000?as=pc-01&auth=work-secret",
 			check: func(t *testing.T, spec LinkSpec) {
 				assertEqual(t, "Alias", spec.Alias, "office")
 				assertEqual(t, "Scheme", spec.Scheme, "tcp")
@@ -30,43 +32,61 @@ func TestNormalize_Links(t *testing.T) {
 			},
 		},
 		{
-			name:  "wss link with via",
-			alias: "home",
-			rawURL: "wss://tunnel.home.org/ws?as=macbook&authRef=HOME_RELAY_AUTH&keepalive=10&via=gateway.office:7000",
+			name:   "wss link with authRef",
+			alias:  "home",
+			rawURL: "wss://tunnel.home.org/ws?as=macbook&authRef=HOME_RELAY_AUTH",
 			check: func(t *testing.T, spec LinkSpec) {
 				assertEqual(t, "Scheme", spec.Scheme, "wss")
 				assertEqual(t, "As", spec.As, "macbook")
 				assertEqual(t, "AuthRef", spec.AuthRef, "HOME_RELAY_AUTH")
-				assertIntEqual(t, "Keepalive", spec.Keepalive, 10)
-				if spec.Via == nil {
-					t.Fatal("Via should not be nil")
+				assertIntEqual(t, "Keepalive", spec.Keepalive, DefaultKeepalive)
+				if spec.Via != nil {
+					t.Error("Via should be nil")
 				}
-				assertEqual(t, "Via.Host", spec.Via.Host, "gateway.office")
-				assertEqual(t, "Via.Port", spec.Via.Port, "7000")
 			},
 		},
 		{
-			name:  "default keepalive",
-			alias: "net1",
+			name:   "userinfo removed from relay URL",
+			alias:  "home",
+			rawURL: "wss://user:pass@tunnel.home.org/ws?as=macbook",
+			check: func(t *testing.T, spec LinkSpec) {
+				assertEqual(t, "RelayURL", spec.RelayURL, "wss://tunnel.home.org/ws")
+			},
+		},
+		{
+			name:    "explicit keepalive unsupported",
+			alias:   "net1",
+			rawURL:  "tcp://relay.com:5000?as=node1&keepalive=10",
+			wantErr: true,
+		},
+		{
+			name:    "via unsupported",
+			alias:   "net1",
+			rawURL:  "tcp://relay.com:5000?as=node1&via=gateway.office:7000",
+			wantErr: true,
+		},
+		{
+			name:   "default keepalive",
+			alias:  "net1",
 			rawURL: "tcp://relay.com:5000?as=node1",
 			check: func(t *testing.T, spec LinkSpec) {
 				assertIntEqual(t, "Keepalive", spec.Keepalive, 15)
 			},
 		},
 		{
-			name:    "invalid keepalive",
+			name:    "keepalive rejected regardless of value validity",
 			alias:   "net1",
 			rawURL:  "tcp://relay.com:5000?as=node1&keepalive=abc",
 			wantErr: true,
 		},
 		{
-			name:    "via missing port",
+			name:    "via without port also rejected as unsupported",
 			alias:   "net1",
 			rawURL:  "tcp://relay.com:5000?as=node1&via=gateway.office",
 			wantErr: true,
 		},
 		{
-			name:    "via empty host",
+			name:    "via empty host also rejected as unsupported",
 			alias:   "net1",
 			rawURL:  "tcp://relay.com:5000?as=node1&via=:7000",
 			wantErr: true,
@@ -303,45 +323,50 @@ func TestParseVtcpHostname(t *testing.T) {
 	}
 }
 
-func TestParseVia(t *testing.T) {
+func TestNormalize_UnsupportedOptionsAreExplicit(t *testing.T) {
 	tests := []struct {
-		input   string
-		wantErr bool
-		check   func(t *testing.T, v *ViaSpec)
+		name   string
+		rawURL string
+		code   string
 	}{
 		{
-			input: "gateway.office:7000",
-			check: func(t *testing.T, v *ViaSpec) {
-				assertEqual(t, "Host", v.Host, "gateway.office")
-				assertEqual(t, "Port", v.Port, "7000")
-			},
+			name:   "keepalive value",
+			rawURL: "tcp://relay.com:5000?as=node1&keepalive=10",
+			code:   ErrKeepaliveNotSupported,
 		},
 		{
-			input: "node.net1:8080",
-			check: func(t *testing.T, v *ViaSpec) {
-				assertEqual(t, "Host", v.Host, "node.net1")
-				assertEqual(t, "Port", v.Port, "8080")
-			},
+			name:   "keepalive empty value still explicit",
+			rawURL: "tcp://relay.com:5000?as=node1&keepalive=",
+			code:   ErrKeepaliveNotSupported,
 		},
-		{input: "no-port", wantErr: true},
-		{input: ":7000", wantErr: true},
-		{input: "host:", wantErr: true},
-		{input: "host:abc", wantErr: true},
+		{
+			name:   "via value",
+			rawURL: "tcp://relay.com:5000?as=node1&via=gateway.office:7000",
+			code:   ErrViaNotSupported,
+		},
+		{
+			name:   "via empty value still explicit",
+			rawURL: "tcp://relay.com:5000?as=node1&via=",
+			code:   ErrViaNotSupported,
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			v, err := parseVia(tt.input)
-			if tt.wantErr {
-				if err == nil {
-					t.Error("expected error")
-				}
-				return
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := normalizeLink("home", tt.rawURL)
+			if err == nil {
+				t.Fatal("expected unsupported option error, got nil")
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			var ve *ValidationError
+			if !errors.As(err, &ve) {
+				t.Fatalf("expected *ValidationError, got %T: %v", err, err)
 			}
-			tt.check(t, v)
+			if ve.Code != tt.code {
+				t.Fatalf("code = %s, want %s", ve.Code, tt.code)
+			}
+			if !strings.Contains(ve.Message, "not supported") {
+				t.Fatalf("message should clearly say not supported, got %q", ve.Message)
+			}
 		})
 	}
 }

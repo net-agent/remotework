@@ -1,4 +1,6 @@
-# Tauri 宿主与 Go Sidecar 通信协议规范 (v1.0)
+# Tauri 宿主与 Go Sidecar 通信协议规范 (v3.0)
+
+> 当前 sidecar 协议版本为 **3**。本文档同时记录 v2/v3 的增量与破坏性变更，权威事件契约见 `api/README.md`。
 
 ## 0. 规范术语
 
@@ -76,8 +78,8 @@ sidecar 以 `-log-format=json` 运行时，stdout 每行 **MUST** 是一个独�
 **控制消息**（含 `type` 字段）：
 
 ```json
-{"type":"ready","protocol":1,"version":"0.2.0","commit":"abc1234","api":"127.0.0.1:54321","mode":"normal","pid":1234}
-{"type":"ready","protocol":1,"version":"0.2.0","commit":"abc1234","api":"127.0.0.1:54321","mode":"degraded","configError":"...","pid":1234}
+{"type":"ready","protocol":3,"version":"0.2.0","commit":"abc1234","api":"127.0.0.1:54321","mode":"normal","pid":1234}
+{"type":"ready","protocol":3,"version":"0.2.0","commit":"abc1234","api":"127.0.0.1:54321","mode":"degraded","configError":"...","pid":1234}
 {"type":"fatal","stage":"config|bind","error":"..."}
 ```
 
@@ -102,7 +104,7 @@ Host                                     sidecar
 
 规则：
 
-1. sidecar **MUST** 在 API 端口监听就绪后、对外宣告可用前，输出唯一一行 `ready` 消息；`api` 字段 **MUST** 是实际绑定地址（配置 `:0` 时为系统分配端口）。
+1. sidecar **MUST** 在 API 端口监听就绪后、对外宣告可用前，输出唯一一行 `ready` 消息；`api` 字段 **MUST** 是本机可连接的地址（配置 `:0` 时为系统分配端口；通配监听会收敛为 loopback 地址后再报告）。
 2. 配置解析失败进入降级模式时，sidecar **MUST** 输出 `mode:"degraded"` 的 `ready` 并附带 `configError`；进程 **MUST NOT** 直接退出（保留 API 供修复配置）。例外：配置中 `api.enable=false` 导致无法降级时，按 §6.3 退出码 1 退出。
 3. 启动阶段不可恢复的错误，sidecar **MUST** 输出 `fatal` 消息后以非零码退出。
 4. Host **MUST** 以 5 秒超时等待 `ready`；超时、收到 `fatal`、或进程先行退出，均判定启动失败，并 **SHOULD** 将 stdout/stderr 尾部若干行呈给用户。
@@ -136,7 +138,7 @@ Host                                     sidecar
 ### 6.2 优雅停止 `POST /api/v1/stop`
 
 1. sidecar 收到请求后 **MUST** 立即应答 `{"status":"stopping"}`，随后异步执行优雅停机。
-2. 正常停机后进程 **MUST** 以退出码 0 终止，停机宽限 15 秒。
+2. 正常停机后进程 **MUST** 以退出码 0 终止。agent 的关停总预算为 35 秒（Drain + cleanup + API 关闭）；关停不完整时记录错误并以退出码 1 退出。关停过程中再次收到 SIGINT/SIGTERM 会强制以 130 退出。
 3. Host **MUST** 等待进程 terminated 事件（建议超时 5 秒），超时后强制 kill；**MUST NOT** 使用固定时长 sleep 作为停止确认。
 4. 原 `X-Confirm: yes` 头自本协议版本起废弃，由 token 鉴权替代（§7）。
 
@@ -145,8 +147,9 @@ Host                                     sidecar
 | 退出码 | 含义 |
 | --- | --- |
 | 0 | 正常退出（`/stop` 请求或 OS 信号） |
-| 1 | 配置解析失败且 `api.enable=false`，无法进入降级模式 |
+| 1 | 启动/关停失败：配置解析失败且 `api.enable=false`、优雅关停不完整等 |
 | 2 | API 端口绑定失败 |
+| 130 | 关停过程中收到第二次 SIGINT/SIGTERM，强制退出 |
 | 其他 | 未捕获异常（panic 等） |
 
 Host **SHOULD** 依据退出码区分"正常停止"与"崩溃"，后者向用户提示并展示日志尾部。
@@ -167,7 +170,7 @@ Host **SHOULD** 依据退出码区分"正常停止"与"崩溃"，后者向用户
    - HTTP：`Authorization: Bearer <token>` 头。
    - WebSocket：`?token=<token>` 查询参数（webview 无法自定义 WS 请求头）。
 3. token 缺失或错误 **MUST** 返回 401，WS **MUST** 拒绝握手。
-4. standalone 运行（env 未设置 token）时 API 保持开放，sidecar **MUST** 在启动日志输出 warn 级提示。
+4. standalone 运行（env 未设置 token）时，API 仅在回环地址上保持开放，sidecar **MUST** 在启动日志输出 warn 级提示；若监听地址不是回环，API **MUST** 拒绝启动，不能以无鉴权方式暴露到局域网/公网。
 
 ### 7.2 前端凭证获取
 
@@ -175,10 +178,11 @@ Frontend **MUST** 通过 Tauri command `get_api_endpoint() -> { port, token }` �
 
 ### 7.3 来源校验
 
-1. HTTP 请求 Host 头 **MUST** 匹配白名单：`127.0.0.1`、`localhost`、`[::1]`（防 DNS rebinding）。
+1. HTTP 请求 Host 头 **MUST** 匹配白名单：`127.0.0.1`、`localhost`、`[::1]`（防 DNS rebinding）。仅当 API 显式开启非回环监听（`api.allowNonLoopback=true`）且 token 非空时，才允许任意 Host，认证由 token 承担。
 2. WS 握手 **MUST** 校验 Origin；CORS **MUST** 收敛为 allow-list：
    - `tauri://localhost`（macOS 生产）、`http://tauri.localhost`（Windows 生产）、`http://localhost:1420`（dev）。
-3. standalone 开放模式下上述校验仍 **MUST** 生效。
+3. 写请求（POST/PUT/DELETE 等）携带非白名单 Origin 时 **MUST** 直接返回 403；非浏览器客户端不带 Origin 时仍允许。
+4. standalone 开放模式下上述校验仍 **MUST** 生效。
 
 ---
 
@@ -206,7 +210,7 @@ sidecar **MUST NOT** 为热挂载提供任何形式的持久化。
 
 ---
 
-## 10. 决策记录（v1.0 定稿）
+## 10. 决策记录（v1.0 定稿；协议版本已升至 3）
 
 | # | 议题 | 结论 |
 | --- | --- | --- |

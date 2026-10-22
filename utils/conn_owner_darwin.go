@@ -1,3 +1,5 @@
+//go:build darwin
+
 package utils
 
 import (
@@ -12,6 +14,17 @@ import (
 // netstatTCP 做成包内变量便于单测替换，避免测试路径触发真实系统调用
 var netstatTCP = func() ([]byte, error) {
 	return exec.Command("netstat", "-anv", "-p", "tcp").Output()
+}
+
+// listTCPConnections 在 darwin 上解析 netstat（无 lsof 的本用户权限盲区，
+// TIME_WAIT 残留仍带属主）；其余平台见 conn_owner_notdarwin.go。
+// 包内变量便于单测替换。
+var listTCPConnections = func() ([]gopsnet.ConnectionStat, error) {
+	out, err := netstatTCP()
+	if err != nil {
+		return nil, err
+	}
+	return parseNetstatTCP(out), nil
 }
 
 // darwin 端点表选 netstat 而非 gopsutil 的原因：gopsutil 在 macOS 上的

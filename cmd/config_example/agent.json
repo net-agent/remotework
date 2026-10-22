@@ -32,12 +32,6 @@
     }
   ],
 
-  "trace": {
-    "enable": false,
-    "outputDir": "./traces",
-    "dumpCap": 4096
-  },
-
   "pprof": {
     "enable": false,
     "listen": "localhost:6060"
