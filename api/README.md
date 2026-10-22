@@ -984,6 +984,9 @@ token 存在时 `?token=` 查询参数必填（webview 无法自定义 WS 请求
 | `localAddr` | string | 本地地址（`ip:port` 格式） |
 | `remoteDomain` | string | 远程域名 |
 | `remoteAddr` | string | 远程地址 |
+| `clientPid` | int32 | 客户端进程 PID：仅 `direction=inbound` 且 `remoteAddr` 为 loopback 的流在开流时解析一次并记忆；其余场景或解析失败（权限不足/进程已退出/非 TCP 传输）时省略 |
+| `clientProcName` | string | 客户端进程名（解析条件同 `clientPid`） |
+| `clientProcStartMs` | int64 | 客户端进程启动时刻（Unix 毫秒），供甄别 PID 复用（解析条件同 `clientPid`） |
 | `readBytes` | int64 | 已读取字节数 |
 | `writeBytes` | int64 | 已写入字节数 |
 | `createdAtMs` | int64 | 流发起时刻（Unix 毫秒）；存活时长由客户端按 now-createdAtMs（已关闭流按 closedAtMs-createdAtMs）自行换算 |

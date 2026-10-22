@@ -48,6 +48,12 @@ type StreamStateDTO struct {
 	RemoteDomain string `json:"remoteDomain"`
 	RemoteAddr   string `json:"remoteAddr"`
 
+	// 客户端进程归属：仅 inbound 且 remoteAddr 为 loopback 的流尝试解析（开流时解析一次并记忆，
+	// 由 clientProcResolver 填充）；其余场景与解析失败（权限不足/进程已退出/非 TCP 传输）保持零值省略
+	ClientPid         int32  `json:"clientPid,omitempty"`         // 客户端进程 PID
+	ClientProcName    string `json:"clientProcName,omitempty"`    // 客户端进程名
+	ClientProcStartMs int64  `json:"clientProcStartMs,omitempty"` // 客户端进程启动时刻（Unix 毫秒），供甄别 PID 复用
+
 	ReadBytes  int64 `json:"readBytes"`
 	WriteBytes int64 `json:"writeBytes"`
 	// CreatedAtMs/ClosedAtMs 为时间无关的绝对锚点：存活时长由客户端按

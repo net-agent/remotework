@@ -39,7 +39,8 @@ type Server struct {
 	router    *mux.Router
 	wsHub     *WSHub
 	poller    *StatePoller
-	meter     *streamMeter // 流速率计，REST 与轮询器共享
+	meter     *streamMeter        // 流速率计，REST 与轮询器共享
+	resolver  *clientProcResolver // 客户端进程归属解析器，REST/快照/轮询/事件共享
 	token     string
 	meta      Meta
 	startedAt time.Time
@@ -76,6 +77,7 @@ func New(backend Backend, cfg Config, log *slog.Logger) *Server {
 	router := mux.NewRouter()
 	wsHub := NewWSHub(log.With("module", "api.ws"))
 	meter := newStreamMeter()
+	resolver := newClientProcResolver()
 
 	s := &Server{
 		backend:   backend,
@@ -86,7 +88,8 @@ func New(backend Backend, cfg Config, log *slog.Logger) *Server {
 		meta:      cfg.Meta,
 		startedAt: time.Now(),
 		meter:     meter,
-		poller:    NewStatePoller(backend, wsHub, meter, time.Duration(pollInterval)*time.Second, time.Duration(statsInterval)*time.Second),
+		resolver:  resolver,
+		poller:    NewStatePoller(backend, wsHub, meter, resolver, time.Duration(pollInterval)*time.Second, time.Duration(statsInterval)*time.Second),
 	}
 	s.server = &http.Server{
 		Addr:    listen,
@@ -277,11 +280,11 @@ func (s *Server) eventLoop(netCh <-chan NetworkStateEvent, svcCh <-chan ServiceS
 				batcher.add(evt)
 			}
 		case <-flushTick.C:
-			batcher.flush(s.wsHub, s.backend)
+			batcher.flush(s.wsHub, s.backend, s.resolver)
 		}
 	}
 	// 事件源全部关闭，冲刷残余批量事件
-	batcher.flush(s.wsHub, s.backend)
+	batcher.flush(s.wsHub, s.backend, s.resolver)
 }
 
 func (s *Server) broadcastNetworkState(evt NetworkStateEvent) {

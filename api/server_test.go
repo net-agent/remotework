@@ -541,7 +541,7 @@ func TestPollerStreamStatsAndUpdate(t *testing.T) {
 		pipeID:      "rdp-forward#3",
 	}
 	hub := NewWSHub(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	poller := NewStatePoller(b, hub, nil, time.Minute, time.Minute)
+	poller := NewStatePoller(b, hub, nil, nil, time.Minute, time.Minute)
 
 	c := &WSClient{send: make(chan []byte, 64)}
 	hub.addClient(c)
@@ -682,7 +682,7 @@ func TestPollerFastStatsTicker(t *testing.T) {
 	b := &atomicStreamBackend{st: makeTestStreamState()}
 	b.readBytes.Store(1024)
 	hub := NewWSHub(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	poller := NewStatePoller(b, hub, nil, time.Hour, 50*time.Millisecond)
+	poller := NewStatePoller(b, hub, nil, nil, time.Hour, 50*time.Millisecond)
 	poller.Start()
 	defer poller.Stop()
 

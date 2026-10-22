@@ -222,7 +222,7 @@ func TestStreamEventBatcher(t *testing.T) {
 	closed.Closed = time.Now()
 	batcher.add(StreamLifecycleEvent{Network: "mynet", State: closed, Closed: true})
 
-	batcher.flush(hub, &streamBackend{serviceName: "svc", pipeID: "svc#1"})
+	batcher.flush(hub, &streamBackend{serviceName: "svc", pipeID: "svc#1"}, nil)
 
 	evt := readWSEvent(t, c)
 	if evt.Type != "stream.opened" {

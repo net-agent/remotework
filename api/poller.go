@@ -37,7 +37,8 @@ type svcSnapshot struct {
 type StatePoller struct {
 	backend       Backend
 	wsHub         *WSHub
-	meter         *streamMeter // 流速率计，与 Server 共享
+	meter         *streamMeter        // 流速率计，与 Server 共享
+	resolver      *clientProcResolver // 客户端进程归属解析器，与 Server 共享
 	interval      time.Duration
 	statsInterval time.Duration
 	stopCh        chan struct{}
@@ -56,14 +57,18 @@ type StatePoller struct {
 	serviceAnchorAt  time.Time
 }
 
-func NewStatePoller(backend Backend, wsHub *WSHub, meter *streamMeter, interval, statsInterval time.Duration) *StatePoller {
+func NewStatePoller(backend Backend, wsHub *WSHub, meter *streamMeter, resolver *clientProcResolver, interval, statsInterval time.Duration) *StatePoller {
 	if meter == nil {
 		meter = newStreamMeter()
+	}
+	if resolver == nil {
+		resolver = newClientProcResolver()
 	}
 	return &StatePoller{
 		backend:         backend,
 		wsHub:           wsHub,
 		meter:           meter,
+		resolver:        resolver,
 		interval:        interval,
 		statsInterval:   statsInterval,
 		stopCh:          make(chan struct{}),
@@ -112,6 +117,9 @@ func (p *StatePoller) poll() {
 
 	// 轮询 service 状态变化（v1 差分广播，保留兼容；v2 客户端以 service.stats 为准）
 	p.pollServices()
+
+	// 淘汰闲置的客户端进程解析结果（活跃流在 pollStreamStats 中持续被引用，不会误淘汰）
+	p.resolver.sweep(time.Now())
 
 	// 每 tick 计数器快照（计数/速率类高频数据，允许丢旧补新；无变化不发，锚点兜底）
 	p.pollServiceStats()
@@ -169,7 +177,7 @@ func (p *StatePoller) pollStreamStats() {
 		}
 		seen[ds.Network] = true
 
-		// 活跃流采样实时速率（每 tick 必做：速率依赖相邻两次采样，与是否发帧无关）
+		// 活跃流采样实时速率（每 tick 必做：驱动 meter 淘汰与解析重试，与是否发帧无关）
 		rates := p.meter.sample(ds.Network, ds.Actives, now)
 
 		// 构建当前活跃流的 key 集合与完整 dto（含速率与归属服务）
@@ -185,6 +193,7 @@ func (p *StatePoller) pollStreamStats() {
 			}
 			dto.ServiceName = p.backend.GetStreamService(ds.Network, int64(st.Index))
 			dto.PipeID = p.backend.GetStreamPipe(ds.Network, int64(st.Index))
+			p.resolver.enrich(ds.Network, st, &dto)
 			currentDTOs = append(currentDTOs, dto)
 		}
 
@@ -210,7 +219,9 @@ func (p *StatePoller) pollStreamStats() {
 		for _, st := range ds.Closeds {
 			key := streamKeyFromState(st)
 			if prevKeys[key] && !currentKeys[key] {
-				closed = append(closed, toStreamDTO(ds.Network, st))
+				dto := toStreamDTO(ds.Network, st)
+				p.resolver.enrich(ds.Network, st, &dto)
+				closed = append(closed, dto)
 			}
 		}
 
@@ -232,6 +243,9 @@ func (p *StatePoller) pollStreamStats() {
 			delete(p.streamAnchorAt, name)
 		}
 	}
+
+	// 重试窗口内的未解析流补查一轮（覆盖已关闭的短连接：它们不再出现在 stats 通道）
+	p.resolver.retryPending()
 }
 
 // pushStreamStats 按增量语义广播一个网络的流状态：
