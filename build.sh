@@ -18,8 +18,9 @@ srcPath="./cmd"
 baseDistPath="./dist" # 基础输出目录
 
 # 版本信息注入（sidecar 协议：version/commit 经 -ldflags -X 写入二进制）
-VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"
-COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+# 允许 CI/发布流通过环境变量显式指定；缺省从当前 git 状态推导。
+VERSION="${VERSION:-$(git describe --tags --always 2>/dev/null || echo dev)}"
+COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT}"
 echo "版本: ${VERSION} (${COMMIT})"
 

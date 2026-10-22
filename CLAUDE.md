@@ -20,6 +20,8 @@ make fmt          # go fmt ./...
 
 Entry point is `./cmd` (not root). The build scripts disable CGO for static binaries.
 
+Release is tag-driven: pushing `vX.Y.Z` runs `.github/workflows/release.yml` (test → linux/darwin/windows amd64+arm64 builds → `checksums.txt` → GitHub Release). The tag name and short commit SHA are injected as `main.version`/`main.commit` via `-ldflags -X`, so the API `/status` and the sidecar `ready` line report the release tag.
+
 ## Dependencies
 
 `go.mod` pins `github.com/net-agent/flex/v3 v3.1.0`; the former local `replace` directive is gone. Building requires only Go 1.24+ and network access to the module proxy — no sibling flex checkout. Do not reintroduce the `replace` directive; upgrade the pinned version instead.
