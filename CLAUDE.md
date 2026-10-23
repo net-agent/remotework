@@ -20,7 +20,7 @@ make fmt          # go fmt ./...
 
 Entry point is `./cmd` (not root). The build scripts disable CGO for static binaries.
 
-Release is tag-driven: pushing `vX.Y.Z` runs `.github/workflows/release.yml` (test → linux/darwin/windows amd64+arm64 builds → `checksums.txt` → GitHub Release). The tag name and short commit SHA are injected as `main.version`/`main.commit` via `-ldflags -X`, so the API `/status` and the sidecar `ready` line report the release tag.
+Release is tag-driven: pushing `vX.Y.Z` runs `.github/workflows/release.yml` (test → linux/darwin/windows amd64+arm64 builds → `checksums.txt` → GitHub Release). The tag name and short commit SHA are injected as `main.version`/`main.commit` via `-ldflags -X`, so the API `/status` and the sidecar `ready` line report the release tag. Release notes come from `.github/scripts/release-notes.sh`, which groups commits between the previous and current tag; do not switch back to GitHub's PR-based auto-generated notes.
 
 ## Dependencies
 

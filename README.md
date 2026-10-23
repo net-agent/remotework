@@ -164,7 +164,7 @@ agent默认不会对转发的流量进行加密，网络中的数据包是以明
 
 ## 发布（GitHub Release）
 
-发布以 git tag 为唯一事实源。推送形如 `vX.Y.Z` 的 tag 会触发 [.github/workflows/release.yml](.github/workflows/release.yml)，自动完成测试、交叉编译、SHA-256 校验和生成与 Release 归档：
+发布以 git tag 为唯一事实源。推送形如 `vX.Y.Z` 的 tag 会触发 [.github/workflows/release.yml](.github/workflows/release.yml)，自动完成测试、交叉编译、SHA-256 校验和生成、Release 说明生成与归档：
 
 ```bash
 git tag -a v2.0.0 -m "v2.0.0"
@@ -172,6 +172,7 @@ git push origin v2.0.0
 ```
 
 - 资产命名：`remote_v2.0.0_<os>_<arch>[.exe]`，覆盖 linux/darwin/windows 的 amd64 与 arm64。
+- Release 说明由 [.github/scripts/release-notes.sh](.github/scripts/release-notes.sh) 基于 `上一 tag..当前 tag` 的提交历史生成（按 conventional-commit 前缀分组），不依赖 PR 元数据；直接推送的提交也会完整列出。
 - `checksums.txt` 记录全部资产的 SHA-256，下载后可用 `sha256sum -c checksums.txt` 校验。
 - 构建期把 tag 名注入 `main.version`、提交短 SHA 注入 `main.commit`；`/api/v1/status` 与托管模式的 `ready` 控制行都会回报该版本。
 - 带后缀的 tag（如 `v2.1.0-rc.1`）会以 prerelease 形式发布。
